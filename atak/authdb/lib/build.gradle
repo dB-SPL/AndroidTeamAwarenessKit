@@ -8,7 +8,7 @@
         }
     }
     dependencies {
-        classpath 'com.android.tools.build:gradle:3.5.3'
+        classpath 'com.android.tools.build:gradle:3.6.3'
     }
  }
 
@@ -66,6 +66,12 @@ android {
         debug {
             testCoverageEnabled (project.hasProperty('coverage') ? true : false)
         }
+
+        sdk {
+        }
+
+        odk {
+        }
     }
 
     sourceSets {
@@ -83,6 +89,7 @@ android {
         // by a similar customization.
         debug.setRoot('build-types/debug')
         release.setRoot('build-types/release')
+        sdk.setRoot('build-types/sdk')
     }
 }
 
