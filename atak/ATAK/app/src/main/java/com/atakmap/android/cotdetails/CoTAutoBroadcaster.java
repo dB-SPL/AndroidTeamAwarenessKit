@@ -14,13 +14,13 @@ import com.atakmap.android.maps.PointMapItem;
 import com.atakmap.android.maps.MapView;
 import com.atakmap.android.maps.Marker;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
+import com.atakmap.util.zip.IoUtils;
+import org.apache.sanselan.util.IOUtils;
 
 import java.io.ByteArrayInputStream;
 import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileNotFoundException;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -48,7 +48,7 @@ public class CoTAutoBroadcaster implements
 
     private final ArrayList<String> _markers;
 
-    private MapView _mapView;
+    private final MapView _mapView;
     private static CoTAutoBroadcaster _instance;
     private final Object lock = new Object();
 
@@ -82,6 +82,7 @@ public class CoTAutoBroadcaster implements
         addMapListener();
         _instance = this;
         startTimer();
+
     }
 
     /**
@@ -130,31 +131,24 @@ public class CoTAutoBroadcaster implements
         File inputFile = new File(Environment.getExternalStorageDirectory()
                 .getAbsoluteFile()
                 + "/atak/Databases/" + FILENAME);
-        if (inputFile.exists()) {
-            InputStream is = null;
-            try {
-                is = new FileInputStream(inputFile);
+        if (IOProviderFactory.exists(inputFile)) {
+            try (InputStream is = IOProviderFactory.getInputStream(inputFile)) {
                 byte[] temp = new byte[is.available()];
                 int read = is.read(temp);
                 String menuString = new String(temp, 0, read,
                         FileSystemUtils.UTF8_CHARSET);
                 String[] lines = menuString.split("\n");
                 for (String line : lines) {
+                    // mark as autobroadcast
                     synchronized (_markers) {
                         _markers.add(line);
                     }
                 }
             } catch (IOException e) {
                 Log.e(TAG, "error occurred reading the list of hostiles", e);
-            } finally {
-                if (is != null)
-                    try {
-                        is.close();
-                    } catch (Exception ignore) {
-                    }
             }
         } else
-            Log.d(TAG, "No 9-line hostile file found");
+            Log.d(TAG, "File not found: " + FILENAME);
 
     }
 
@@ -163,43 +157,32 @@ public class CoTAutoBroadcaster implements
      * file in Databases
      */
     private void saveMarkers() {
-        OutputStream os = null;
-        InputStream is = null;
-
         final File outputFile = FileSystemUtils
                 .getItem("Databases/" + FILENAME);
 
-        if (outputFile.exists())
+        if (IOProviderFactory.exists(outputFile))
             FileSystemUtils.delete(outputFile);
-        try {
-            StringBuilder builder = new StringBuilder();
-            synchronized (_markers) {
-                for (String m : _markers) {
-                    if (m != null) {
-                        builder.append(m);
-                        builder.append("\n");
-                    }
+
+        StringBuilder builder = new StringBuilder();
+        synchronized (_markers) {
+            if (_markers.isEmpty()){
+                return;
+            }
+            for (String m : _markers) {
+                if (m != null) {
+                    builder.append(m);
+                    builder.append("\n");
                 }
             }
-            os = new FileOutputStream(outputFile);
-            is = new ByteArrayInputStream(builder.toString()
-                    .getBytes());
-            FileSystemUtils.copy(is, os);
+        }
+
+        try (OutputStream os = IOProviderFactory.getOutputStream(outputFile)) {
+            try (InputStream is = new ByteArrayInputStream(builder.toString()
+                    .getBytes())) {
+                FileSystemUtils.copy(is, os);
+            }
         } catch (IOException e) {
-            Log.e(TAG, "error occured", e);
-        } finally {
-            if (os != null) {
-                try {
-                    os.close();
-                } catch (Exception ignore) {
-                }
-            }
-            if (is != null) {
-                try {
-                    is.close();
-                } catch (Exception ignore) {
-                }
-            }
+            Log.e(TAG, "error occurred", e);
         }
     }
 
@@ -356,10 +339,10 @@ public class CoTAutoBroadcaster implements
     public void onMapEvent(MapEvent event) {
         if (event.getType().equals(MapEvent.ITEM_REMOVED)) {
             MapItem item = event.getItem();
-            synchronized (lock) {
-                if (item instanceof Marker) {
-                    Marker m = (Marker) item;
-                    if (isBroadcast(m))
+            if (item instanceof Marker) {
+                Marker m = (Marker) item;
+                synchronized (_markers) {
+                    if (_markers.contains(m.getUID()))
                         removeMarker(m);
                 }
             }

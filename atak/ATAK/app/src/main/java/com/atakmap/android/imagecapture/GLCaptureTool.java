@@ -24,7 +24,9 @@ import com.atakmap.android.maps.graphics.GLMapItemFactory;
 import com.atakmap.android.tilecapture.imagery.ImageryCaptureTask;
 import com.atakmap.android.toolbar.ToolbarBroadcastReceiver;
 import com.atakmap.android.util.LimitingThread;
+import com.atakmap.annotations.DeprecatedApi;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.coremap.maps.coords.GeoBounds;
 import com.atakmap.coremap.maps.coords.GeoPoint;
@@ -34,6 +36,7 @@ import com.atakmap.coremap.maps.time.CoordinatedTime;
 import com.atakmap.lang.Unsafe;
 import com.atakmap.map.AtakMapView;
 import com.atakmap.map.MapRenderer;
+import com.atakmap.map.gdal.GdalLibrary;
 import com.atakmap.map.layer.Layer;
 import com.atakmap.map.layer.opengl.GLLayer2;
 import com.atakmap.map.layer.opengl.GLLayer3;
@@ -45,6 +48,7 @@ import com.atakmap.map.opengl.GLMapView;
 import com.atakmap.map.opengl.GLResolvableMapRenderable;
 import com.atakmap.math.MathUtils;
 import com.atakmap.opengl.GLES20FixedPipeline;
+import com.atakmap.opengl.GLResolvable;
 import com.atakmap.opengl.GLResolvable.State;
 
 import org.gdal.gdal.Dataset;
@@ -71,6 +75,7 @@ import java.util.Map;
  * better performance and results
  */
 @Deprecated
+@DeprecatedApi(since = "4.1", forRemoval = true, removeAt = "4.4")
 public class GLCaptureTool extends GLMapView implements GLLayer2,
         GLCapturableMapView, MapView.OnMapMovedListener,
         MapView.OnMapViewResizedListener, View.OnKeyListener,
@@ -97,7 +102,7 @@ public class GLCaptureTool extends GLMapView implements GLLayer2,
 
     private final ImageCapture _subject;
     private GLImageCapture _imgCap;
-    private SharedPreferences _prefs;
+    private final SharedPreferences _prefs;
     private int _capCount = 0;
 
     private int _captureRes;
@@ -463,11 +468,11 @@ public class GLCaptureTool extends GLMapView implements GLLayer2,
             return false;
 
         for (GLMapRenderable r : renderables) {
-            State state = State.RESOLVED;
+            GLResolvable.State state = GLResolvable.State.RESOLVED;
             if (r instanceof GLResolvableMapRenderable)
                 state = ((GLResolvableMapRenderable) r).getState();
-            if (!state.equals(State.RESOLVED)
-                    || state.equals(State.UNRESOLVABLE))
+            if (!state.equals(GLResolvable.State.RESOLVED)
+                    || state.equals(GLResolvable.State.UNRESOLVABLE))
                 return false;
         }
 
@@ -570,7 +575,7 @@ public class GLCaptureTool extends GLMapView implements GLLayer2,
             _postDraw = postDraw;
             _tileFile = new File(_subject.getOutputDirectory(), "." +
                     (new CoordinatedTime()).getMilliseconds() + "_tiles.tiff");
-            if (_tileFile.exists())
+            if (IOProviderFactory.exists(_tileFile))
                 FileSystemUtils.deleteFile(_tileFile);
             _driver = gdal.GetDriverByName("GTiff");
             if (_driver == null) {
@@ -621,7 +626,7 @@ public class GLCaptureTool extends GLMapView implements GLLayer2,
             _postDraw = null;
             _postDialog = null;
             _redrawThread.dispose();
-            if (_tileFile.exists())
+            if (IOProviderFactory.exists(_tileFile))
                 FileSystemUtils.deleteFile(_tileFile);
             _tileCount = 0;
         }
@@ -654,7 +659,7 @@ public class GLCaptureTool extends GLMapView implements GLLayer2,
                 ds = _subject.createDataset(_driver, _tileFile,
                         width * _captureRes, height * _captureRes);
             } else
-                ds = gdal.Open(_tileFile.getAbsolutePath(),
+                ds = GdalLibrary.openDatasetFromFile(_tileFile,
                         gdalconst.GA_Update);
 
             if (ds != null) {
@@ -708,7 +713,7 @@ public class GLCaptureTool extends GLMapView implements GLLayer2,
         }
 
         private Bitmap buildPreview() {
-            Dataset ds = gdal.Open(_tileFile.getAbsolutePath(),
+            Dataset ds = GdalLibrary.openDatasetFromFile(_tileFile,
                     gdalconst.GA_ReadOnly);
             if (ds == null)
                 return null;

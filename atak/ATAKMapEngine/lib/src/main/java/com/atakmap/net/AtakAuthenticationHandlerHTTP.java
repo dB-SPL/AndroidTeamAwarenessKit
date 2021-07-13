@@ -7,12 +7,12 @@ import com.atakmap.coremap.filesystem.FileSystemUtils;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.UnsupportedEncodingException;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.security.KeyManagementException;
 import java.security.NoSuchAlgorithmException;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
@@ -35,6 +35,25 @@ public class AtakAuthenticationHandlerHTTP {
         public String[] getBasicAuth(URL url, int previousStatus);
     }
 
+    public static interface OnAuthenticateCallbackV2 extends OnAuthenticateCallback {
+
+        String WELL_KNOWN_NAME = "well_known_name";
+
+        /**
+         * Obtain the basic authentication information.   Also include the status code from the
+         * previous attempt.
+         * @param url the url that is requiring basic authentication.
+         * @param previousStatus  -1 (no previous status was found),
+                    401 (username and password bad), and 403 (access forbidden)
+         * @param properties set of properties that can be passed in with a well known set of
+         *                   property keys set in the interface.   Use of these keys is optional
+         *                   by the implementation and only well known keys defined in the
+         *                   OnAuthenticatedCallbackV2 may be used.  Can be null.
+         */
+        public String[] getBasicAuth(URL url, int previousStatus, Map<String, String> properties);
+    }
+
+
     private static String TAG = "AtakAuthenticationHandlerHTTP";
     private static OnAuthenticateCallback authCallback = null;
     private static final ReadWriteLock lock = new ReentrantReadWriteLock();
@@ -46,6 +65,10 @@ public class AtakAuthenticationHandlerHTTP {
     public static int[] FORBIDDEN_ONLY =  new int[] { HttpsURLConnection.HTTP_FORBIDDEN };
 
 
+    /**
+     * For a provided Authentication, when completed, trigger this callback.
+     * @param callback the callback to trigger
+     */
     public static void setCallback(OnAuthenticateCallback callback) {
         Lock wlock = lock.writeLock();
         wlock.lock();
@@ -63,6 +86,13 @@ public class AtakAuthenticationHandlerHTTP {
         return uidpwd;
     }
 
+    /**
+     * Started an authenticated connection with a provided connection
+     * @param conn the connection to use
+     * @param loginAttempts the number of login attempts
+     * @return the connection which is valid and authenticated
+     * @throws IOException an exception if the connection could not be authenticated
+     */
     public static Connection makeAuthenticatedConnection(HttpURLConnection conn,
             int loginAttempts) throws IOException {
 
@@ -80,6 +110,8 @@ public class AtakAuthenticationHandlerHTTP {
      * Allows for a authenticated connection to be made if the access code returned matches one of
      * the provided access codes in the list.
      * @param conn the connection to use to try to make an authenticated connection with.
+     *             if the connection includes the request-property x-common-site-name, this may be presented to
+     *             the user to as part of a user experience
      * @param loginAttempts number of times before giving up.
      * @param ignorePreviousFail ignore any previous failure attempts
      * @param badAccessCodes the list of codes that is considered bad access (usually 401 and 403)
@@ -91,7 +123,7 @@ public class AtakAuthenticationHandlerHTTP {
             int loginAttempts, boolean ignorePreviousFail, int[] badAccessCodes) throws IOException {
         
         final String site = conn.getURL().getHost();
-        
+
         Domain domain;
         synchronized(domains) {
             // NOTE: 'authenticatedDomains' isn't strictly protected as
@@ -117,6 +149,8 @@ public class AtakAuthenticationHandlerHTTP {
         }
 
         IOException raised = null;
+        int status = -1;
+
         if (!domain.requiresAuthorization) {
             // try to create connection
             try {
@@ -125,7 +159,7 @@ public class AtakAuthenticationHandlerHTTP {
                 return retval;
             } catch (IOException e) {
                 retval.conn.disconnect();
-                final int status = getResponseCode(retval.conn);
+                status = getResponseCode(retval.conn);
                 // mark the domain as requiring authentication
                 domain.requiresAuthorization = isBadAccess(status, badAccessCodes);
                 raised = e;
@@ -158,7 +192,6 @@ public class AtakAuthenticationHandlerHTTP {
                                 cached = encodeCredentials(credentials.username, credentials.password);
                             }
 
-                            int status = -1;
                             // try to open with the cached credentials
                             if(cached != null) {
                                 try {
@@ -185,12 +218,23 @@ public class AtakAuthenticationHandlerHTTP {
                             String[] uidpwd;
                             String uidpwdBase64 = null;
                             for (int i = 0; i < loginAttempts; i++) {
-                                uidpwd = authCallback.getBasicAuth(conn.getURL(), status);
+                                final String name = conn.getRequestProperty("x-common-site-name");
+                                if (authCallback instanceof OnAuthenticateCallbackV2 &&
+                                        name != null && name.length() > 0) {
+                                        Map<String, String> properties = new HashMap<>();
+                                        properties.put(OnAuthenticateCallbackV2.WELL_KNOWN_NAME, name);
+                                        uidpwd = ((OnAuthenticateCallbackV2) authCallback).getBasicAuth(conn.getURL(), status,
+                                                properties);
+                                } else {
+                                    uidpwd = authCallback.getBasicAuth(conn.getURL(), status);
+                                }
+
+
                                 if(uidpwd != null) {
                                     uidpwdBase64 = encodeCredentials(uidpwd[0], uidpwd[1]);
                                     AtakAuthenticationDatabase.saveCredentials(
                                             AtakAuthenticationCredentials.TYPE_HTTP_BASIC_AUTH,
-                                            site, uidpwd[0], uidpwd[1], true);
+                                            site, uidpwd[0], uidpwd[1], false);
                                 }
                                 try {
                                     retval.stream = tryConnect(retval.conn, uidpwdBase64);
@@ -253,6 +297,13 @@ public class AtakAuthenticationHandlerHTTP {
     private static HttpURLConnection duplicate(HttpURLConnection conn) throws IOException {
         HttpURLConnection retval = (HttpURLConnection) conn.getURL().openConnection();
         retval.setRequestProperty("User-Agent", "TAK");
+
+
+        final String xcommonsitename = conn.getRequestProperty("x-common-site-name");
+        if (xcommonsitename != null) {
+            retval.setRequestProperty("x-common-site-name", xcommonsitename);
+        }
+
         retval.setUseCaches(conn.getUseCaches());
         retval.setConnectTimeout(conn.getConnectTimeout());
 

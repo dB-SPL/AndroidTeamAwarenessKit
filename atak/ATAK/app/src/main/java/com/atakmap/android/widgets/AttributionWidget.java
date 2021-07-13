@@ -29,9 +29,9 @@ public final class AttributionWidget extends TextWidget implements
         AttributionControl.OnAttributionUpdatedListener,
         Layer.OnLayerVisibleChangedListener {
 
-    private Map<AttributionControl, Set<Pair<String, String>>> ctrlToAttributions;
-    private Map<AttributionControl, Layer2> ctrlToLayer;
-    private SortedMap<String, SortedSet<String>> attributionText;
+    private final Map<AttributionControl, Set<Pair<String, String>>> ctrlToAttributions;
+    private final Map<AttributionControl, Layer2> ctrlToLayer;
+    private final SortedMap<String, SortedSet<String>> attributionText;
     private boolean expanded;
 
     public AttributionWidget(MapRenderer contentRenderer) {
@@ -154,7 +154,7 @@ public final class AttributionWidget extends TextWidget implements
         this.setText(s);
         this.setTextBounds(this.getTextFormat().measureTextWidth(s), this
                 .getTextFormat().measureTextHeight(s));
-        this.setPoint(MapView.getMapView().getWidth() / 4, MapView.getMapView()
+        this.setPoint(MapView.getMapView().getWidth() / 4f, MapView.getMapView()
                 .getHeight() - this.getHeight());
         this.setBackground(this.expanded ? TextWidget.TRANSLUCENT_BLACK
                 : TextWidget.TRANSLUCENT);

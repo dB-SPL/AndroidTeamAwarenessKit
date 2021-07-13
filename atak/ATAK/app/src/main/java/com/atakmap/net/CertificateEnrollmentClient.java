@@ -11,6 +11,7 @@ import com.atakmap.android.http.rest.HTTPRequestManager;
 import com.atakmap.android.http.rest.NetworkOperationManager;
 import com.atakmap.android.http.rest.operation.NetworkOperation;
 import com.atakmap.android.maps.MapView;
+import com.atakmap.android.util.ATAKConstants;
 import com.atakmap.android.util.NotificationUtil;
 import com.atakmap.app.R;
 import com.atakmap.comms.CommsMapComponent;
@@ -76,6 +77,7 @@ public class CertificateEnrollmentClient implements
 
     public void enroll(final Context context, final String desc,
             final String connectString, final String cacheCreds,
+            final Long expiration,
             CertificateEnrollmentCompleteCallback certificateEnrollmentCompleteCallback,
             final boolean getProfile) {
         this.context = context;
@@ -130,13 +132,14 @@ public class CertificateEnrollmentClient implements
                 @Override
                 public void run() {
                     CredentialsDialog.createCredentialDialog(
-                            desc, connectString, "", "", cacheCreds,
+                            desc, connectString, "", "", cacheCreds, expiration,
                             context, CertificateEnrollmentClient.this);
                 }
             });
         } else {
             CertificateConfigRequest request = new CertificateConfigRequest(
-                    connectString, cacheCreds, desc, username, password);
+                    connectString, cacheCreds, desc, username, password,
+                    expiration);
             verifyTrust(request);
         }
     }
@@ -144,13 +147,14 @@ public class CertificateEnrollmentClient implements
     @Override
     public void onCredentialsEntered(String connectString, String cacheCreds,
             String description,
-            String username, String password) {
+            String username, String password, Long expiration) {
 
         CommsMapComponent.getInstance().getCotService()
                 .setCredentialsForStream(connectString, username, password);
 
         CertificateConfigRequest request = new CertificateConfigRequest(
-                connectString, cacheCreds, description, username, password);
+                connectString, cacheCreds, description, username, password,
+                expiration);
 
         verifyTrust(request);
     }
@@ -292,7 +296,6 @@ public class CertificateEnrollmentClient implements
                             .getParcelable(
                                     CertificateConfigOperation.PARAM_CONFIG_REQUEST);
                     certificateConfigRequest.setAllowAllHostnames(true);
-                    final CertificateConfigRequest finalCertificateConfigRequest = certificateConfigRequest;
 
                     StringBuilder serverDNs = new StringBuilder();
                     List<X509Certificate> serverCerts = CertificateManager
@@ -312,12 +315,12 @@ public class CertificateEnrollmentClient implements
                             ". But the server responded with " + serverDNs;
 
                     final AlertDialog dialog = new AlertDialog.Builder(context)
-                            .setIcon(com.atakmap.android.util.ATAKConstants
+                            .setIcon(ATAKConstants
                                     .getIconId())
-                            .setTitle("Server Authentication Error!")
+                            .setTitle(R.string.server_auth_error)
                             .setMessage(message)
-                            .setPositiveButton("Ok", null)
-                            .show();
+                            .setPositiveButton(R.string.ok, null).create();
+                    dialog.show();
                 }
 
             } else if (request
@@ -349,10 +352,10 @@ public class CertificateEnrollmentClient implements
 
         CertificateConfigRequest certificateConfigRequest = null;
 
-        String message = context.getString(R.string.enroll_client_failure);
+        String message = appCtx.getString(R.string.enroll_client_failure);
         CertificateEnrollmentClient.CertificateEnrollmentStatus status = CertificateEnrollmentStatus.ERROR;
         if (ce.getStatusCode() == 401) {
-            message = context.getString(R.string.invalid_credentials);
+            message = appCtx.getString(R.string.invalid_credentials);
             status = CertificateEnrollmentStatus.BAD_CREDENTIALS;
 
             if (request
@@ -420,7 +423,7 @@ public class CertificateEnrollmentClient implements
     }
 
     private void showProgress(final boolean show) {
-        MapView.getMapView().post(new Runnable() {
+        view.post(new Runnable() {
             @Override
             public void run() {
                 try {
@@ -463,7 +466,7 @@ public class CertificateEnrollmentClient implements
                                 } else if (status == CertificateEnrollmentStatus.BAD_CREDENTIALS
                                         &&
                                         certificateConfigRequest != null) {
-                                    MapView.getMapView().post(new Runnable() {
+                                    view.post(new Runnable() {
                                         @Override
                                         public void run() {
                                             CredentialsDialog
@@ -478,6 +481,8 @@ public class CertificateEnrollmentClient implements
                                                                     .getPassword(),
                                                             certificateConfigRequest
                                                                     .getCacheCreds(),
+                                                            certificateConfigRequest
+                                                                    .getExpiration(),
                                                             context,
                                                             CertificateEnrollmentClient.this);
                                         }
@@ -485,6 +490,15 @@ public class CertificateEnrollmentClient implements
                                 }
                             }
                         });
-        alertDialog.show();
+
+        try {
+            alertDialog.show();
+        } catch (Exception e) {
+            // if enrollment does not complete on time and the preference activity has been closed, 
+            // just continue on with the application and do not error out.
+            Log.e(TAG,
+                    "error occured and the preference activity has been closed prior to the enrollment completing",
+                    e);
+        }
     }
 }

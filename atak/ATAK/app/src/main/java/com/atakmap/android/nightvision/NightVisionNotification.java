@@ -5,9 +5,6 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 
-import androidx.annotation.RequiresApi;
-import androidx.core.app.NotificationCompat;
-
 import com.atakmap.android.ipc.AtakBroadcast;
 import com.atakmap.android.maps.MapView;
 import com.atakmap.android.util.NotificationUtil;
@@ -31,7 +28,7 @@ public class NightVisionNotification extends BroadcastReceiver {
     private final static String TAG = "NightVisionNotification";
 
     public static final String NOTIFICATION_CONTROL = "control_notification_night_vision";
-    private int NotificationId = 99123;
+    private final int NotificationId = 99123;
 
     public NightVisionNotification() {
         //empty constructor because we assigned this receiver in the manifest

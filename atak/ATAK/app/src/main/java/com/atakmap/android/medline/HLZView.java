@@ -43,7 +43,7 @@ public class HLZView extends LinearLayout
         implements PointMapItem.OnPointChangedListener {
     public static final String TAG = "HLZView";
 
-    private Context _context;
+    private final Context _context;
     private MapView _mapView;
     private MedLineView _mlView;
 
@@ -467,7 +467,7 @@ public class HLZView extends LinearLayout
                             }
                         });
 
-        zoneProtCoord.setSelection(Integer.valueOf(
+        zoneProtCoord.setSelection(Integer.parseInt(
                 _marker.getMetaString("zone_prot_selection", "0")));
     }
 

@@ -24,13 +24,16 @@ import com.atakmap.android.maps.MapView;
 import com.atakmap.android.util.NotificationUtil;
 import com.atakmap.app.R;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
+import com.atakmap.util.zip.IoUtils;
 
 import java.io.BufferedOutputStream;
 import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -166,7 +169,7 @@ public class IconsetAdapter extends BaseAdapter {
                                         .getName())
                                 + ".zip");
 
-                if (file.exists()) {
+                if (IOProviderFactory.exists(file)) {
                     new AlertDialog.Builder(_context)
                             .setTitle(R.string.point_dropper_text24)
                             .setMessage(
@@ -399,10 +402,8 @@ public class IconsetAdapter extends BaseAdapter {
                 return false;
             }
 
-            ZipOutputStream zos = null;
-            try {
-                FileOutputStream fos = new FileOutputStream(zip);
-                zos = new ZipOutputStream(new BufferedOutputStream(fos));
+            try (ZipOutputStream zos = FileSystemUtils
+                    .getZipOutputStream(zip)) {
 
                 //add iconset.xml
                 addFile(zos, null, ImportUserIconSetSort.ICONSET_XML,
@@ -434,16 +435,6 @@ public class IconsetAdapter extends BaseAdapter {
                         _context.getString(R.string.iconset_export_fail)
                                 + iconset.getName());
                 return false;
-            } finally {
-                if (zos != null) {
-                    try {
-                        zos.close();
-                    } catch (Exception e) {
-                        Log.w(TAG,
-                                "Failed to close iconset: "
-                                        + zip.getAbsolutePath());
-                    }
-                }
             }
         }
     }

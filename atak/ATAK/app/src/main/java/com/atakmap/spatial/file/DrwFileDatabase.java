@@ -17,7 +17,9 @@ import com.atakmap.android.maps.PointMapItem;
 import com.atakmap.android.maps.Polyline;
 import com.atakmap.android.maps.SimpleRectangle;
 import com.atakmap.android.maps.Shape;
+import com.atakmap.annotations.DeprecatedApi;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
 
 import com.atakmap.coremap.maps.coords.GeoBounds;
@@ -29,6 +31,7 @@ import com.healthmarketscience.jackcess.DatabaseBuilder;
 import com.healthmarketscience.jackcess.Table;
 
 import java.io.File;
+import java.nio.channels.FileChannel;
 import java.util.ArrayList;
 import com.atakmap.coremap.locale.LocaleUtil;
 
@@ -36,6 +39,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+/**
+ * @deprecated Transitioned to Map Engine Features API
+ * Replaced by {@link FalconViewSpatialDb}
+ */
+@Deprecated
+@DeprecatedApi(since = "4.3", forRemoval = true, removeAt = "4.6")
 public class DrwFileDatabase extends
         FileDatabase {
     private static final String TAG = "DrwFileDatabase";
@@ -67,7 +76,7 @@ public class DrwFileDatabase extends
     @Override
     public boolean accept(File file) {
         String lc = file.getName().toLowerCase(LocaleUtil.getCurrent());
-        return file.isFile() && lc.endsWith(EXTENSION);
+        return IOProviderFactory.isFile(file) && lc.endsWith(EXTENSION);
     }
 
     @Override
@@ -100,14 +109,14 @@ public class DrwFileDatabase extends
             return;
         Envelope.Builder bounds = new Envelope.Builder();
         Database msaccessDb = null;
-        try {
+        try (FileChannel channel = IOProviderFactory.getChannel(drwFile, "r")) {
             DatabaseBuilder db = new DatabaseBuilder();
-            db.setFile(drwFile);
+            db.setChannel(channel);
             db.setReadOnly(true);
             msaccessDb = db.open();
             Table msaccessTable = msaccessDb.getTable("Main");
 
-            Integer currentItemNum = -1;
+            int currentItemNum = -1;
             String currentShpType = "";
             ArrayList<Map<String, Object>> currentShapeRows = null;
 
@@ -115,6 +124,8 @@ public class DrwFileDatabase extends
                 // read each row and build shapes from groups of rows
                 for (Map<String, Object> row : msaccessTable) {
                     Integer itemNum = (Integer) row.get("ItemNum");
+                    if (itemNum == null)
+                        continue;
 
                     // if new shape number
                     if (!itemNum.equals(currentItemNum)) {
@@ -219,12 +230,14 @@ public class DrwFileDatabase extends
         for (int i = 0; i < shapeRows.size(); i++) {
             Short dataType = (Short) shapeRows.get(i).get("DataType");
             String data = (String) shapeRows.get(i).get("Data");
+            if (dataType == null || data == null)
+                continue;
 
             if (dataType == 1) { // type
                 shp.setStrokeWeight(Double.parseDouble(data.substring(2, 4)));
                 shp.setFillStyle(Integer.parseInt(data.substring(5, 6)));// .setStyle(shp.getStyle()|Shape.STYLE_FILLED_MASK);
                 shp.setWidthRatio(Double.parseDouble(data.substring(6, 11)));
-                if (data.substring(11, 12).equals("Y")) {
+                if (data.startsWith("Y", 11)) {
                     shp.setCrossed(true);
                 }
 
@@ -268,12 +281,15 @@ public class DrwFileDatabase extends
             Short dataType = (Short) shapeRows.get(i).get("DataType");
             String data = (String) shapeRows.get(i).get("Data");
 
+            if (dataType == null || data == null)
+                continue;
+
             if (dataType == 1) { // type
-                if (data.substring(11, 12).equals("Y")) { // if it's a polygon
+                if (data.startsWith("Y", 11)) { // if it's a polygon
                     shp.setStyle(shp.getStyle() | Polyline.STYLE_CLOSED_MASK);
                 }
 
-                if ((!data.substring(7, 8).equals("0"))
+                if ((!data.startsWith("0", 7))
                         && ((shp.getStyle()
                                 & Polyline.STYLE_CLOSED_MASK) > 0)) {
                     // if it's filled in some way and is marked as a polygon
@@ -301,7 +317,7 @@ public class DrwFileDatabase extends
                     // //line width in decimal meters!!!
                 }
             } else if (dataType == 24) { // text
-                if (title != null && title.length() == 0) {
+                if (title.length() == 0) {
                     title = data;
                     shp.setTitle(data);
                 }
@@ -345,6 +361,9 @@ public class DrwFileDatabase extends
             Short dataType = (Short) shapeRows.get(i).get("DataType");
             String data = (String) shapeRows.get(i).get("Data");
 
+            if (dataType == null || data == null)
+                continue;
+
             if (dataType == 1) { // type
                 // 030300009.269260
                 //Log.d(TAG, "debug info: " + data);
@@ -363,8 +382,8 @@ public class DrwFileDatabase extends
                     return null;
                 }
 
-                shp.setHeight(1000.0 * h);
-                shp.setWidth(1000.0 * w);
+                shp.setMinorRadius(1000.0 * h);
+                shp.setMajorRadius(1000.0 * w);
 
                 shp.setStrokeWeight(Double.parseDouble(data.substring(2, 4)));
                 shp.setFillStyle(Integer.parseInt(data.substring(5, 6)));// .setStyle(shp.getStyle()|Shape.STYLE_FILLED_MASK);
@@ -378,7 +397,7 @@ public class DrwFileDatabase extends
             } else if (dataType == 5) { // center
                 shp.setCenter(convDrwPtToGeoPt(data));
             } else if (dataType == 24) { // text
-                if (title != null && title.length() == 0) {
+                if (title.length() == 0) {
                     title = data;
                     shp.setTitle(data);
                 }
@@ -415,6 +434,9 @@ public class DrwFileDatabase extends
             Short dataType = (Short) shapeRows.get(i).get("DataType");
             String data = (String) shapeRows.get(i).get("Data");
 
+            if (dataType == null || data == null)
+                continue;
+
             if (dataType == 1) { // type
                 shp.setAngle(Double.parseDouble(data.substring(6, 9)));
 
@@ -435,7 +457,7 @@ public class DrwFileDatabase extends
             } else if (dataType == 5) { // center
                 shp.setCenter(convDrwPtToGeoPt(data));
             } else if (dataType == 24) { // text
-                if (title != null && title.length() == 0) {
+                if (title.length() == 0) {
                     title = data;
                     shp.setTitle(data);
                 }
@@ -489,10 +511,12 @@ public class DrwFileDatabase extends
             Short dataType = (Short) shapeRows.get(i).get("DataType");
             String data = (String) shapeRows.get(i).get("Data");
 
-            if (dataType == 6 && data != null
-                    && !data.equals("null")) { // title
+            if (dataType == null || data == null)
+                continue;
+
+            if (dataType == 6 && !data.equals("null")) { // title
                 shp.setTitle(shp.getTitle() + data);
-            } else if (dataType == 5 && data != null) { // center
+            } else if (dataType == 5) { // center
                 shp.setPoint(convDrwPtToGeoPt(data));
             }
         }

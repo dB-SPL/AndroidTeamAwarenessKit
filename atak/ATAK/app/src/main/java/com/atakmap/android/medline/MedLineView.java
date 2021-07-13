@@ -28,6 +28,7 @@ import android.widget.AdapterView;
 import android.widget.Toast;
 
 import com.atakmap.android.gui.TileButtonDialog;
+import com.atakmap.android.hashtags.view.RemarksLayout;
 import com.atakmap.android.importexport.CotEventFactory;
 import com.atakmap.android.util.SimpleItemSelectedListener;
 
@@ -77,7 +78,7 @@ public class MedLineView implements PointMapItem.OnPointChangedListener {
     private ActionButton m_BtnLineEight;
     private ActionButton m_BtnLineNine;
     private EditText m_TxtLineNine;
-    private EditText remarks_text;
+    private RemarksLayout remarksLayout;
     private PointMapItem marker;
     private LayoutInflater inflater;
     private ImageButton _attachmentsButton;
@@ -96,7 +97,7 @@ public class MedLineView implements PointMapItem.OnPointChangedListener {
     private boolean init = true;
     private boolean reopening = false;
     private CoordinateFormat _cFormat = CoordinateFormat.MGRS;
-    private SharedPreferences _prefs;
+    private final SharedPreferences _prefs;
     public static final String PREF_MEDLINE_FREQ = "com.atakmap.android.medline.pref_medline_freq";
     public static final String PREF_MEDLINE_CALLSIGN = "com.atakmap.android.medline.pref_medline_callsign";
 
@@ -814,7 +815,8 @@ public class MedLineView implements PointMapItem.OnPointChangedListener {
                 view.findViewById(R.id.med_lineEight)); // patient nationality
         m_BtnLineEight.setText("Patient by Nationality");
 
-        remarks_text = view.findViewById(R.id.remarks_text);
+        remarksLayout = view.findViewById(R.id.remarksLayout);
+        remarksLayout.setHint(_context.getString(R.string.remarks_hint));
 
         // nationality
         final String[] title = {
@@ -1075,18 +1077,6 @@ public class MedLineView implements PointMapItem.OnPointChangedListener {
             }
         });
 
-        remarks_text.addTextChangedListener(new AfterTextChangedWatcher() {
-            @Override
-            public void afterTextChanged(Editable s) {
-                // I think this gets called every time a character change
-                // this is a larger issue with android not notifying code when the
-                // keypad goes down - thats the event we want
-                String inputText = s.toString().trim();
-                if (marker != null)
-                    marker.setMetaString("medline_remarks", inputText);
-            }
-        });
-
         _attachmentsButton = view
                 .findViewById(R.id.cotInfoAttachmentsButton);
 
@@ -1096,6 +1086,7 @@ public class MedLineView implements PointMapItem.OnPointChangedListener {
         send.setOnClickListener(new OnClickListener() {
             @Override
             public void onClick(View view) {
+                saveData();
                 if (!hasExternalMedevacProcessors()) {
                     attachmentManager.send();
                 } else {
@@ -1420,7 +1411,7 @@ public class MedLineView implements PointMapItem.OnPointChangedListener {
             Log.d(TAG, "catch against bad call to loadData()", e);
         }
 
-        remarks_text.setText(marker.getMetaString("medline_remarks", null));
+        remarksLayout.setText(marker.getRemarks());
 
         init = false;
     }
@@ -1547,8 +1538,7 @@ public class MedLineView implements PointMapItem.OnPointChangedListener {
             }
         }
 
-        marker.setMetaString("medline_remarks", remarks_text.getText()
-                .toString());
+        marker.setRemarks(remarksLayout.getText());
 
         marker.setMetaBoolean("archive", true);
         marker.persist(_mapView.getMapEventDispatcher(), null, this.getClass());

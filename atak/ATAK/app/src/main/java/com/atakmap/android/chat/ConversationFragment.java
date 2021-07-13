@@ -10,6 +10,7 @@ import android.content.Intent;
 
 import com.atakmap.android.contact.Contact;
 import com.atakmap.android.contact.Contacts;
+import com.atakmap.android.contact.IndividualContact;
 import com.atakmap.android.hierarchy.action.GoTo;
 import com.atakmap.android.hierarchy.items.MapItemUser;
 import com.atakmap.android.ipc.AtakBroadcast.DocumentedIntentFilter;
@@ -31,6 +32,7 @@ import android.widget.ListView;
 import android.widget.TableLayout;
 import android.widget.TableRow;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import com.atakmap.android.chat.ModePicker.ModeUpdateListener;
 import com.atakmap.android.ipc.AtakBroadcast;
@@ -291,14 +293,17 @@ public class ConversationFragment extends Fragment implements
         rootView.findViewById(R.id.chat_user_entry_area).setVisibility(
                 editAreaVisibility);
 
-        ImageButton panTo = rootView
+        final ImageButton panTo = rootView
                 .findViewById(R.id.conversationPanButton);
         panTo.setOnClickListener(this);
 
-        Contact target = getTarget();
-        panTo.setVisibility(target instanceof GoTo
-                || target instanceof MapItemUser
-                || target instanceof Location ? View.VISIBLE : View.GONE);
+        final Contact target = getTarget();
+        panTo.setVisibility(target instanceof MapItemUser
+                && ((MapItemUser) target).getMapItem() != null
+                || target instanceof Location
+                || (target != null && target.getAction(GoTo.class) != null)
+                        ? View.VISIBLE
+                        : View.GONE);
 
         inputMessage = rootView.findViewById(R.id.messageBox);
 
@@ -330,8 +335,10 @@ public class ConversationFragment extends Fragment implements
 
                     @Override
                     public void onClick(View v) {
+                        // When using quick keys, just add in a " " at the end to provide the user the ability
+                        // to either add another quick key or start typing without hitting the space bar.
                         if (btn.getTag() != null)
-                            inputMessage.append((String) btn.getTag());
+                            inputMessage.append(btn.getTag() + " ");
                         v.setPressed(false);
                     }
                 });
@@ -359,7 +366,7 @@ public class ConversationFragment extends Fragment implements
                         // get the value that button should output
                         String valueString = modes.get(_picker
                                 .getCurrentIndex()).buttons
-                                        .get(Integer.valueOf(
+                                        .get(Integer.parseInt(
                                                 (String) btn.getHint())).value;
                         if (valueString != null)
                             buttonValue.setText(valueString);
@@ -438,10 +445,10 @@ public class ConversationFragment extends Fragment implements
                                                             modes.get(_picker
                                                                     .getCurrentIndex()).buttons
                                                                             .set(
-                                                                                    Integer.valueOf(
+                                                                                    Integer.parseInt(
                                                                                             btnLoc),
                                                                                     new ButtonHolder(
-                                                                                            Integer.valueOf(
+                                                                                            Integer.parseInt(
                                                                                                     btnLoc),
                                                                                             text,
                                                                                             msg));
@@ -534,9 +541,44 @@ public class ConversationFragment extends Fragment implements
 
         // Send message
         else if (id == R.id.sendButton) {
+            // trim any trailing spaces
             String msg = inputMessage.getText().toString();
+
+            // trim any trailing spaces
+            try {
+                msg = msg.replaceFirst("\\s++$", "");
+            } catch (Exception e) {
+            }
+
+            // Ignore empty message
             if (msg.isEmpty())
                 return;
+
+            // Check if the message has anywhere to go
+            final List<Contact> contacts = _destinations.getDestinations();
+            final List<Contact> recipients = new ArrayList<>();
+            for (Contact c : contacts) {
+                if (c != null) {
+                    final List<Contact> filtered = c.getFiltered(true, true);
+                    if (filtered != null) {
+                        for (Contact c2 : filtered) {
+                            if (c2 instanceof IndividualContact)
+                                recipients.add(c2);
+                        }
+                    }
+                } else {
+                    Log.d(TAG, "contact was null for: " + _destinations);
+                }
+            }
+
+            // Nobody to send it to
+            if (recipients.isEmpty()) {
+                Toast.makeText(getContext(),
+                        R.string.chat_message_no_recipients,
+                        Toast.LENGTH_LONG).show();
+                return;
+            }
+
             ChatLine toAdd = new ChatLine();
             toAdd.messageId = UUID.randomUUID().toString();
             toAdd.timeSent = (new CoordinatedTime()).getMilliseconds();
@@ -607,13 +649,13 @@ public class ConversationFragment extends Fragment implements
                             chat_modes.getAttributeValue(null, "name").equals(
                                     modeName)) {
                         // Log.e(TAG, "Found Mode");
-                        modeIndex = Integer.valueOf(chat_modes
+                        modeIndex = Integer.parseInt(chat_modes
                                 .getAttributeValue(null, "index"));
                         modeFound = true;
                     } else if (chat_modes.getName().equals("button") &&
                             modeFound) {
                         // Log.e(TAG, "Found button");
-                        int buttonIndex = Integer.valueOf(chat_modes
+                        int buttonIndex = Integer.parseInt(chat_modes
                                 .getAttributeValue(null,
                                         "index"));
                         output.set(

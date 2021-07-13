@@ -5,10 +5,12 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 
 import com.atakmap.android.maps.MapView;
 import com.atakmap.app.R;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
 
 import android.app.Activity;
@@ -256,8 +258,11 @@ public class ImageFileContainer
                             BitmapFactory.Options opts = new BitmapFactory.Options();
 
                             opts.inJustDecodeBounds = true;
-                            BitmapFactory.decodeFile(bmpFile.getAbsolutePath(),
-                                    opts);
+                            try (FileInputStream fis = IOProviderFactory
+                                    .getInputStream(bmpFile)) {
+                                BitmapFactory.decodeStream(fis, null, opts);
+                            } catch (IOException ignored) {
+                            }
 
                             int sample = Math.max(1,
                                     Math.round(opts.outWidth / 2048f));
@@ -294,7 +299,13 @@ public class ImageFileContainer
                         });
 
                         removeSensorFOV();
-                        populateEXIFData(layout, bmpFile);
+                        final File fBmpFile = bmpFile;
+                        getMapView().post(new Runnable() {
+                            @Override
+                            public void run() {
+                                populateEXIFData(layout, fBmpFile);
+                            }
+                        });
                     }
                 }
             });
@@ -305,26 +316,25 @@ public class ImageFileContainer
 
     private Bitmap getOrientedImage(File f,
             BitmapFactory.Options o) {
-        return getOrientedImage(
-                BitmapFactory.decodeFile(f.getAbsolutePath(), o),
-                ExifHelper.getExifMetadata(f));
+        try (FileInputStream fis = IOProviderFactory.getInputStream(f)) {
+            return getOrientedImage(
+                    BitmapFactory.decodeStream(fis, null, o),
+                    ExifHelper.getExifMetadata(f));
+        } catch (IOException e) {
+            return null;
+        }
     }
 
     private static File readLink(File linkFile) {
         File link = null;
 
-        try {
-            BufferedReader br = new BufferedReader(
-                    new InputStreamReader(new FileInputStream(linkFile)));
-
-            try {
-                String line = br.readLine();
-                if (line != null)
-                    link = new File(
-                            FileSystemUtils.sanitizeWithSpacesAndSlashes(line));
-            } finally {
-                br.close();
-            }
+        try (InputStream is = IOProviderFactory.getInputStream(linkFile);
+                InputStreamReader isr = new InputStreamReader(is);
+                BufferedReader br = new BufferedReader(isr)) {
+            String line = br.readLine();
+            if (line != null)
+                link = new File(
+                        FileSystemUtils.sanitizeWithSpacesAndSlashes(line));
         } catch (IOException ex) {
             Log.e(TAG, "error: ", ex);
         }

@@ -2,19 +2,17 @@
 package com.atakmap.filesystem;
 
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.locale.LocaleUtil;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.io.ZipVirtualFile;
+import com.atakmap.util.zip.IoUtils;
 
 import java.io.BufferedInputStream;
 import java.io.ByteArrayInputStream;
 import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.UnsupportedEncodingException;
-import java.math.BigInteger;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Collections;
@@ -31,12 +29,13 @@ public class HashingUtils {
 
     public final static String ALGORITHM_MD5 = "MD5";
     public final static String ALGORITHM_SHA256 = "SHA-256";
-
+    public final static String ALGORITHM_SHA1 = "SHA-1";
     /**
-     * This constructs an md5sum from the contents of the file provided.
+     * This constructs an md5sum from the contents of the file provided.  Due to a bug in the
+     * original implementation, the leading zero would be dropped from the computed md5sum.
      */
     public static String md5sum(File file) {
-        if (file == null || !file.exists())
+        if (file == null || !IOProviderFactory.exists(file))
             return null;
 
         if (file instanceof ZipVirtualFile) {
@@ -50,8 +49,8 @@ public class HashingUtils {
         } else {
             Log.v(TAG, "Computing MD5 for: " + file.getAbsolutePath());
             try {
-                return md5sum(new FileInputStream(file));
-            } catch (FileNotFoundException e) {
+                return md5sum(IOProviderFactory.getInputStream(file));
+            } catch (IOException e) {
                 Log.e(TAG, "Error computing md5sum", e);
             }
         }
@@ -60,7 +59,8 @@ public class HashingUtils {
     }
 
     /**
-     * This constructs an md5sum from the contents of the string provided.
+     * This constructs an md5sum from the contents of the string provided.  Due to a bug in the
+     *      * original implementation, the leading zero would be dropped from the computed md5sum.
      */
     public static String md5sum(String content) {
         if (content == null || content.length() < 1)
@@ -71,7 +71,8 @@ public class HashingUtils {
     }
 
     /*
-     * Calculate checksum of a File using MD5 algorithm
+     * Calculate checksum of a File using MD5 algorithm.   Due to a bug in the
+     * original implementation, the leading zero would be dropped from the computed md5sum.
      */
     public static String md5sum(InputStream input) {
         String checksum = null;
@@ -82,50 +83,44 @@ public class HashingUtils {
         try {
             // this is only used to compute a MD5 representation of an inputstream
             // and not for cryptographic use cases.
-            MessageDigest md = MessageDigest.getInstance("MD5");
-
-            // Using MessageDigest update() method to provide input
-            byte[] buffer = new byte[8192];
-            int numOfBytesRead;
-            while ((numOfBytesRead = input.read(buffer)) > 0) {
-                md.update(buffer, 0, numOfBytesRead);
-            }
-            byte[] hash = md.digest();
-            md.reset();
-            checksum = new BigInteger(1, hash).toString(16); // don't use this, truncates leading
-                                                             // zero
-        } catch (IOException ex) {
-            Log.e(TAG, "Error computing md5sum", ex);
-        } catch (NoSuchAlgorithmException ex) {
+            MessageDigest md = MessageDigest.getInstance(ALGORITHM_MD5);
+            checksum = computeSumFromInputStream(md, input);
+            //mimic the previous implementation of the md5sum which used BigInteger
+            if (checksum.startsWith("0"))
+                checksum = checksum.substring(1);
+        } catch (IOException | NoSuchAlgorithmException ex) {
             Log.e(TAG, "Error computing md5sum", ex);
         } finally {
-            if (input != null)
-            {
-                try {
-                    input.close();
-                } catch (IOException e) {
-                    Log.e(TAG, "Error computing md5sum", e);
-                }
-            }
+            IoUtils.close(input, TAG, "Error computing md5sum");
         }
 
         return checksum;
     }
 
+    /**
+     * Given a file, compute a sha256 corresponding to it.
+     * @param file the file
+     * @return the sha256 for the file
+     */
     public static String sha256sum(File file) {
-        if (file == null || !file.exists())
+        if (file == null || !IOProviderFactory.exists(file))
             return null;
 
         Log.v(TAG, "Computing SHA256 for: " + file.getAbsolutePath());
         try {
-            return sha256sum(new FileInputStream(file));
-        } catch (FileNotFoundException e) {
+            return sha256sum(IOProviderFactory.getInputStream(file));
+        } catch (IOException e) {
             Log.e(TAG, "Error computing sha256sum", e);
         }
 
         return null;
     }
 
+    /**
+     * Given a string, compute a sha256 corresponding to it.
+     * @param content the string
+     * @return the sha256 for the string
+     */
     public static String sha256sum(String content) {
         if (content == null || content.length() < 1)
             return null;
@@ -135,6 +130,11 @@ public class HashingUtils {
 
     }
 
+    /**
+     * Given a byte array, compute a sha256 corresponding to it.
+     * @param content the byte array
+     * @return the sha256 for the byte array
+     */
     public static String sha256sum(byte[] content) {
         if (content == null || content.length < 1)
             return null;
@@ -151,57 +151,42 @@ public class HashingUtils {
             return checksum;
 
         try {
-            MessageDigest md = MessageDigest.getInstance("SHA-256");
-
-            // Using MessageDigest update() method to provide input
-            byte[] buffer = new byte[8192];
-            int numOfBytesRead;
-            while ((numOfBytesRead = input.read(buffer)) > 0) {
-                md.update(buffer, 0, numOfBytesRead);
-            }
-            byte[] hash = md.digest();
-            md.reset();
-
-            // convert to hex
-            StringBuffer hexString = new StringBuffer();
-            for (int i = 0; i < hash.length; i++) {
-                hexString.append(String.format("%02x", 0xFF & hash[i]));
-            }
-
-            checksum = hexString.toString();
-        } catch (IOException ex) {
-            Log.e(TAG, "Error computing sha256sum", ex);
-        } catch (NoSuchAlgorithmException ex) {
+            MessageDigest md = MessageDigest.getInstance(ALGORITHM_SHA256);
+            checksum = computeSumFromInputStream(md, input);
+        } catch (IOException | NoSuchAlgorithmException ex) {
             Log.e(TAG, "Error computing sha256sum", ex);
         } finally {
-            if (input != null)
-            {
-                try {
-                    input.close();
-                } catch (IOException e) {
-                    Log.e(TAG, "Error computing sha256sum", e);
-                }
-            }
+            IoUtils.close(input, TAG, "Error computing sha256sum");
         }
 
         return checksum;
     }
 
-    public static String sha1sum(File file) {
-        if (file == null || !file.exists())
+    /**
+     * Given a file, produce a sha1
+     * @param file the file
+     * @return the corresponding sha1
+     */
+    public static String sha1sum(final File file) {
+        if (file == null || !IOProviderFactory.exists(file))
             return null;
 
         Log.v(TAG, "Computing SHA1 for: " + file.getAbsolutePath());
         try {
-            return sha1sum(new FileInputStream(file));
-        } catch (FileNotFoundException e) {
+            return sha1sum(IOProviderFactory.getInputStream(file));
+        } catch (IOException e) {
             Log.e(TAG, "Error computing sha1sum", e);
         }
 
         return null;
     }
 
-    public static String sha1sum(String content) {
+    /**
+     * Given a string, compute the sha1 for the string
+     * @param content the string
+     * @return the corresponding sha1 for the string.
+     */
+    public static String sha1sum(final String content) {
         if (content == null || content.length() < 1)
             return null;
 
@@ -210,6 +195,11 @@ public class HashingUtils {
 
     }
 
+    /**
+     * Generate a sha1 sum based on a provided byte array
+     * @param content the byte array
+     * @return the sha1 sum
+     */
     public static String sha1sum(byte[] content) {
         if (content == null || content.length < 1)
             return null;
@@ -219,6 +209,8 @@ public class HashingUtils {
 
     /*
      * Calculate checksum of a stream using SHA1 algorithm
+     * @param input the input stream
+     * @return the sha1 sum
      */
     public static String sha1sum(InputStream input) {
         String checksum = null;
@@ -226,47 +218,24 @@ public class HashingUtils {
             return checksum;
 
         try {
-            MessageDigest md = MessageDigest.getInstance("SHA-1");
+            MessageDigest md = MessageDigest.getInstance(ALGORITHM_SHA1);
+            checksum = computeSumFromInputStream(md, input);
 
-            // Using MessageDigest update() method to provide input
-            byte[] buffer = new byte[8192];
-            int numOfBytesRead;
-            while ((numOfBytesRead = input.read(buffer)) > 0) {
-                md.update(buffer, 0, numOfBytesRead);
-            }
-            byte[] hash = md.digest();
-            md.reset();
-
-            // convert to hex
-            StringBuffer hexString = new StringBuffer();
-            for (int i = 0; i < hash.length; i++) {
-                hexString.append(String.format("%02x", 0xFF & hash[i]));
-            }
-
-            checksum = hexString.toString();
-        } catch (IOException ex) {
-            Log.e(TAG, "Error computing sha1sum", ex);
-        } catch (NoSuchAlgorithmException ex) {
+        } catch (IOException | NoSuchAlgorithmException ex) {
             Log.e(TAG, "Error computing sha1sum", ex);
         } finally {
-            if (input != null)
-            {
-                try {
-                    input.close();
-                } catch (IOException e) {
-                    Log.e(TAG, "Error computing sha1sum", e);
-                }
-            }
+            IoUtils.close(input, TAG, "Error computing sha1sum");
         }
 
         return checksum;
     }
 
+
     public static String toHexString(byte[] arr) {
         // convert to hex
         StringBuilder hexString = new StringBuilder();
-        for (int i = 0; i < arr.length; i++) {
-            hexString.append(String.format("%02x", 0xFF & arr[i]));
+        for (byte b : arr) {
+            hexString.append(String.format("%02x", 0xFF & b));
         }
 
         return hexString.toString();
@@ -297,7 +266,7 @@ public class HashingUtils {
         Map<String, byte[]> retval = new HashMap<String, byte[]>();
         try {
             // Using MessageDigest update() method to provide input
-            byte[] buffer = new byte[8192];
+            final byte[] buffer = new byte[8192];
             int numOfBytesRead;
             while ((numOfBytesRead = input.read(buffer)) > 0) {
                 for (int i = 0; i < numDigests; i++)
@@ -326,7 +295,7 @@ public class HashingUtils {
             Set<String> algorithms, File file) {
         InputStream input = null;
         try {
-            input = new BufferedInputStream(new FileInputStream(file));
+            input = new BufferedInputStream(IOProviderFactory.getInputStream(file));
         } catch (IOException ignored) {
         }
 
@@ -343,17 +312,13 @@ public class HashingUtils {
             } catch (IOException | NoSuchAlgorithmException e) {
                 throw new IllegalStateException(e);
             } finally {
-                if (inputStream != null)
-                    try {
-                        inputStream.close();
-                    } catch (IOException ignored) {
-                    }
+                IoUtils.close(inputStream);
             }
         } else {
             hashes = Collections.emptyMap();
         }
 
-        Map<String, String> retval = new HashMap<String, String>();
+        Map<String, String> retval = new HashMap<>();
         byte[] hash;
         for (String algorithm : algorithms) {
             hash = hashes.get(algorithm);
@@ -382,9 +347,9 @@ public class HashingUtils {
         }
 
         // check file size
-        if (file.length() != sizeToMatch)
+        if (IOProviderFactory.length(file) != sizeToMatch)
         {
-            Log.w(TAG, String.format(LocaleUtil.getCurrent(), "Size mismatch: %d vs %d", file.length(),
+            Log.w(TAG, String.format(LocaleUtil.getCurrent(), "Size mismatch: %d vs %d", IOProviderFactory.length(file),
                     sizeToMatch));
             return false;
         }
@@ -408,4 +373,24 @@ public class HashingUtils {
             return false;
         }
     }
+
+    private static String computeSumFromInputStream(final MessageDigest md, final InputStream is) throws IOException {
+        // Using MessageDigest update() method to provide input
+        final byte[] buffer = new byte[8192];
+        int numOfBytesRead;
+        while ((numOfBytesRead = is.read(buffer)) > 0) {
+            md.update(buffer, 0, numOfBytesRead);
+        }
+        byte[] hash = md.digest();
+        md.reset();
+
+        // convert to hex
+        StringBuilder hexString = new StringBuilder();
+        for (byte b : hash) {
+            hexString.append(String.format("%02x", 0xFF & b));
+        }
+
+        return hexString.toString();
+    }
+
 }

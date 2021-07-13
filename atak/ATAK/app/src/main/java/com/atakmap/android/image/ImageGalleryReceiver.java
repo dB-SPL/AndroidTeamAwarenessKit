@@ -2,7 +2,6 @@
 package com.atakmap.android.image;
 
 import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -53,9 +52,12 @@ import com.atakmap.android.tools.menu.ActionBroadcastData;
 import com.atakmap.android.util.ATAKUtilities;
 import com.atakmap.android.util.AfterTextChangedWatcher;
 import com.atakmap.android.util.AttachmentManager;
+import com.atakmap.annotations.DeprecatedApi;
 import com.atakmap.app.ATAKActivity;
 import com.atakmap.app.R;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.DefaultIOProvider;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.coremap.maps.coords.GeoBounds;
 import com.atakmap.filesystem.HashingUtils;
@@ -200,12 +202,12 @@ public class ImageGalleryReceiver extends DropDownReceiver implements
                 File dir = new File(
                         FileSystemUtils
                                 .sanitizeWithSpacesAndSlashes(directory));
-
-                if (FileSystemUtils.isFile(dir) && dir.isDirectory()) {
-                    File[] fileArr = dir.listFiles();
+                if (FileSystemUtils.isFile(dir)
+                        && IOProviderFactory.isDirectory(dir)) {
+                    File[] fileArr = IOProviderFactory.listFiles(dir);
                     if (fileArr != null) {
                         for (File f : fileArr) {
-                            if (!f.isDirectory())
+                            if (!IOProviderFactory.isDirectory(f))
                                 fileList.add(f);
                         }
                     }
@@ -224,7 +226,8 @@ public class ImageGalleryReceiver extends DropDownReceiver implements
                         File f = new File(file);
                         // redundant check, but leaving in place because it 
                         // was the original code
-                        if (f.exists() && !f.isDirectory())
+                        if (IOProviderFactory.exists(f)
+                                && !IOProviderFactory.isDirectory(f))
                             fileList.add(f);
                     } else {
                         Log.w(TAG, "Skipping file: " + file);
@@ -264,7 +267,8 @@ public class ImageGalleryReceiver extends DropDownReceiver implements
                     + " " + context.getString(R.string.attachments);
 
             String dirPath = AttachmentManager.getFolderPath(uid, true);
-            if (dirPath != null && new File(dirPath).exists()) {
+            if (dirPath != null
+                    && IOProviderFactory.exists(new File(dirPath))) {
                 Log.d(TAG, "Processing directory: " + dirPath);
                 List<File> fileList = AttachmentManager.getAttachments(uid);
 
@@ -305,7 +309,7 @@ public class ImageGalleryReceiver extends DropDownReceiver implements
                                 f.getParentFile(), f.getName())) {
                             File nitfXml = new File(f.getParent(), f.getName()
                                     + ".aux.xml");
-                            if (nitfXml.exists())
+                            if (IOProviderFactory.exists(nitfXml))
                                 manifest.addFile(nitfXml, uid);
                         }
                     }
@@ -793,11 +797,9 @@ public class ImageGalleryReceiver extends DropDownReceiver implements
                 .getDefaultSharedPreferences(
                         mapView.getContext());
 
-        final String _lastDirectory = defaultPrefs.getString("lastDirectory",
-                Environment.getExternalStorageDirectory().getPath());
-
         importView.setTitle(R.string.select_file_to_attach);
-        importView.setStartDirectory(_lastDirectory);
+        importView.setStartDirectory(
+                ATAKUtilities.getStartDirectory(getMapView().getContext()));
         importView.setExtensionTypes(new String[] {
                 "*"
         });
@@ -825,7 +827,7 @@ public class ImageGalleryReceiver extends DropDownReceiver implements
                     for (File file : selectedFiles) {
                         Log.d(TAG, "Importing file: " + file.getAbsolutePath());
                         try {
-                            attachFile(file, false);
+                            attachFile(file, false, true);
                         } catch (Exception ioe) {
                             Log.d(TAG, "file: " + file);
                         }
@@ -859,7 +861,14 @@ public class ImageGalleryReceiver extends DropDownReceiver implements
         }
     }
 
-    private void attachFile(final File f, boolean captured) {
+    /**
+     * Attach a file to a marker
+     * @param f the file to attach
+     * @param captured true if the file was captured from the camera; false otherwise.
+     * @param useIOProvider true if the file should be attached using the system registered IOProvider; false otherwise.
+     */
+    private void attachFile(final File f, boolean captured,
+            boolean useIOProvider) {
         if (f == null)
             return;
 
@@ -887,13 +896,19 @@ public class ImageGalleryReceiver extends DropDownReceiver implements
                             addItem(result.file);
                         }
                     } catch (Exception e) {
-                        Log.d(TAG, "error occured", e);
+                        Log.d(TAG, "error occurred", e);
                     }
                 }
             });
             if (!captured)
                 attachTask.setFlags(AttachFileTask.FlagPromptOverwrite
                         | ImportFileTask.FlagCopyFile);
+
+            // if use of native IO is required, install a default provider
+            // instance on the task
+            if (!useIOProvider)
+                attachTask.setProvider(new DefaultIOProvider());
+
             attachTask.execute(f);
         } else if (onAddAction != null) {
             Intent i = new Intent(onAddAction);
@@ -967,7 +982,8 @@ public class ImageGalleryReceiver extends DropDownReceiver implements
 
         TextView sizeText = v
                 .findViewById(R.id.attachment_detail_txtSize);
-        sizeText.setText(MathUtils.GetLengthString(file.length()));
+        sizeText.setText(
+                MathUtils.GetLengthString(IOProviderFactory.length(file)));
 
         TextView dateText = v
                 .findViewById(R.id.attachment_detail_txtModifiedDate);
@@ -1073,8 +1089,12 @@ public class ImageGalleryReceiver extends DropDownReceiver implements
         // restrict the uris that are valid.
         final String sURI = contentURI.toString();
         if (sURI.startsWith("content://com.android.providers.media.documents")
-                ||
-                sURI.startsWith("content://media/external")) {
+                || sURI.startsWith(
+                        "content://com.android.providers.downloads.documents")
+                || sURI.startsWith("content://media/external")
+                || sURI.startsWith("content://0@media/external/")
+                || sURI.startsWith(
+                        "content://com.android.externalstorage.documents")) {
             // nothing at this point
         } else {
             // Log.d(TAG, "trying to load content from: " + contentURI);
@@ -1138,7 +1158,7 @@ public class ImageGalleryReceiver extends DropDownReceiver implements
                     //Attach the file
                     File src = new File(FileSystemUtils
                             .validityScan(filePath));
-                    attachFile(src, true);
+                    attachFile(src, true, true);
                 } catch (Exception e) {
                     Log.w(TAG, "Cannot attach file", e);
                 }
@@ -1224,7 +1244,7 @@ public class ImageGalleryReceiver extends DropDownReceiver implements
                             }
                             final File finalAtt = att;
                             if (finalAtt != null) {
-                                if (finalAtt.exists()) {
+                                if (IOProviderFactory.exists(finalAtt)) {
                                     AlertDialog.Builder adb = new AlertDialog.Builder(
                                             context);
                                     adb.setTitle(R.string.overwrite_existing);
@@ -1267,19 +1287,32 @@ public class ImageGalleryReceiver extends DropDownReceiver implements
             } else
                 return;
 
-            if (!FileSystemUtils.isFile(filePath)) {
-                Log.w(TAG, "Skipping missing result: " + resultCode + ", "
-                        + filePath);
-                toast(R.string.failed_to_import);
-                return;
-            }
+            if (!PIC_CAPTURED.equals(intent.getAction())) {
+                if (!FileSystemUtils.isEmpty(filePath)) {
+                    File importFile = null;
+                    try {
+                        importFile = new File(
+                                FileSystemUtils.validityScan(filePath));
+                    } catch (Exception e) {
+                        Log.w(TAG, "Cannot import file", e);
+                    }
 
-            try {
-                File src = new File(
-                        FileSystemUtils.validityScan(filePath));
-                attachFile(src, PIC_CAPTURED.equals(intent.getAction()));
-            } catch (Exception e) {
-                Log.w(TAG, "Cannot import file", e);
+                    if (importFile == null || !importFile.exists()) {
+                        Log.w(TAG,
+                                "Skipping missing result: " + resultCode + ", "
+                                        + filePath);
+                        toast(R.string.failed_to_import);
+                        return;
+                    }
+                }
+
+                try {
+                    File src = new File(
+                            FileSystemUtils.validityScan(filePath));
+                    attachFile(src, false, false);
+                } catch (Exception e) {
+                    Log.w(TAG, "Cannot import file", e);
+                }
             }
         }
     };
@@ -1293,16 +1326,14 @@ public class ImageGalleryReceiver extends DropDownReceiver implements
      */
     public static boolean extractContent(Context ctx, Uri dataUri,
             File outFile) {
-        InputStream is = null;
-        OutputStream os = null;
-        try {
-            is = ctx.getContentResolver()
-                    .openInputStream(dataUri);
+        try (InputStream is = ctx.getContentResolver()
+                .openInputStream(dataUri)) {
             if (is != null) {
-                FileSystemUtils.copyStream(is,
-                        os = new FileOutputStream(
-                                outFile));
-                return outFile.exists();
+                try (OutputStream os = IOProviderFactory
+                        .getOutputStream(outFile)) {
+                    FileSystemUtils.copyStream(is, os);
+                }
+                return IOProviderFactory.exists(outFile);
             } else {
                 Log.e(TAG, "Failed to extract content from "
                         + dataUri + " to " + outFile);
@@ -1312,19 +1343,6 @@ public class ImageGalleryReceiver extends DropDownReceiver implements
             Log.e(TAG, "Failed to extract content from "
                     + dataUri + " to " + outFile, e);
             return false;
-        } finally {
-            if (is != null) {
-                try {
-                    is.close();
-                } catch (IOException ignored) {
-                }
-            }
-            if (os != null) {
-                try {
-                    os.close();
-                } catch (IOException ignored) {
-                }
-            }
         }
     }
 
@@ -1336,6 +1354,7 @@ public class ImageGalleryReceiver extends DropDownReceiver implements
      * @deprecated Use {@link URIContentManager#getHandler(File)} instead
      */
     @Deprecated
+    @DeprecatedApi(since = "4.1", forRemoval = true, removeAt = "4.4")
     public static Envelope getFeatureBounds(File f) {
         URIContentHandler h = URIContentManager.getInstance().getHandler(f);
         if (!(h instanceof FileOverlayContentHandler))
@@ -1355,6 +1374,7 @@ public class ImageGalleryReceiver extends DropDownReceiver implements
      * @deprecated Use {@link URIContentManager#getHandler(File)} instead
      */
     @Deprecated
+    @DeprecatedApi(since = "4.1", forRemoval = true, removeAt = "4.4")
     public static Envelope findRasterFeatureBounds(File f) {
         return getFeatureBounds(f);
     }
@@ -1367,6 +1387,7 @@ public class ImageGalleryReceiver extends DropDownReceiver implements
      * @deprecated Use {@link URIContentManager#getHandler(File)} instead
      */
     @Deprecated
+    @DeprecatedApi(since = "4.1", forRemoval = true, removeAt = "4.4")
     public static Envelope findVectorFeatureBounds(File f) {
         return getFeatureBounds(f);
     }

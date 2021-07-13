@@ -41,18 +41,18 @@ public class SelectPointButtonTool extends SpecialPointButtonTool
 
     private static final String TAG = "SelectPointButtonTool";
     private static final String IDENTIFIER = "com.atakmap.android.user.SELECTPOINTBUTTONTOOL";
-    private static final String REDX_FAH = "com.atakmap.android.maps.REDX_FAH";
-    private static final String REDX_LB = "com.atakmap.android.maps.REDX_LB";
+    protected static final String REDX_FAH = "com.atakmap.android.maps.REDX_FAH";
+    protected static final String REDX_LB = "com.atakmap.android.maps.REDX_LB";
     public static final String REDX_SELF = "com.atakmap.android.maps.PAIRING_LINE_SELF";
     public static final String SPI_SELF = "com.atakmap.android.maps.SPI_PAIRING_LINE_SELF";
-    private static final String SPI_FAH = "com.atakmap.android.maps.SPI_FAH";
-    private static final String SPI_LB = "com.atakmap.android.maps.SPI_LB";
+    protected static final String SPI_FAH = "com.atakmap.android.maps.SPI_FAH";
+    protected static final String SPI_LB = "com.atakmap.android.maps.SPI_LB";
 
     private static SelectPointButtonTool _instance;
-    private RangeAndBearingMapItem rb;
+    protected RangeAndBearingMapItem rb;
     private MapGroup _rootLayoutWidget;
 
-    private SharedPreferences _prefs;
+    private final SharedPreferences _prefs;
 
     // inventory of DesignatorTargetLines and the associated uid's should only be manipulated by the fetchDesignatorTargetLine
     private static final Map<String, DesignatorTargetLine> lbs = new HashMap<>();
@@ -82,7 +82,7 @@ public class SelectPointButtonTool extends SpecialPointButtonTool
         return _instance;
     }
 
-    private FahArrowWidget.Item fetchFahArrowWidget(PointMapItem mi) {
+    protected FahArrowWidget.Item fetchFahArrowWidget(PointMapItem mi) {
         boolean newFah = false;
         FahArrowWidget.Item item;
         synchronized (fahs) {
@@ -118,11 +118,11 @@ public class SelectPointButtonTool extends SpecialPointButtonTool
             item.getFAH().setFahWidth(MathUtils.clamp(
                     Math.round(width / 10f) * 10, 10, 350));
         } catch (Exception nfe) {
-            Log.d(TAG, "error occured parsing number", nfe);
+            Log.d(TAG, "error occurred parsing number", nfe);
         }
     }
 
-    private DesignatorTargetLine fetchDesignatorTargetLine(String uid) {
+    public DesignatorTargetLine fetchDesignatorTargetLine(String uid) {
         boolean newLine = false;
         DesignatorTargetLine line;
         synchronized (lbs) {
@@ -158,7 +158,7 @@ public class SelectPointButtonTool extends SpecialPointButtonTool
             _rootLayoutWidget.removeItem(val);
     }
 
-    private SelectPointButtonTool(MapView mapView, ImageButton button) {
+    protected SelectPointButtonTool(MapView mapView, ImageButton button) {
         super(mapView, button, IDENTIFIER);
         ToolManagerBroadcastReceiver.getInstance().registerTool(IDENTIFIER,
                 this);
@@ -276,7 +276,7 @@ public class SelectPointButtonTool extends SpecialPointButtonTool
         _mapView.getMapTouchController().skipDeconfliction(s == States.ENABLED);
     }
 
-    private final BroadcastReceiver br = new BroadcastReceiver() {
+    public final BroadcastReceiver br = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
             final String action = intent.getAction();

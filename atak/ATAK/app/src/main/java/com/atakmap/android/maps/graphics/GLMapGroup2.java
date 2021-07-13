@@ -9,6 +9,7 @@ import com.atakmap.android.maps.Association;
 import com.atakmap.android.maps.AxisOfAdvance;
 import com.atakmap.android.maps.CircleCrumb;
 import com.atakmap.android.maps.CompassRing;
+import com.atakmap.android.maps.Doghouse;
 import com.atakmap.android.maps.Ellipse;
 import com.atakmap.android.maps.MapGroup;
 import com.atakmap.android.maps.MapItem;
@@ -16,7 +17,11 @@ import com.atakmap.android.maps.Marker;
 import com.atakmap.android.maps.MultiPolyline;
 import com.atakmap.android.maps.Polyline;
 import com.atakmap.android.maps.SimpleRectangle;
+import com.atakmap.android.maps.graphics.widgets.GLAngleOverlay;
+import com.atakmap.android.maps.graphics.widgets.GLAutoSizeAngleOverlay;
 import com.atakmap.android.track.crumb.Crumb;
+import com.atakmap.android.widgets.AngleOverlayShape;
+import com.atakmap.android.widgets.AutoSizeAngleOverlayShape;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.map.MapRenderer;
 
@@ -26,7 +31,6 @@ import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
 import java.util.Collection;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.Map;
 
 public final class GLMapGroup2 implements MapGroup.OnItemListChangedListener,
@@ -121,8 +125,8 @@ public final class GLMapGroup2 implements MapGroup.OnItemListChangedListener,
         }
     }
 
-    private static Class lookupGLClass(Class itemClass) {
-        Class glClass = null;
+    private static Class lookupGLClass(Class<?> itemClass) {
+        Class<?> glClass = null;
 
         try {
             String packageName = itemClass.getPackage().getName();
@@ -305,7 +309,7 @@ public final class GLMapGroup2 implements MapGroup.OnItemListChangedListener,
     private final MapRenderer renderContext;
     private final GLQuadtreeNode2 renderer;
     static final Map<Class<? extends MapItem>, Class<? extends GLMapItem2>> glClasses = new HashMap<>();
-    static final Map<Class<? extends GLMapItem2>, Constructor> glCtors = new HashMap<>();
+    static final Map<Class<? extends GLMapItem2>, Constructor<?>> glCtors = new HashMap<>();
 
     public final static GLMapItemSpi3 DEFAULT_GLMAPITEM_SPI3 = new GLMapItemSpi3() {
 
@@ -342,6 +346,11 @@ public final class GLMapGroup2 implements MapGroup.OnItemListChangedListener,
                 return new GLMultipolyline(surface, (MultiPolyline) item);
             else if (item instanceof AxisOfAdvance)
                 return new GLAxisOfAdvance(surface, (AxisOfAdvance) item);
+            else if (item instanceof Doghouse)
+                return new GLDogHouse(surface, (Doghouse) item);
+            else if (item instanceof AutoSizeAngleOverlayShape)
+                return new GLAngleOverlay2(surface,
+                        (AutoSizeAngleOverlayShape) item);
 
             return this.reflect(surface, item);
         }
@@ -384,7 +393,7 @@ public final class GLMapGroup2 implements MapGroup.OnItemListChangedListener,
 
             // If there is a GL class, instantiate it
             if (glClass != null) {
-                Constructor ctor = glCtors.get(glClass);
+                Constructor<?> ctor = glCtors.get(glClass);
                 if (ctor == null) {
                     ctor = ConstructorUtils.getMatchingAccessibleConstructor(
                             glClass,

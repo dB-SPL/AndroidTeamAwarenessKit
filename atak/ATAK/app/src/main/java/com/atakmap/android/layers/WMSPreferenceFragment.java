@@ -14,6 +14,7 @@ import android.widget.Toast;
 
 import com.atakmap.android.preference.AtakPreferenceFragment;
 import com.atakmap.app.R;
+import com.atakmap.app.system.ResourceUtil;
 
 /*
  */
@@ -25,15 +26,16 @@ public class WMSPreferenceFragment extends AtakPreferenceFragment implements
 
     public WMSPreferenceFragment() {
         super(R.xml.wms_preferences, R.string.wms_preferences_summary);
+
     }
 
     @Override
     public boolean onPreferenceClick(Preference preference) {
 
         new AlertDialog.Builder(context)
-                .setTitle("Redeploy")
+                .setTitle(R.string.redeploy)
                 .setMessage(
-                        "Are you sure you would like to redeploy the default WMS configuration files on the next restart?")
+                        R.string.sure_next_restart)
                 .setCancelable(false)
                 .setNegativeButton(R.string.cancel, null)
                 .setPositiveButton(R.string.ok,
@@ -62,6 +64,15 @@ public class WMSPreferenceFragment extends AtakPreferenceFragment implements
 
         context = getActivity();
         _prefs = PreferenceManager.getDefaultSharedPreferences(context);
+
+        Preference numberOfSpis = findPreference(
+                "prefs_layer_grg_map_interaction");
+        numberOfSpis.setTitle(
+                ResourceUtil.getResource(R.string.civ_enable_grg_interact,
+                        R.string.enable_grg_interact));
+        numberOfSpis.setSummary(
+                ResourceUtil.getResource(R.string.civ_enable_grg_interact_summ,
+                        R.string.enable_grg_interact_summ));
 
         Preference redeploy = findPreference("redeploywms");
         redeploy
@@ -105,7 +116,7 @@ public class WMSPreferenceFragment extends AtakPreferenceFragment implements
 
                                                 Toast.makeText(
                                                         context,
-                                                        "Setting will take effect on restart",
+                                                        R.string.next_restart,
                                                         Toast.LENGTH_SHORT)
                                                         .show();
                                             }

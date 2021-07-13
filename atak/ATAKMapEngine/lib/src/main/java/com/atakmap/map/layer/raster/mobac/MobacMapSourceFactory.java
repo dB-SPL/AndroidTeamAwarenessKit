@@ -1,22 +1,21 @@
 
 package com.atakmap.map.layer.raster.mobac;
 
-import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.LinkedList;
 import java.util.Stack;
+
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.locale.LocaleUtil;
 
 import org.apache.commons.lang.StringEscapeUtils;
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
-import android.content.res.XmlResourceParser;
 import android.util.Xml;
 
-import com.atakmap.coremap.filesystem.FileSystemUtils;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.coremap.maps.coords.GeoBounds;
 
@@ -32,25 +31,22 @@ public class MobacMapSourceFactory {
     }
 
     public static MobacMapSource create(File f, MobacMapSource.Config config) throws IOException {
-        MobacMapSource mmc = null;
-        if (f.getName().toLowerCase(LocaleUtil.getCurrent()).endsWith(".xml"))
-            mmc = parseXmlMapSource(f);
+        final MobacMapSource mmc = create(f);
+        if (mmc != null && config != null)
+            mmc.setConfig(config);
+        return mmc;
+    }
 
-        if (mmc != null)
+    public static MobacMapSource create(InputStream s, MobacMapSource.Config config) throws IOException {
+        final MobacMapSource mmc = parseXmlMapSource(s);
+        if (mmc != null && config != null)
             mmc.setConfig(config);
         return mmc;
     }
 
     private static MobacMapSource parseXmlMapSource(File f) throws IOException {
-        FileInputStream fileInputStream = null;
-        try {
-            fileInputStream = new FileInputStream(f);
+        try(InputStream fileInputStream = IOProviderFactory.getInputStream(f)) {
             return parseXmlMapSource(fileInputStream);
-        } finally {
-            if(fileInputStream != null)
-                try {
-                    fileInputStream.close();
-                } catch(IOException ignored) {}
         }
     }
 
@@ -99,8 +95,10 @@ public class MobacMapSourceFactory {
             throw new IOException(e);
         } finally { 
             if (parser != null) {
-                if (parser instanceof XmlResourceParser)
-                    ((XmlResourceParser) parser).close();
+                if (parser instanceof AutoCloseable)
+                    try {
+                        ((AutoCloseable) parser).close();
+                    } catch(Exception ignored) {}
             }
         }
     }
@@ -252,7 +250,7 @@ public class MobacMapSourceFactory {
             throw new RuntimeException();
 
         return new CustomMultiLayerMobacMapSource(name,
-                layers.toArray(new MobacMapSource[layers.size()]),
+                layers.toArray(new MobacMapSource[0]),
                 layersAlpha,
                 backgroundColor);
     }
@@ -324,22 +322,22 @@ public class MobacMapSourceFactory {
                     } else if (inTag.equals("north")) {
                         try {
                             north = Double.parseDouble(parser.getText());
-                        } catch (NumberFormatException nfe) {
+                        } catch (NumberFormatException ignored) {
                         }
                     } else if (inTag.equals("south")) {
                         try {
                             south = Double.parseDouble(parser.getText());
-                        } catch (NumberFormatException nfe) {
+                        } catch (NumberFormatException ignored) {
                         }
                     } else if (inTag.equals("east")) {
                         try {
                             east = Double.parseDouble(parser.getText());
-                        } catch (NumberFormatException nfe) {
+                        } catch (NumberFormatException ignored) {
                         }
                     } else if (inTag.equals("west")) {
                         try {
                             west = Double.parseDouble(parser.getText());
-                        } catch (NumberFormatException nfe) {
+                        } catch (NumberFormatException ignored) {
                         }
                     }
                     break;

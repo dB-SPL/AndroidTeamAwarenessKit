@@ -48,9 +48,9 @@ public class ModelsHierarchyListItem extends AbstractHierarchyListItem2
 
     private static final String TAG = "ModelsHierarchyListItem";
 
-    private MapView view;
-    private FeatureLayer3 layer;
-    private FeatureDataStore2 dataStore;
+    private final MapView view;
+    private final FeatureLayer3 layer;
+    private final FeatureDataStore2 dataStore;
     private boolean vizSupported;
     private final List<HierarchyListItem> baseChildren = new ArrayList<>();
 
@@ -207,12 +207,12 @@ public class ModelsHierarchyListItem extends AbstractHierarchyListItem2
     }
 
     @Override
-    public boolean isSupported(Class target) {
+    public boolean isSupported(Class<?> target) {
         return MissionPackageExportWrapper.class.equals(target);
     }
 
     @Override
-    public Object toObjectOf(Class target, ExportFilters filters)
+    public Object toObjectOf(Class<?> target, ExportFilters filters)
             throws FormatNotSupportedException {
         if (getChildCount() == 0 || !isSupported(target))
             return null;

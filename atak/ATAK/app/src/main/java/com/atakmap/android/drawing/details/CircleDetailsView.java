@@ -28,7 +28,6 @@ import com.atakmap.android.drawing.mapItems.DrawingCircle;
 import com.atakmap.android.ipc.AtakBroadcast;
 import com.atakmap.android.maps.MapItem;
 import com.atakmap.android.maps.Shape;
-import com.atakmap.android.toolbar.Tool;
 import com.atakmap.android.util.Circle;
 import com.atakmap.android.util.SimpleSeekBarChangeListener;
 
@@ -283,12 +282,8 @@ public class CircleDetailsView extends GenericDetailsView implements
             startEditingMode();
 
         // Undo circle edits
-        else if (id == R.id.drawingCircleUndoButton) {
-            Tool active = ToolManagerBroadcastReceiver.getInstance()
-                    .getActiveTool();
-            if (active instanceof CircleEditTool)
-                ((CircleEditTool) active).undo();
-        }
+        else if (id == R.id.drawingCircleUndoButton)
+            undoToolEdit();
 
         // End circle edit mode
         else if (id == R.id.drawingCircleEndEditingButton)
@@ -364,8 +359,8 @@ public class CircleDetailsView extends GenericDetailsView implements
         // Height
         Span unit = getUnitSpan(_circle);
         String heightTxt = "-- " + unit.getAbbrev();
-        double height = _circle.getMetaDouble("height", -1);
-        if (height >= 0)
+        double height = _circle.getHeight();
+        if (!Double.isNaN(height))
             heightTxt = SpanUtilities.format(height, Span.METER, unit);
         _heightButton.setText(heightTxt);
 
@@ -377,6 +372,8 @@ public class CircleDetailsView extends GenericDetailsView implements
 
         // Color
         _colorButton.setColorFilter(_circle.getStrokeColor());
+
+        _circle.refresh();
     }
 
     @Override
@@ -511,7 +508,7 @@ public class CircleDetailsView extends GenericDetailsView implements
     protected void heightSelected(double height, Span u, double h) {
         // Saved internally as meters
         // Height unit is simply the display unit
-        _circle.setMetaDouble("height", height);
+        _circle.setHeight(height);
         _circle.setMetaInteger("height_unit", u.getValue());
         refresh();
     }

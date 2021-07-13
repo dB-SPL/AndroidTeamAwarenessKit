@@ -39,6 +39,7 @@ import com.atakmap.android.image.nitf.NITFReader;
 import com.atakmap.android.maps.MapView;
 import com.atakmap.android.maps.SensorFOV;
 import com.atakmap.android.util.AltitudeUtilities;
+import com.atakmap.annotations.DeprecatedApi;
 import com.atakmap.app.R;
 import com.atakmap.coremap.concurrent.NamedThreadFactory;
 import com.atakmap.coremap.conversions.CoordinateFormat;
@@ -50,6 +51,7 @@ import com.atakmap.coremap.maps.conversion.EGM96;
 import com.atakmap.coremap.maps.coords.GeoPoint;
 
 import com.atakmap.coremap.maps.coords.GeoPointMetaData;
+import com.atakmap.map.gdal.GdalLibrary;
 import com.atakmap.map.layer.raster.gdal.GdalGraphicUtils;
 import com.atakmap.map.layer.raster.gdal.GdalTileReader;
 
@@ -58,7 +60,6 @@ import org.apache.sanselan.formats.tiff.TiffImageMetadata;
 import org.apache.sanselan.formats.tiff.constants.TiffConstants;
 
 import org.gdal.gdal.Dataset;
-import org.gdal.gdal.gdal;
 
 import java.io.File;
 import java.io.FilenameFilter;
@@ -123,7 +124,8 @@ public abstract class ImageContainer implements OnTouchListener,
 
     synchronized public void dispose() {
         removeSensorFOV();
-        viewer.setImageDrawable(null);
+        if (viewer != null)
+            viewer.setImageDrawable(null);
         disposed = true;
     }
 
@@ -210,7 +212,7 @@ public abstract class ImageContainer implements OnTouchListener,
 
         if (NITF_FilenameFilter.accept(nitfFile.getParentFile(),
                 nitfFile.getName())) {
-            Dataset ds = gdal.Open(nitfFile.toString());
+            Dataset ds = GdalLibrary.openDatasetFromFile(nitfFile);
 
             if (ds == null) {
                 Log.e(TAG,
@@ -324,7 +326,7 @@ public abstract class ImageContainer implements OnTouchListener,
                     try {
                         dataVal = cgmDict.get(data).getBytes("ISO_8859_1");
                     } catch (UnsupportedEncodingException e) {
-                        Log.e(TAG, "error occured", e);
+                        Log.e(TAG, "error occurred", e);
                     }
 
                     int relativeRowVal = Integer.parseInt(relRowVal);
@@ -357,7 +359,14 @@ public abstract class ImageContainer implements OnTouchListener,
         return readNITF(nitfFile, 0);
     }
 
+    /**
+     * @deprecated Use {@link #readNITF(File)} directly
+     * @param nitfFile
+     * @param res - unused
+     * @return
+     */
     @Deprecated
+    @DeprecatedApi(since = "4.1", forRemoval = true, removeAt = "4.4")
     public static Bitmap readNITF(File nitfFile, Resources res) {
         return readNITF(nitfFile);
     }
@@ -495,14 +504,16 @@ public abstract class ImageContainer implements OnTouchListener,
         if (disposed || layout == null)
             return;
         final HashtagEditText caption = layout.findViewById(R.id.image_caption);
+        layout.findViewById(R.id.markupImage).setEnabled(false);
         File dir = bmpFile.getParentFile();
         String name = bmpFile.getName().toLowerCase(LocaleUtil.getCurrent());
         if (JPEG_FilenameFilter.accept(dir, name))
             populateEXIFData(layout, ExifHelper.getExifMetadata(bmpFile));
         else if (NITF_FilenameFilter.accept(dir, name))
-            populateNITFMetadata(layout, gdal.Open(bmpFile.toString()));
+            populateNITFMetadata(layout,
+                    GdalLibrary.openDatasetFromFile(bmpFile));
         else if (name.endsWith(".png")) {
-            Dataset ds = gdal.Open(bmpFile.toString());
+            Dataset ds = GdalLibrary.openDatasetFromFile(bmpFile);
             if (ds != null) {
                 String desc = ds.GetMetadataItem("Description");
                 ds.delete();
@@ -533,8 +544,10 @@ public abstract class ImageContainer implements OnTouchListener,
                     .findViewById(R.id.image_date_text);
             final HashtagEditText caption = layout
                     .findViewById(R.id.image_caption);
+            final ImageButton overlayBtn = layout.findViewById(
+                    R.id.markupImage);
 
-            String dateTime = null, imageCaption = null;
+            String dateTime = null, imageCaption = "";
             if (exif != null) {
                 // Update date time text and image caption, if available.
                 dateTime = ExifHelper.getString(exif,
@@ -547,6 +560,10 @@ public abstract class ImageContainer implements OnTouchListener,
                 if (gpsInfo != null)
                     populateLocation(locText, layout, gpsInfo, exif);
             }
+            // Disable button if image is missing EXIF data or
+            // overlay has already been applied
+            overlayBtn.setEnabled(exif != null
+                    && !ExifHelper.getExtra(exif, "Markup", false));
             setText(dateText, dateTime);
             setText(caption, imageCaption);
             if (PreferenceManager.getDefaultSharedPreferences(

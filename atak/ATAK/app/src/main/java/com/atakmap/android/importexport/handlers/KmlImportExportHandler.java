@@ -15,6 +15,7 @@ import com.atakmap.android.ipc.AtakBroadcast;
 import com.atakmap.android.maps.MapGroup;
 import com.atakmap.android.maps.MapView;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
 
 import java.io.ByteArrayInputStream;
@@ -186,28 +187,30 @@ public class KmlImportExportHandler {
 
         String[] theList = null;
         if (kmlFolder != null) {
-            if (!kmlFolder.exists()) {
-                if (!kmlFolder.mkdir()) {
+            if (!IOProviderFactory.exists(kmlFolder)) {
+                if (!IOProviderFactory.mkdir(kmlFolder)) {
                     Log.d(TAG,
                             " Failed to make dir at "
                                     + kmlFolder.getAbsolutePath());
                 }
             }
-            if (kmlFolder.exists() && mExternalStorageAvailable) {
-                theList = kmlFolder.list(new FilenameFilter() {
+            if (IOProviderFactory.exists(kmlFolder)
+                    && mExternalStorageAvailable) {
+                theList = IOProviderFactory.list(kmlFolder,
+                        new FilenameFilter() {
 
-                    @Override
-                    public boolean accept(File dir, String filename) {
-                        if (((filename.endsWith(".kml")) || (filename
-                                .endsWith(".kmz")))
-                                && !filename.startsWith(".")) {// make sure it's not hidden
-                            Log.d(TAG, "Kml Found: " + filename);
-                            return true;
-                        }
-                        return false;
-                    }
+                            @Override
+                            public boolean accept(File dir, String filename) {
+                                if (((filename.endsWith(".kml")) || (filename
+                                        .endsWith(".kmz")))
+                                        && !filename.startsWith(".")) {// make sure it's not hidden
+                                    Log.d(TAG, "Kml Found: " + filename);
+                                    return true;
+                                }
+                                return false;
+                            }
 
-                });
+                        });
             }
         }
         return theList;

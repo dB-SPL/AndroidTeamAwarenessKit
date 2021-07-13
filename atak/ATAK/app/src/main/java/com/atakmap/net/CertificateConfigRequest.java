@@ -4,6 +4,7 @@ package com.atakmap.net;
 import android.os.Parcel;
 import android.os.Parcelable;
 
+import com.atakmap.annotations.DeprecatedApi;
 import com.atakmap.comms.NetConnectString;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
 import com.foxykeep.datadroid.requestmanager.Request;
@@ -19,11 +20,13 @@ public class CertificateConfigRequest implements Parcelable {
     private final String username;
     private final String password;
     private boolean hasTruststore;
+    private Long expiration;
 
-    /*
-        @deprecated Certificate Enrollment only stores certificates with the connection
-    */
+    /**
+     * @deprecated Certificate Enrollment only stores certificates with the connection
+     */
     @Deprecated
+    @DeprecatedApi(since = "4.1")
     private boolean saveAsDefault;
 
     private boolean allowAllHostnames;
@@ -43,6 +46,14 @@ public class CertificateConfigRequest implements Parcelable {
         this.hasTruststore = false;
         this.saveAsDefault = false;
         this.allowAllHostnames = false;
+    }
+
+    public CertificateConfigRequest(
+            String connectString, String cacheCreds, String description,
+            String username, String password, Long expiration) {
+
+        this(connectString, cacheCreds, description, username, password);
+        this.expiration = expiration;
     }
 
     public boolean isValid() {
@@ -81,18 +92,28 @@ public class CertificateConfigRequest implements Parcelable {
         this.hasTruststore = hasTruststore;
     }
 
-    /*
-        @deprecated Certificate Enrollment only stores certificates with the connection
-    */
+    public Long getExpiration() {
+        return expiration;
+    }
+
+    public void setExpiration(Long expiration) {
+        this.expiration = expiration;
+    }
+
+    /**
+     * @deprecated Certificate Enrollment only stores certificates with the connection
+     */
     @Deprecated
+    @DeprecatedApi(since = "4.1")
     public boolean getSaveAsDefault() {
         return saveAsDefault;
     }
 
-    /*
-        @deprecated Certificate Enrollment only stores certificates with the connection
-    */
+    /**
+     * @deprecated Certificate Enrollment only stores certificates with the connection
+     */
     @Deprecated
+    @DeprecatedApi(since = "4.1")
     public void setSaveAsDefault(boolean saveAsDefault) {
         this.saveAsDefault = saveAsDefault;
     }
@@ -125,6 +146,7 @@ public class CertificateConfigRequest implements Parcelable {
             dest.writeByte((byte) (hasTruststore ? 1 : 0));
             dest.writeByte((byte) (saveAsDefault ? 1 : 0));
             dest.writeByte((byte) (allowAllHostnames ? 1 : 0));
+            dest.writeLong(expiration);
         }
     }
 
@@ -151,6 +173,7 @@ public class CertificateConfigRequest implements Parcelable {
         hasTruststore = in.readByte() != 0;
         saveAsDefault = in.readByte() != 0;
         allowAllHostnames = in.readByte() != 0;
+        expiration = in.readLong();
     }
 
     @Override

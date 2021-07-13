@@ -3,9 +3,7 @@ package com.atakmap.android.importfiles.sort;
 
 import android.content.Context;
 import android.content.Intent;
-import android.content.SharedPreferences;
 import android.net.Uri;
-import android.preference.PreferenceManager;
 import android.util.Pair;
 
 import com.atakmap.android.bluetooth.BluetoothDevicesConfig;
@@ -16,22 +14,18 @@ import com.atakmap.android.importfiles.ui.ImportManagerView;
 import com.atakmap.android.ipc.AtakBroadcast;
 import com.atakmap.android.layers.LayersManagerBroadcastReceiver;
 import com.atakmap.android.layers.LayersMapComponent;
-import com.atakmap.android.tools.ActionBarReceiver;
-import com.atakmap.android.tools.menu.AtakActionBarListData;
-import com.atakmap.android.tools.menu.AtakActionBarMenuData;
 import com.atakmap.android.util.NotificationUtil;
 import com.atakmap.android.wfs.WFSImporter;
 import com.atakmap.app.R;
 import com.atakmap.app.preferences.GeocoderPreferenceFragment;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.map.layer.feature.wfs.XMLWFSSchemaHandler;
 
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
-import java.io.FileInputStream;
-import java.io.FileNotFoundException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.util.Set;
@@ -67,6 +61,10 @@ final public class ImportTXTSort extends ImportInternalSDResolver {
             this.folder = folder;
             this.action = action;
         }
+
+        public String toString() {
+            return signature + ": " + folder;
+        }
     }
 
     /**
@@ -97,9 +95,6 @@ final public class ImportTXTSort extends ImportInternalSDResolver {
         addSignature("<NominatimProperties",
                 GeocoderPreferenceFragment.ADDRESS_DIR, geocoderaction);
         addSignature("<devices", BluetoothDevicesConfig.DIRNAME, null);
-        addSignature("<AtakActionBar",
-                FileSystemUtils.CONFIG_DIRECTORY + "/actionbars",
-                actionbaraction); // config directory
         addSignature(XMLWFSSchemaHandler.WFS_CONFIG_ROOT, "wfs", wfsaction); // ATAK/wfs
         addSignature(FavoriteListAdapter.FAVS, FavoriteListAdapter.DIRNAME,
                 favaction);
@@ -112,20 +107,11 @@ final public class ImportTXTSort extends ImportInternalSDResolver {
 
         // it is a .xml or .txt, now lets see if content inspection passes
         TxtType t = null;
-        FileInputStream fis = null;
-        try {
-            t = getType(fis = new FileInputStream(file));
-        } catch (FileNotFoundException e) {
+        try (InputStream fis = IOProviderFactory.getInputStream(file)) {
+            t = getType(fis);
+        } catch (IOException e) {
             Log.e(TAG, "Failed to match TXT file: " + file.getAbsolutePath(),
                     e);
-        } finally {
-            if (fis != null) {
-                try {
-                    fis.close();
-                } catch (IOException ignore) {
-                    Log.e(TAG, "error closing stream");
-                }
-            }
         }
 
         return t != null;
@@ -168,20 +154,11 @@ final public class ImportTXTSort extends ImportInternalSDResolver {
     public File getDestinationPath(File file) {
 
         TxtType t = null;
-        FileInputStream fis = null;
-        try {
-            t = getType(fis = new FileInputStream(file));
-        } catch (FileNotFoundException e) {
+        try (InputStream is = IOProviderFactory.getInputStream(file)) {
+            t = getType(is);
+        } catch (IOException e) {
             Log.e(TAG, "Failed to match TXT file: " + file.getAbsolutePath(),
                     e);
-        } finally {
-            if (fis != null) {
-                try {
-                    fis.close();
-                } catch (IOException ignore) {
-                    Log.e(TAG, "error closing stream");
-                }
-            }
         }
 
         if (t == null) {
@@ -218,36 +195,11 @@ final public class ImportTXTSort extends ImportInternalSDResolver {
         }
     };
 
-    private TxtType.AfterAction geocoderaction = new TxtType.AfterAction() {
+    private final TxtType.AfterAction geocoderaction = new TxtType.AfterAction() {
         @Override
         public void doAction(File dst) {
             Log.d(TAG, "notify that a new geocoder file was imported: " + dst);
             GeocoderPreferenceFragment.load(dst);
-        }
-    };
-
-    private TxtType.AfterAction actionbaraction = new TxtType.AfterAction() {
-        @Override
-        public void doAction(File dst) {
-            Log.d(TAG, "notify that a new actionbar file was imported: " + dst);
-            //switch to "default" layout, and reload action bar from new file
-            SharedPreferences prefs = PreferenceManager
-                    .getDefaultSharedPreferences(_context);
-            SharedPreferences.Editor editor = prefs.edit();
-            editor.putString(
-                    AtakActionBarListData
-                            .getOrientationPrefName(
-                                    AtakActionBarMenuData.Orientation.landscape),
-                    AtakActionBarListData.DEFAULT_LABEL);
-            editor.putString(
-                    AtakActionBarListData
-                            .getOrientationPrefName(
-                                    AtakActionBarMenuData.Orientation.portrait),
-                    AtakActionBarListData.DEFAULT_LABEL);
-            editor.apply();
-
-            AtakBroadcast.getInstance().sendBroadcast(new Intent(
-                    ActionBarReceiver.RELOAD_ACTION_BAR));
         }
     };
 
@@ -311,24 +263,15 @@ final public class ImportTXTSort extends ImportInternalSDResolver {
 
         //special case import actions
         TxtType t;
-        FileInputStream fis = null;
-        try {
-            t = getType(fis = new FileInputStream(dst));
+        try (InputStream fis = IOProviderFactory.getInputStream(dst)) {
+            t = getType(fis);
             if (t != null && t.action != null)
                 t.action.doAction(dst);
-        } catch (FileNotFoundException e) {
+        } catch (IOException e) {
             Log.w(TAG,
                     "onFileSorted Failed to match TXT file: "
                             + dst.getAbsolutePath(),
                     e);
-        } finally {
-            if (fis != null) {
-                try {
-                    fis.close();
-                } catch (IOException ignore) {
-                    Log.e(TAG, "error closing stream");
-                }
-            }
         }
     }
 

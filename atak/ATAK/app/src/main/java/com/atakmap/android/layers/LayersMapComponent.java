@@ -6,7 +6,9 @@ import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
 
+import com.atakmap.android.data.ClearContentRegistry;
 import com.atakmap.android.data.URIContentManager;
+import com.atakmap.android.importexport.ImportExportMapComponent;
 import com.atakmap.android.ipc.AtakBroadcast.DocumentedIntentFilter;
 
 import android.content.SharedPreferences;
@@ -24,7 +26,6 @@ import android.widget.AdapterView.OnItemLongClickListener;
 import com.atakmap.android.contentservices.ServiceFactory;
 import com.atakmap.android.contentservices.ogc.WMSQuery;
 import com.atakmap.android.contentservices.ogc.WMTSQuery;
-import com.atakmap.android.data.DataMgmtReceiver;
 import com.atakmap.android.grg.GRGMapComponent;
 import com.atakmap.android.importexport.ImporterManager;
 import com.atakmap.android.ipc.AtakBroadcast;
@@ -39,8 +40,10 @@ import com.atakmap.app.DeveloperOptions;
 import com.atakmap.app.R;
 import com.atakmap.app.preferences.ToolsPreferenceFragment;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.coremap.maps.coords.GeoBounds;
+import com.atakmap.coremap.maps.coords.GeoCalculations;
 import com.atakmap.map.AtakMapView;
 import com.atakmap.map.layer.ProxyLayer;
 import com.atakmap.map.layer.feature.Feature;
@@ -60,6 +63,7 @@ import com.atakmap.map.layer.raster.RasterLayer2;
 import com.atakmap.map.layer.raster.mobileimagery.MobileImageryRasterLayer2;
 import com.atakmap.map.layer.raster.nativeimagery.NativeImageryRasterLayer2;
 import com.atakmap.math.Rectangle;
+import com.atakmap.android.importfiles.resource.RemoteResourceImporter;
 
 import java.io.File;
 import java.util.Collection;
@@ -85,8 +89,8 @@ public class LayersMapComponent extends AbstractMapComponent
     private static RasterDataStore.DatasetQueryParameters NATIVE_QUERY_PARAMS;
     private final static RasterDataStore.DatasetQueryParameters MOBILE_QUERY_PARAMS2;
     static {
-        if (!LAYERS_PRIVATE_DIR.exists()) {
-            if (!LAYERS_PRIVATE_DIR.mkdirs()) {
+        if (!IOProviderFactory.exists(LAYERS_PRIVATE_DIR)) {
+            if (!IOProviderFactory.mkdirs(LAYERS_PRIVATE_DIR)) {
                 Log.e(TAG, "Error creating directories");
             }
         }
@@ -110,18 +114,19 @@ public class LayersMapComponent extends AbstractMapComponent
     private Handler _contentHandler;
     private ContentObserver _contentObserver;
     private Map<String, LayerSelection> _layerSelections;
-    private LayerSelectionAdapter _nativeLayersAdapter;
-    private MobileLayerSelectionAdapter _mobileLayersAdapter2;
-    private LayersManagerBroadcastReceiver _layersManagerReceiver;
+    protected LayerSelectionAdapter _nativeLayersAdapter;
+    protected MobileLayerSelectionAdapter _mobileLayersAdapter2;
+    protected LayersManagerBroadcastReceiver _layersManagerReceiver;
     private ZoomToLayerReceiver _zoomToLayerReceiver;
     private MapView _mapView;
     private Context _context;
     private ExternalLayerDataImporter _externalLayerDataImporter;
-    private MobileOutlinesDataStore mobileOutlines;
-    private OutlinesFeatureDataStore nativeOutlines;
+    protected MobileOutlinesDataStore mobileOutlines;
+    protected OutlinesFeatureDataStore nativeOutlines;
     private FeatureLayer mobileOutlinesLayer;
     private FeatureLayer nativeOutlinesLayer;
     private LayerContentResolver _contentResolver;
+    private RemoteResourceImporter _kmlLinkImporter;
 
     public static final String IMPORTER_CONTENT_TYPE = "External Native Data";
     public static final String IMPORTER_DEFAULT_MIME_TYPE = "application/octet-stream";
@@ -132,13 +137,13 @@ public class LayersMapComponent extends AbstractMapComponent
             "inode/directory"
     };
     private final static String[] IMPORTER_HINTS = new String[] {
-            "pfps", "native", null
+            "native", null
     };
 
-    private AbstractDataStoreRasterLayer2 nativeLayers;
-    private AbstractDataStoreRasterLayer2 mobileLayers2;
+    protected AbstractDataStoreRasterLayer2 nativeLayers;
+    protected AbstractDataStoreRasterLayer2 mobileLayers2;
 
-    private CardLayer rasterLayers;
+    protected CardLayer rasterLayers;
 
     private Map<RasterLayer2, LayerSelectionAdapter> layerToAdapter;
 
@@ -196,13 +201,76 @@ public class LayersMapComponent extends AbstractMapComponent
         ServiceFactory.registerServiceQuery(wmsq = new WMSQuery());
         ServiceFactory.registerServiceQuery(wmtsq = new WMTSQuery());
 
-        initLayersDatabase();
-
         this.grgs.onCreate(context, intent, view);
 
         _mapView = view;
         _context = context;
         _layerSelections = new HashMap<>();
+
+        buildUpLayers(context, view, prefs);
+
+        prefs.registerOnSharedPreferenceChangeListener(this);
+        prefs.registerOnSharedPreferenceChangeListener(
+                controlPrefsChangedListener);
+
+        ToolsPreferenceFragment.register(
+                new ToolsPreferenceFragment.ToolPreference(
+                        "Map Data Preferences",
+                        "",
+                        "wmsPreferences",
+                        context.getResources().getDrawable(
+                                R.drawable.ic_menu_maps),
+                        new WMSPreferenceFragment()));
+    }
+
+    private void tearDownLayers() {
+        if (_layersManagerReceiver != null) {
+            AtakBroadcast.getInstance()
+                    .unregisterReceiver(_layersManagerReceiver);
+            _layersManagerReceiver.dispose();
+            _layersManagerReceiver = null;
+        }
+
+        for (LayerSelectionAdapter adapter : layerToAdapter.values())
+            adapter.dispose();
+        layerToAdapter.clear();
+        _nativeLayersAdapter = null;
+        _mobileLayersAdapter2 = null;
+
+        if (_contentResolver != null)
+            URIContentManager.getInstance()
+                    .unregisterResolver(_contentResolver);
+
+        if (this.rasterLayers != null)
+            this.rasterLayers.removeOnProxySubjectChangedListener(this);
+
+        if (this.nativeOutlinesLayer != null)
+            _mapView.removeLayer(RenderStack.VECTOR_OVERLAYS,
+                    this.nativeOutlinesLayer);
+        if (this.mobileOutlinesLayer != null)
+            _mapView.removeLayer(RenderStack.VECTOR_OVERLAYS,
+                    mobileOutlinesLayer);
+
+        if (this._zoomToLayerReceiver != null)
+            AtakBroadcast.getInstance()
+                    .unregisterReceiver(_zoomToLayerReceiver);
+
+        if (_volumeKeySwitcher != null)
+            _mapView.removeOnKeyListener(_volumeKeySwitcher);
+
+        if (_mapMovedListener != null)
+            _mapView.removeOnMapMovedListener(_mapMovedListener);
+
+        if (_externalLayerDataImporter != null)
+            ImporterManager.unregisterImporter(_externalLayerDataImporter);
+
+        if (this.rasterLayers != null)
+            _mapView.removeLayer(RenderStack.MAP_LAYERS, this.rasterLayers);
+    }
+
+    private void buildUpLayers(Context context, MapView view,
+            SharedPreferences prefs) {
+        initLayersDatabase();
 
         // create the layers
         this.rasterLayers = new CardLayer("Raster Layers");
@@ -241,7 +309,7 @@ public class LayersMapComponent extends AbstractMapComponent
                 view,
                 context);
         _mobileLayersAdapter2 = new MobileLayerSelectionAdapter(
-                (MobileImageryRasterLayer2) this.mobileLayers2,
+                rasterLayers, (MobileImageryRasterLayer2) this.mobileLayers2,
                 mobileOutlines,
                 view,
                 context);
@@ -255,9 +323,9 @@ public class LayersMapComponent extends AbstractMapComponent
         RasterDataStore.DatasetQueryParameters outlinesFilter = new RasterDataStore.DatasetQueryParameters();
         outlinesFilter.remoteLocalFlag = RasterDataStore.DatasetQueryParameters.RemoteLocalFlag.LOCAL;
 
-        _mapView.addLayer(MapView.RenderStack.VECTOR_OVERLAYS, 0,
+        _mapView.addLayer(RenderStack.VECTOR_OVERLAYS, 0,
                 nativeOutlinesLayer);
-        _mapView.addLayer(MapView.RenderStack.VECTOR_OVERLAYS, 1,
+        _mapView.addLayer(RenderStack.VECTOR_OVERLAYS, 1,
                 mobileOutlinesLayer);
 
         _zoomToLayerReceiver = new ZoomToLayerReceiver(view,
@@ -268,15 +336,6 @@ public class LayersMapComponent extends AbstractMapComponent
                 .addAction("com.atakmap.android.maps.ZOOM_TO_LAYER");
         AtakBroadcast.getInstance().registerReceiver(_zoomToLayerReceiver,
                 zoomToLayerFilter);
-
-        ToolsPreferenceFragment.register(
-                new ToolsPreferenceFragment.ToolPreference(
-                        "Map Data Preferences",
-                        "",
-                        "wmsPreferences",
-                        context.getResources().getDrawable(
-                                R.drawable.ic_menu_maps),
-                        new WMSPreferenceFragment()));
 
         _layersManagerReceiver = new LayersManagerBroadcastReceiver(
                 view,
@@ -310,10 +369,8 @@ public class LayersMapComponent extends AbstractMapComponent
         AtakBroadcast.getInstance().registerReceiver(_layersManagerReceiver,
                 filter);
 
-        DocumentedIntentFilter zeroizeFilter = new DocumentedIntentFilter();
-        zeroizeFilter.addAction(DataMgmtReceiver.ZEROIZE_CONFIRMED_ACTION);
-        AtakBroadcast.getInstance().registerReceiver(_layersManagerReceiver,
-                zeroizeFilter);
+        ClearContentRegistry.getInstance()
+                .registerListener(_layersManagerReceiver.dataMgmtReceiver);
 
         _volumeKeySwitcher = VolumeSwitchManager
                 .getInstance(_mapView);
@@ -323,8 +380,6 @@ public class LayersMapComponent extends AbstractMapComponent
         _mapView.addOnKeyListener(_volumeKeySwitcher);
 
         _mapView.addOnMapMovedListener(_mapMovedListener);
-
-        prefs.registerOnSharedPreferenceChangeListener(this);
 
         mobileOutlines.setOutlineColor(Color.parseColor(prefs.getString(
                 "pref_layer_outline_color", "#ff00ff00")));
@@ -336,8 +391,6 @@ public class LayersMapComponent extends AbstractMapComponent
 
         _volumeKeySwitcher.setEnabled(prefs.getBoolean("volumemapswitcher",
                 true));
-        prefs.registerOnSharedPreferenceChangeListener(
-                controlPrefsChangedListener);
 
         _externalLayerDataImporter = new ExternalLayerDataImporter(context,
                 layersDb,
@@ -345,7 +398,7 @@ public class LayersMapComponent extends AbstractMapComponent
         ImporterManager.registerImporter(_externalLayerDataImporter);
         // TODO: Marshal for external layers?
 
-        _mapView.addLayer(MapView.RenderStack.MAP_LAYERS, 0, this.rasterLayers);
+        _mapView.addLayer(RenderStack.MAP_LAYERS, 0, this.rasterLayers);
 
         // Start layers up when map is resized
         if (_mapView.getWidth() == 0) {
@@ -364,6 +417,9 @@ public class LayersMapComponent extends AbstractMapComponent
         }
 
         this.mapControls = new MapControlsOverlay(_mapView);
+
+        ImportExportMapComponent.getInstance().addImporterClass(
+                _kmlLinkImporter = new RemoteResourceImporter(view));
     }
 
     private void _initializeLayers() {
@@ -411,19 +467,6 @@ public class LayersMapComponent extends AbstractMapComponent
     }
 
     private void refreshRasterDataStores(final boolean selectLast) {
-
-        Thread dbQueryThread = new Thread(new Runnable() {
-            @Override
-            public void run() {
-                refreshRasterDataStoresImpl(selectLast);
-            }
-        }, "RefreshTilesetThread");
-        dbQueryThread.setPriority(Thread.MIN_PRIORITY);
-
-        dbQueryThread.start();
-    }
-
-    private void refreshRasterDataStoresImpl(boolean selectLast) {
         //long s = SystemClock.elapsedRealtime();
         if (DeveloperOptions.getIntOption("force-layer-rebuild", 0) == 1)
             layersDb.clear();
@@ -467,6 +510,9 @@ public class LayersMapComponent extends AbstractMapComponent
 
         this.mapControls.dispose();
 
+        ClearContentRegistry.getInstance()
+                .unregisterListener(_layersManagerReceiver.dataMgmtReceiver);
+
         AtakBroadcast.getInstance().unregisterReceiver(_layersManagerReceiver);
         _layersManagerReceiver = null;
 
@@ -492,27 +538,7 @@ public class LayersMapComponent extends AbstractMapComponent
 
         _volumeKeySwitcher = null;
 
-        _layerSelections.clear();
-        _layerSelections = null;
-
-        _nativeLayersAdapter.dispose();
-        _nativeLayersAdapter = null;
-        _mobileLayersAdapter2.dispose();
-        _mobileLayersAdapter2 = null;
-
-        if (this.nativeOutlinesLayer != null) {
-            _mapView.removeLayer(RenderStack.VECTOR_OVERLAYS,
-                    nativeOutlinesLayer);
-            this.nativeOutlinesLayer = null;
-        }
-        if (this.mobileOutlinesLayer != null) {
-            _mapView.removeLayer(RenderStack.VECTOR_OVERLAYS,
-                    mobileOutlinesLayer);
-            this.mobileOutlinesLayer = null;
-        }
-        if (this.rasterLayers != null) {
-            _mapView.removeLayer(RenderStack.MAP_LAYERS, this.rasterLayers);
-        }
+        destroyMapViewLayers();
 
         PreferenceManager.getDefaultSharedPreferences(context)
                 .unregisterOnSharedPreferenceChangeListener(
@@ -536,37 +562,37 @@ public class LayersMapComponent extends AbstractMapComponent
             this.mobileOutlines = null;
         }
 
-        // dispose of the data store
-        synchronized (LayersMapComponent.class) {
-            final RasterDataStore oldConn = layersDb;
-            layersDb = null;
-
-            if (ScanLayersService.getInstance().cancel(250L)) {
-                // cancel the scan and dispose the datastore
-                oldConn.dispose();
-            } else {
-                // XXX - not sure what the implications are of this continuing
-                //       to spin after the activity is destroyed -- need to make
-                //       use of InteractiveServiceProvider API to issue cancel
-                //       the SPIs for orderly cancellation handling
-
-                // spin off shutdown into a background thread to prevent the
-                // app from getting hung on destroy
-                Thread t = new Thread(TAG + "-Destroy") {
-                    @Override
-                    public void run() {
-                        // force any scan to stop and join
-                        ScanLayersService.getInstance().cancel(0L);
-
-                        oldConn.dispose();
-                    }
-                };
-                t.start();
-            }
-        }
+        cancelScanLayersService(250L);
 
         if (this.grgs != null)
             this.grgs.onDestroy(context, view);
+
+        ImportExportMapComponent.getInstance().removeImporterClass(
+                _kmlLinkImporter);
+    }
+
+    private void destroyMapViewLayers() {
+        _layerSelections.clear();
+        _layerSelections = null;
+
+        _nativeLayersAdapter.dispose();
+        _nativeLayersAdapter = null;
+        _mobileLayersAdapter2.dispose();
+        _mobileLayersAdapter2 = null;
+
+        if (this.nativeOutlinesLayer != null) {
+            _mapView.removeLayer(RenderStack.VECTOR_OVERLAYS,
+                    nativeOutlinesLayer);
+            this.nativeOutlinesLayer = null;
+        }
+        if (this.mobileOutlinesLayer != null) {
+            _mapView.removeLayer(RenderStack.VECTOR_OVERLAYS,
+                    mobileOutlinesLayer);
+            this.mobileOutlinesLayer = null;
+        }
+        if (this.rasterLayers != null) {
+            _mapView.removeLayer(RenderStack.MAP_LAYERS, this.rasterLayers);
+        }
     }
 
     private void showLastViewedLayer() {
@@ -674,6 +700,37 @@ public class LayersMapComponent extends AbstractMapComponent
         _volumeKeySwitcher.setActiveAdapter(active);
     }
 
+    private void cancelScanLayersService(long mainThreadWaitMS) {
+        // dispose of the data store
+        synchronized (LayersMapComponent.class) {
+            final RasterDataStore oldConn = layersDb;
+            layersDb = null;
+
+            if (ScanLayersService.getInstance().cancel(mainThreadWaitMS)) {
+                // cancel the scan and dispose the datastore
+                oldConn.dispose();
+            } else {
+                // XXX - not sure what the implications are of this continuing
+                //       to spin after the activity is destroyed -- need to make
+                //       use of InteractiveServiceProvider API to issue cancel
+                //       the SPIs for orderly cancellation handling
+
+                // spin off shutdown into a background thread to prevent the
+                // app from getting hung on destroy
+                Thread t = new Thread(TAG + "-Destroy") {
+                    @Override
+                    public void run() {
+                        // force any scan to stop and join
+                        ScanLayersService.getInstance().cancel(0L);
+
+                        oldConn.dispose();
+                    }
+                };
+                t.start();
+            }
+        }
+    }
+
     /**************************************************************************/
 
     private static synchronized void initLayersDatabase() {
@@ -698,27 +755,87 @@ public class LayersMapComponent extends AbstractMapComponent
      * @return
      */
     static boolean isInView(MapView view, LayerSelection ls) {
-        GeoBounds bnds = view.getBounds();
-        return intersects(new Envelope(bnds.getWest(), bnds.getSouth(), 0d,
-                bnds.getEast(), bnds.getNorth(), 0d),
+        // quick check
+        if (Rectangle.contains(ls.getWest(),
+                ls.getSouth(),
+                ls.getEast(),
+                ls.getNorth(),
+                view.getLongitude(),
+                view.getLatitude())) {
+
+            return true;
+        }
+
+        final GeoBounds bnds = view.getBounds();
+        Envelope[] aois = new Envelope[2];
+        aois[0] = new Envelope(bnds.getWest(), bnds.getSouth(), 0d,
+                bnds.getEast(), bnds.getNorth(), 0d);
+
+        // if any of the bounds are missing, attempt to reconsitute
+        if (Double.isNaN(bnds.getNorth()) ||
+                Double.isNaN(bnds.getWest()) ||
+                Double.isNaN(bnds.getSouth()) ||
+                Double.isNaN(bnds.getEast())) {
+
+            // XXX - create a crude bounding box based on the focus point, the
+            //       nominal resolution and the dimensions
+            final double halfWidth = view.getWidth() / 2d;
+            final double halfHeight = view.getHeight() / 2d;
+            final double gsd = view.getMapResolution();
+            final double metersPerDegreeLat = GeoCalculations
+                    .approximateMetersPerDegreeLatitude(view.getLatitude());
+            final double metersPerDegreeLng = GeoCalculations
+                    .approximateMetersPerDegreeLongitude(view.getLatitude());
+            aois[0].minX = view.getLongitude()
+                    - ((gsd / metersPerDegreeLng) * halfWidth);
+            aois[0].maxX = view.getLongitude()
+                    + ((gsd / metersPerDegreeLng) * halfWidth);
+            aois[0].minY = Math.max(view.getLatitude()
+                    - ((gsd / metersPerDegreeLat) * halfHeight), -90d);
+            aois[0].maxY = Math.min(view.getLatitude()
+                    + ((gsd / metersPerDegreeLat) * halfHeight), 90d);
+
+            final boolean eastWrap = (aois[0].maxX > 180d);
+            final boolean westWrap = (aois[0].minX < -180d);
+            if (eastWrap && westWrap) {
+                aois[0].minX = -180d;
+                aois[0].maxX = 180d;
+            } else if (westWrap) {
+                aois[1] = new Envelope(360d + aois[0].minX, aois[0].minY,
+                        aois[0].minZ, 180d, aois[0].maxX, aois[0].maxZ);
+            } else if (eastWrap) {
+                aois[1] = new Envelope(-180d, aois[0].minY, aois[0].minZ,
+                        aois[0].maxX - 360d, aois[0].maxX, aois[0].maxZ);
+            }
+        }
+        // XXX - IDL crossing
+
+        // the bounds are only an estimation, so this test may return false
+        // negatives for non-planar projections (generally) or planar
+        // projections when the view vector is not nadir
+        return intersects(aois,
                 ls.getBounds());
     }
 
-    static boolean intersects(Envelope aoi, Geometry geom) {
+    static boolean intersects(Envelope[] aois, Geometry geom) {
         Envelope mbb = geom.getEnvelope();
-        if (!Rectangle.intersects(aoi.minX, aoi.minY,
-                aoi.maxX, aoi.maxY,
-                mbb.minX, mbb.minY,
-                mbb.maxX, mbb.maxY)) {
-
-            return false;
+        boolean aoiIsect = false;
+        for (Envelope aoi : aois) {
+            if (aoi == null)
+                continue;
+            aoiIsect |= Rectangle.intersects(aoi.minX, aoi.minY,
+                    aoi.maxX, aoi.maxY,
+                    mbb.minX, mbb.minY,
+                    mbb.maxX, mbb.maxY);
         }
+        if (!aoiIsect)
+            return false;
 
         if (geom instanceof GeometryCollection) {
             Collection<Geometry> children = ((GeometryCollection) geom)
                     .getGeometries();
             for (Geometry child : children)
-                if (intersects(aoi, child))
+                if (intersects(aois, child))
                     return true;
             return false;
         } else {
@@ -799,7 +916,7 @@ public class LayersMapComponent extends AbstractMapComponent
                                     entry.getKey(),
                                     entry.getValue().second);
                         } catch (Exception e) {
-                            Log.e(TAG, "error occured, feature not found", e);
+                            Log.e(TAG, "error occurred, feature not found", e);
                         }
                     }
                 }
@@ -948,13 +1065,15 @@ public class LayersMapComponent extends AbstractMapComponent
                                         File layerJournal = new File(
                                                 layer.getAbsolutePath()
                                                         + "-journal");
-                                        if (layerJournal.exists())
+                                        if (IOProviderFactory
+                                                .exists(layerJournal))
                                             FileSystemUtils
                                                     .delete(layerJournal);
                                     }
 
                                     // delete the physical file for the layer
-                                    if (layer != null && layer.exists())
+                                    if (layer != null
+                                            && IOProviderFactory.exists(layer))
                                         FileSystemUtils.delete(layer);
 
                                     // rescan for new layers

@@ -117,7 +117,6 @@
     <string name="alertPreferences">تفضيلات التنبيه</string>
     <string name="gridLinePreferences">تفضيلات الخط التربيعي </string>
     <string name="imageryLayerPreferences">تفضيلات حدود الطبقه التصويريه</string>
-    <string name="grgLayerPreferences">تفضيلات الخطوط الخارجيه للشبكة التربيعيه  </string>
     <string name="offscreenIndPreferences">تفضيلات  المؤشِرات خارج  الشاشه </string>
     <string name="elevationPreferences">  تفضيلات تراكُب طبقات  الارتفاع </string>
     <string name="importStylePreferences"> التفضيلات الافتراضيه  لنمط الاستيراد</string>
@@ -217,8 +216,7 @@
     <string name="fah_distance"> مسافةFAH(NM)</string>
     <string name="fah_distance_summary"> حجم الهجوم النهائي بالميل البحري .ملاحظه :اذا حددت القيمه على درجة(صفر),هذا الحجم من الليزر سوف يتكون بشكل اتوماتيكي كما هي المسافه من فوق الرؤوس بين المصمم والهدف او قيمة المسافه في الخط3 </string>
     <string name="laser_basket_distance"> مسافة  سلة  الليزر </string>
-    <string name="laser_basket_distance_summary">قيمة حجم او مقدار سلة  الليزر في الميل البحري     
-اذا هذه القيمة تضبط الى درجة صفر هذا المقدار يحسب اتوماتيكي كما هي المسافة بين محدد الهدف الليزري والهدف                               </string>
+    <string name="laser_basket_distance_summary">قيمة حجم او مقدار سلة  الليزر في الميل البحري     اذا هذه القيمة تضبط الى درجة صفر هذا المقدار يحسب اتوماتيكي كما هي المسافة بين محدد الهدف الليزري والهدف                               </string>
     <string name="laser_basket_measurements">قياسات سلة  الليزر</string>
     <string name="laser_basket_measurements_summary">تشغيل او تعطيل درجة القياسات تعرض على سلة  الليزر </string>
     <string name="spi_update_delay"> فترة تحديث النقاط المثيره للاهتمام</string>
@@ -248,7 +246,6 @@
     <string name="hostileUpdateSummary">  يتغير الوقت  بين التحديثات للعلامات المعاديه والوقت الذي تم فيها البث    .</string>
     <string name="media">مرفقات العلامات </string>
     <string name="loc_error">خطأ الموقع: %s</string>
-    <string name="dim_brightness_pref_key">تعتيم_الخريطة_بواسطة_مفتاح_السطوع</string>
     <!--تنبيه-->
     <string name="preferences_text1">عرض بَلاَغ  أندرويد أثناء حالة التنبه</string>
     <string name="preferences_text2">تنبيه  مسموع</string>
@@ -302,8 +299,7 @@
     <string name="preferences_text45">    حذف المواد او الفقرات من الجهاز بعد ان كانت قد انتهت الفائده منها في هذه الدقائق</string>
     <string name="preferences_text46">إزالة العلامات المجهولة عندما تصبح قديمة</string>
     <string name="preferences_text47">قم بالتفعيل لحذف أنواع العلامات المجهولة من الجهاز عندما يحين وقت إنتهاء صلاحيتها</string>
-    <string name="preferences_text48"> انهاء  التطبيق عند الضغط على زر الرجوع
-  </string>
+    <string name="preferences_text48"> انهاء  التطبيق عند الضغط على زر الرجوع </string>
     <string name="preferences_text49">     إنهاء التطبيق  عند الضغط على علامة الرجوع الموجوده على وجه الجهاز</string>
     <string name="preferences_text50">إسئل قبل إنهاء التطبيق  </string>
     <string name="preferences_text51">     سؤال فوري يطلب  إنهاء التطبيق  بدلاَ من الغلق مباشرة</string>
@@ -653,24 +649,12 @@ PRC-161,حيث بيانات الموقف ترسل عبر الشبكه –هذا 
     <string name="preferences_text333">استخدم لون مخصص</string>
     <string name="preferences_text334">تغيير/إنشاء لون مخصص</string>
     <string name="preferences_text335">إختيار لون مخصصr</string>
-    <!--TADIL-J-->
-    <string name="tadilj_settings">TADIL تفضيلات</string>
-    <string name="tadilj_id"> TADIL-J هويتي </string>
-    <string name="tadilj_id2">TADIL-J هويتي </string>
-    <string name="tadilj_self_type">اي نوع رساله تخصك عن الموقف تود ارسالها من TADIL-J</string>
-    <string name="tadilj_track_block">التي يجب ان يتم تعيينها ذاتيا الى المعاديه TADIL-Jهذا هو بداية الكتله هويات </string>
-    <string name="tadilj_settings_summary"> TADIL-Jإدارة  الإعدادات لرسائل </string>
-    <string name="managePersistedIdsSummary"> TADL-Jأنقر  لإدارة   استمرار ظهور هويات </string>
-    <string name="showTadiljIdsTitle"> TADIL-J هويات</string>
-    <string name="showTadiljIdsSummary"> اذا تم تاشير المستخدمين الاخرين سوف تظهر هويات TADIL-Jعلى الخارطة </string>
-    <string name="replaceTadiljIdsCallsignTitle"> TADIL-J بدل  علامة النداء مع هوية  </string>
-    <string name="replaceTadiljIdsCallsignSummary">في عرض احداثياتي, بدل علامة النداءمع هويةTADIL-J.</string>
+
     <string name="preferences_text336"> نوع موقفك  </string>
     <string name="preferences_text337"> رقم البدء لمقطع المسار </string>
     <string name="preferences_text338">إعادة ضبط  الرقم المعادِل  </string>
     <string name="preferences_text339">أعد ضبط الرقم المُعادِل   لمجموعة مسار  الارقام   إلى الصفر</string>
     <string name="preferences_text340">إدارة استمرار ظهور هوَيًات المستخدمين  </string>
-    <string name="preferences_text438"> TADIL-Jاعد ضبط الرقم المُعادل  </string>
     <!--الادوات  -->
     <string name="preferences_text341">إدارة الإضافات وتطبيقات اخرى  </string>
     <string name="preferences_text439">معلومات الاسناد</string>
@@ -1753,9 +1737,7 @@ PRC-161,حيث بيانات الموقف ترسل عبر الشبكه –هذا 
     <string name="details_text47">+30ثانيه</string>
     <string name="details_text48">-15ثانيه</string>
     <string name="details_text49">جاري إرفاق ملف</string>
-    <string name="details_text50">" TADIL-J أدخل معلومات: "</string>
     <string name="details_text51">الاتصال موجود مسبقا مع هوية المستخدم </string>
-    <string name="details_text52">"تنظيف DATEL-Jمن كل الاتصالات"</string>
     <string name="details_text53">"انتخاب 1 ,الحجم:"</string>
     <string name="details_text54">"انتخاب الكل, مجموع الحجم:"</string>
     <string name="details_text55"> يجب أن يكون الرقم المطلوب إضافته بين 11 و 15 رقما &gt;</string>
@@ -2120,7 +2102,6 @@ PRC-161,حيث بيانات الموقف ترسل عبر الشبكه –هذا 
     <string name="maps">خرائط</string>
     <string name="mobile">جوال</string>
     <string name="favs">تفضيلات</string>
-    <string name="grg">GRG\u0020 GRG</string>
     <string name="local">محلي</string>
     <string name="online">عبر الإنترنت</string>
     <string name="download_limit">لايمكن تنزيل اكثر من\u0020 %d في بلاطه واحده فوق الخارطه</string>
@@ -2595,8 +2576,8 @@ PRC-161,حيث بيانات الموقف ترسل عبر الشبكه –هذا 
     <string name="select_the_type_of_emergency">انتخب   نوع الطوارئ</string>
     <string name="send_sms_for_emergency">إرسال رسالة قصيرة للطوارئ:</string>
     <string name="must_select_emergency_type">يجب تحديد نوع الطوارئ أولاً</string>
-    <string name="emergency_notice_canceled">تم إلغاء ملاحظه%s</string>
-    <string name="emergency_notice_initiated">تمت تهيئة ملاحظه%s</string>
+    <string name="emergency_notice_canceled">تم إلغاء ملاحظه %s</string>
+    <string name="emergency_notice_initiated">تمت تهيئة ملاحظه %s</string>
     <string name="delete_emergency_alert">حذف تنبيه الطوارئ: %s</string>
     <string name="emergency_removing_alert">حذف تنبيه %s</string>
     <!-- Image Capture -->
@@ -2739,7 +2720,7 @@ PRC-161,حيث بيانات الموقف ترسل عبر الشبكه –هذا 
     <string name="url_invalid"> غير صحيح UR </string>
     <string name="importmgr_specify_valid_url_for_resource">يُرجى تحديد للمصادرURLصحيح</string>
     <string name="importmgr_invalid_refresh_rate">معدل تنشيط غير صحيح</string>
-    <string name="importmgr_specify_valid_refresh_rate_for_resource">يُرجى تحديد معدل تنشيط صحيح (لا يقل عن 30 ثانية) للمورد</string>
+    <string name="importmgr_specify_valid_refresh_rate_for_resource">يُرجى تحديد معدل تنشيط صحيح (لا يقل عن %d ثانية) للمورد</string>
     <string name="importmgr_remote_resource_configuration_received">تم استلام تهيئة المصدر البعيد</string>
     <string name="download_available_via_import_manager">%s يتوفر تنزيل بواسطة مدير الاستيراد</string>
     <string name="switch_orientation">تشغيل التوجه</string>
@@ -3342,7 +3323,7 @@ PRC-161,حيث بيانات الموقف ترسل عبر الشبكه –هذا 
     <string name="actionbar_quicknav">المستكشف السريع</string>
     <string name="actionbar_quickpic">صورة سريعة</string>
     <string name="actionbar_trackhistory">المسار المسجل</string>
-    <string name="actionbar_firetools">أدوات الدعم الجوي</string>
+    <string name="mil_actionbar_firetools">أدوات الدعم الجوي</string>
     <string name="actionbar_gallery">معرض الصور</string>
     <string name="actionbar_elevationtools">شريط التضاريس</string>
     <string name="actionbar_casevac">إجلاء المصابين</string>
@@ -3434,6 +3415,8 @@ PRC-161,حيث بيانات الموقف ترسل عبر الشبكه –هذا 
     <string name="remove_and_quit"> إزالة وإنهاء </string>
     <string name="continuous_rendering"> التقديم المستمر </string>
     <string name="continuous_rendering_summary">التقديم المستمر هو النموذج القديم لتحديث الرسومات على الشاشة وتم استبداله بآلية التقديم الأكثر كفاءة. قم بتمكين هذه الميزة فقط إذا كانت هناك مشكلات متعلقة بالعرض عند استخدام البرنامج.</string>
+    <string name="developer_tools">Developer Tools</string>
+    <string name="developer_tools_summary">Enable the Developer Tools in the Overlay Manager</string>
     <string name="resection_workflow"> سير العمل استئصال </string>
     <string name="resection">استئصال</string>
     <string name="resection_options">خيارات الاستئصال</string>
@@ -3574,7 +3557,7 @@ PRC-161,حيث بيانات الموقف ترسل عبر الشبكه –هذا 
     <string name="video_meta_tgt">TGT --- -- ----- -----</string>
     <string name="cannot_delete_sdcard_file_msg">This file is in a read-only directory and cannot be deleted.</string>
     <string name="globe_display">Enable Globe Display Mode</string>
-    <string name="globe_display_summary">When enabled, will display the earth as a globe. The default is to display the earth flattened using Equirectangular Map Projection.</string>
+    <string name="globe_display_summary">The default is to display the earth as a globe. When disabled, display the earth flattened using Equirectangular Map Projection.</string>
     <string name="imagery_transparency">Imagery Transparency</string>
     <string name="map_controls">Map Controls</string>
     <string name="pref_mp_all_servers">Use All Servers</string>
@@ -3747,7 +3730,6 @@ PRC-161,حيث بيانات الموقف ترسل عبر الشبكه –هذا 
     <string name="invalid_input">Invalid Input</string>
     <string name="background_scanning">Scanning in background...</string>
     <string name="copied_to_clipboard_generic">Copied to clipboard...</string>
-    <string name="background_permission_warning">With Android 10, this application requires the location permission to be set to \'Allow all of the time\'</string>
     <string name="no_exporters_registered">No exporters registered</string>
 
     <string name="scanning_apps">Scanning available apps and plugins</string>
@@ -3794,5 +3776,165 @@ PRC-161,حيث بيانات الموقف ترسل عبر الشبكه –هذا 
     <string name="http_401_message">The server has refused the connection because the username or password may not be correct.</string>
     <string name="http_403_message">The server has refused the connection because the user may not have the appropriate permissions.</string>
 
+    <string name="new_folder">New Folder</string>
+    <string name="read_only_location_msg">This location is read-only.</string>
+    <string name="name_cannot_be_blank">Name cannot be blank.</string>
+    <string name="name_contains_invalid_chars">Name contains invalid characters.</string>
+    <string name="new_folder_failed">Failed to create new folder.</string>
+
+    <string name="show_urls">Show URLs</string>
+    <string name="next_restart">Setting will take effect on restart</string>
+    <string name="redeploy">Redeploy</string>
+    <string name="sure_next_restart">Are you sure you would like to redeploy the default WMS configuration files on the next restart?</string>
+
+    <string name="bloodhound_must_be_hounding_start">This patch definitely fixes ATAK-13090, but ATAK-13102 is still unresolved.</string>
+    <string name="bloodhound_must_be_in_route_mode">Must be in route mode to navigate.</string>
+    <string name="bloodhound_open_navigation">Open navigation interface.</string>
+    <string name="server_auth_error">Server Authentication Error</string>
+
+    <string name="civ_enable_grg_interact">Enable Image Overlay Map Interaction</string>
+    <string name="civ_enable_grg_interact_summ">Enable to allow interaction with Image Overlays on the map when the outline is visible.   If no outline is visible, then the Image Overlay cannot be interacted with.  If this is false, no interaction can occur even if the outline is visible.</string>
+    <string name="civ_delete_grg">Delete Image Overlay</string>
+    <string name="civ_grg_file">Image Overlay File</string>
+    <string name="civ_grg_lowercase">image overlay</string>
+
+    <string name="civ_SPI_prompt">Press the DP button to toggle between movable and pinned state. Long press to remove.</string>
+    <string name="civ_fire_control_prefs">Digital Pointer Toolbar Preferences</string>
+    <string name="civ_fires_prefs">Digital Pointer Preferences</string>
+    <string name="civ_adjust_fire_settings">Adjust preferences for the Digital Pointer toolbar</string>
+
+    <string name="civ_cot2525B" translatable="false">Markers</string>
+    <string name="civ_s2525B">Markers</string>
+
+    <string name="civ_default_cot_mapping">Default Mapping</string>
+
+
+    <string name="tadilj_settings">Datalink Preferences</string>
+    <string name="tadilj_id">My Datalink Id</string>
+    <string name="tadilj_id2">Datalink ID</string>
+    <string name="tadilj_self_type">Which type of Datalink message to send for self-SA messages</string>
+    <string name="tadilj_track_block">This is the start of the block of Datalink IDs that should be auto-assigned to hostiles</string>
+    <string name="tadilj_settings_summary">Manage settings for Datalink messages</string>
+    <string name="managePersistedIdsSummary">Tap to manage Persisted Datalink IDs</string>
+    <string name="showTadiljIdsTitle">Show Datalink IDs</string>
+    <string name="showTadiljIdsSummary">If checked other users\' Datalink IDs will appear on the map</string>
+    <string name="replaceTadiljIdsCallsignTitle">Replace s with Datalink ID</string>
+    <string name="replaceTadiljIdsCallsignSummary">In the Self Coordinate Display, replace the callsign with the Datalink ID</string>
+    <string name="preferences_text438">Reset Datalink offset</string>
+    <string name="details_text50">"Enter Datalink info: "</string>
+    <string name="details_text52">"Clear all Datalink contacts? "</string>
+
+
+    <string name="civ_stringSPIDesc">Toggle the DP tool.</string>
+    <string name="civ_quick_select_spi">Quick Select DP</string>
+
+    <string name="civ_tool_text31">The Digital Pointer (DP) has a menu item that when selected allows the DP to be dragged around the radius to correct issues introduced by the magnetic compass in the Laser Range Finder.   The red cone displays a 10 degree offset of either side of the reported shot to aid in correction.</string>
+    <string name="civ_place_local_spi">Place Local DP</string>
+    <string name="civ_spi_update_delay">DP Update Period</string>
+    <string name="civ_spi_update_delay_summary">The maximum delay between sending updates for the DP point, if enabled (in seconds) even if the DP is not modified.   Moving a DP point locally will generate updates immediately.</string>
+
+    <string name="civ_bloodhound_text9">Enable Auto Zoom feature to display self and DP in map view when tool is first launched</string>
+    <string name="civ_imagery_change_summ">In this version, the Image Overlay tab has been fully migrated to the Overlay Manager.\nImage Overlay files, in TIF or KMZ file format, should be placed in the atak/grg folder on either the sdcard or the internal memory.\n\nImagery based map products (pfps, native, layers) should now be placed in the atak/imagery folder either on the sdcard or the internal memory.\n\nOverlay products like KML, KMZ, LPT, DRW, etc should be placed in the atak/overlay folder either on the sdcard or internal memory.</string>
+    <string name="civ_point_dropper_text40">Invalid DP update delay set. Resetting to default value 5.</string>
+    <string translatable="false" name="repeater_in_contact">In Contact</string>
+    <string name="civ_fireSpiNumber">Number of DP</string>
+    <string name="civ_fireSpiNumberSummary">Number of DPs to show in the Digital Pointer toolbar</string>
+    <string name="civ_spi_redx_fah">DP/RedX FAH Width</string>
+    <string name="civ_spi_redx_fah_summary">Sets the width of the FAH cone (in degrees) when enabled from a DP or the Red X (rounds to the closest increment of 10)</string>
+
+    <!-- already a mil equiv -->
+    <string name="actionbar_firetools">Digital Pointer Tools</string>
+
+    <!-- possibly unused -->
+    <string name="civ_fire_tools_title">Digital Pointer Tools</string>
+
+    <!-- Even though this is the Distribution statement, we want it to
+         appear at the bottom and not floating above empty text blocks -->
+    <string name="caseLabel">Distribution Statement A: Approved for public release; distribution is unlimited.</string>
+
+    <!-- for filter names -->
+    <string name="civ_filter_title_markers">Markers</string>
+    <string name="civ_filter_title_hostiles">Red Markers</string>
+
+    <string name="mil_filter_title_marker">CoT 2525B</string>
+    <string name="mil_filter_title_hostiles">Hostile Markers</string>
+
+
+    <string name="mission_type">Mission Type</string>
+    <string name="indirect_fire">Indirect</string>
+
+
+    <string name="outline_colon">Outline:</string>
+    <string name="dar_encryptor_message">[%s Installed]</string>
+    <string name="chat_message_no_recipients">There are currently no online users in this group.</string>
+    <string name="pref_save_title">File name without extension (atak/config/prefs directory</string>
+    <string name="pref_billboard_distance_title">Billboard Render Distance</string>
+    <string name="pref_billboard_category">Attachment Billboards</string>
+    <string name="pref_billboard_distance_desc">Image attachment billboards within this distance will be shown while navigating.</string>
+    <string name="pref_billboard_enabled_title">Show Attachment Billboards</string>
+    <string name="pref_billboard_enabled_desc">Show image attachment billboards above markers while route navigation is active.</string>
+    <string name="plugin_warning">Plugin Warning</string>
+    <string name="plugin_warning_message">This build is running one or more plugins not officially signed.  Only plugins with a green shield are officially signed.</string>
+    <string name="see_more">See More</string>
+    <string name="officially_signed">This plugin is officially signed.</string>
+    <string name="not_officially_signed">This plugin is not officially signed.</string>
+    <string name="elevation_data">Elevation Data</string>
+    <string name="addendum">Addendum</string>
+    <string name="webview_not_installed">This display window is not supported because Android System Webview is not installed</string>
+
+
+    <string name="use_your_location_title">Use Your Location in the Background</string>
+    <string name="background_permission_warning">ATAK asks for the ability to collect location in the background so that when users are running ATAK and background it to perform other activities, it can continue to report the precise location to team members either on a local network of via a TAK Server that the user has configured to use.   The data is sent out to other team members to show the precise location of the individual helping with coordinating such things such as incident response, disaster relief, and personal safety.</string>
+    <string name="background_permission_warning_bullet">\t1) This data is not sent to the developers of the application.\n\t2) ATAK does not collect location data when the app is not running, only when it is backgrounded.</string>
+    <string name="background_permission_warning_action">This application requires the location permission to be set to \'Allow all of the time\'</string>
+    <string name="delete_elevation_data_warning">You cannot delete the entire elevation data set. Please select a specific set.</string>
+    <string name="are_you_sure_delete_elevation">Are you sure you want to delete %s elevation data?</string>
+    <string name="delete_elevation_please_lock">Please lock both switches to delete elevation</string>
+
+    <string name="resection_update_location_title">Update location?</string>
+    <string name="resection_update_location_message">Do you want to update your location to the resection estimate?\nLocation: %s</string>
+    <string name="resection_estimate_label">Provider: %1$s\nLocation: %2$s\nConfidence: %3$s</string>
+    <string name="resection_select_estimates_prompt_title">Select which location estimates to use</string>
+    <string name="resection_run_another_title">Run another Resection tool?</string>
+    <string name="resection_run_another_message">Do you want to run another Resection tool to get another estimate?</string>
+    <string name="resection_no_estimates_selected">No estimates were selected--unable to compute a location</string>
+    <string name="resection_classic_tool_description">Classic resection. Takes lines of bearing from observer\'s point to 2 or more landmarks</string>
+    <string name="resection_classic_tool_ideal_conditions">When there are landmarks you are able to identify and match to the map. Highest accuracy when angle between landmarks approaches 90 degrees</string>
+    <string name="resection_classic_tool_relative_accuracy">Dependent upon how accurately the landmarks and relative bearings are identified</string>
+    <string name="invalid_cot_address">Invalid output encountered, make sure the address does not contain the protocol or port</string>
+    <string name="image_overlay_hud">Image Overlay HUD</string>
+    <string name="image_overlay_warning">This option will permanently overlay metadata onto the image. Continue?</string>
+    <string name="kml_network_link">KML Network Link</string>
+    <string name="kml_links_added_msg">Added %d KML network links</string>
+    <string name="kml_links_added_failed_msg">Failed to add KML network links</string>
+    <string name="import_kml_network_link">Import KML Network Link</string>
+    <string name="kml_link_desc">%1$s (%2$d sub-links)</string>
+    <string name="resection_ideal_conditions_label">Ideal Conditions</string>
+    <string name="resection_relative_accuracy_label">Relative Accuracy</string>
+    <string name="resection_details_label">%s Details</string>
+    <string name="polygon_area_prompt">Tap points along the route wish to select.</string>
+    <string name="lasso_area_prompt">Drag to draw lasso around the area of interest.</string>
+    <string name="lasso">Lasso</string>
+    <string name="shapes">Shapes</string>
+    <string name="files">Files</string>
+    <string name="android_11_warning">Android 11 Warning</string>
+    <string name="android_11_warning_details">Android 11 restricts the use of GPS in the background.   To continue publishing your location when ATAK is in the background you need to manually grant ATAK the \'Allow all the time\' permission. You can access the Android Location Permission screen by selecting the Allow in Settings prompt when the Device Location\'s Permission screen is displayed.\n\nPlease note - ATAK does not collect GPS information while it is not running.</string>
+
+    <string name="http_code_message">Error %d - If you believe this is an error and do not have login credentials, click \'Cancel\'.   Please notify the server administrator.</string>
+    <string name="address_blank_error">Address cannot be blank</string>
+    <string name="address_invalid_error">Address is invalid %s</string>
+
+
+    <string name="location_perm_warning_1">In order to enable GPS usage while ATAK is running but in the background, you have two chances to enable this.</string>
+    <string name="location_perm_warning_2">WARNING: If you miss these chances, then you will need to do it manually. Android intentionally makes this difficult</string>
+    <string name="location_perm_warning_chance1">Chance 1: Click on \'Allow In Settings\'</string>
+    <string name="location_perm_warning_chance2">Chance 2: Click on \'Allow In Settings\'</string>
+    <string name="select_with_colon">Select:</string>
+    <string name="location_permission_guidance_1">In order to enable GPS usage while ATAK is running but in the background, perform the following steps.</string>
+    <string name="step_one_with_colon">Step 1:</string>
+    <string name="location_permission_step2">Step 2:</string>
+    <string name="location_permission_step3">Step 3:</string>
+    <string name="general_permission_step1">Step 1:</string>
+    <string name="general_permission_step2">Step 2: Review the Denied List</string>
 
 </resources>

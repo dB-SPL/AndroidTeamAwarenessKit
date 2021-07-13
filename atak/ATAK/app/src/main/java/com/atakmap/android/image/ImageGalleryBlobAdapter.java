@@ -13,8 +13,10 @@ import com.atakmap.android.hierarchy.filters.MultiFilter;
 import com.atakmap.android.hierarchy.items.AbstractChildlessListItem;
 import com.atakmap.android.hierarchy.items.MapItemUser;
 import com.atakmap.android.math.MathUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.locale.LocaleUtil;
 
+import com.atakmap.util.zip.IoUtils;
 import org.apache.sanselan.formats.tiff.TiffImageMetadata;
 import org.apache.sanselan.formats.tiff.constants.TiffConstants;
 
@@ -527,8 +529,9 @@ public class ImageGalleryBlobAdapter
             MediaMetadataRetriever retriever = new MediaMetadataRetriever();
 
             try {
-                tmpFile = File.createTempFile("vidblob", null);
-                fos = new FileOutputStream(tmpFile);
+                tmpFile = IOProviderFactory.createTempFile("vidblob", null,
+                        null);
+                fos = IOProviderFactory.getOutputStream(tmpFile);
                 fos.write(blobItem.getImageBytes());
                 fos.close();
                 fos = null;
@@ -548,13 +551,7 @@ public class ImageGalleryBlobAdapter
                     retriever.release();
                 } catch (RuntimeException ignored) {
                 }
-                if (fos != null) {
-                    try {
-                        fos.close();
-                    } catch (IOException e) {
-                        Log.w(TAG, "Failed to close tmp file stream", e);
-                    }
-                }
+                IoUtils.close(fos, TAG, "Failed to close tmp file stream");
                 if (tmpFile != null)
                     FileSystemUtils.delete(tmpFile);
             }
@@ -597,22 +594,14 @@ public class ImageGalleryBlobAdapter
         FileCache.Reservation<File> reservation = fileCache.reserve(cacheFile);
 
         if (reservation != null) {
-            if (!cacheFile.exists()) {
-                FileOutputStream fos = null;
+            if (!IOProviderFactory.exists(cacheFile)) {
 
-                try {
-                    fos = new FileOutputStream(cacheFile);
+                try (FileOutputStream fos = IOProviderFactory
+                        .getOutputStream(cacheFile)) {
                     fos.write(blobItem.getImageBytes());
                 } catch (Exception e) {
                     FileSystemUtils.delete(cacheFile);
                     cacheFile = null;
-                } finally {
-                    if (fos != null) {
-                        try {
-                            fos.close();
-                        } catch (Exception ignored) {
-                        }
-                    }
                 }
             }
             fileCache.unreserve(reservation);

@@ -34,7 +34,7 @@ public class MenuLayoutBase extends LayoutWidget implements
     private static final int RING_PADDING = 5;
 
     private final AtakMapView _atakMapView;
-    private MapItem _mapItem;
+    protected MapItem _mapItem;
     private final List<MapMenuFactory> _factories;
 
     private final SharedPreferences prefs;
@@ -43,7 +43,7 @@ public class MenuLayoutBase extends LayoutWidget implements
         void dispatchAction(MapAction mapAction, MapItem mapItem);
     }
 
-    private MapActionDispatcher _mapActionDispatcher;
+    protected MapActionDispatcher _mapActionDispatcher;
 
     @Override
     public void onClick(MotionEvent event) {
@@ -71,6 +71,7 @@ public class MenuLayoutBase extends LayoutWidget implements
 
     /**
      * Provide the current <a href="#{@link}">{@link MapItem}</a>
+     *
      * @return current MapItem for the displayed menu
      */
     public MapItem getMapItem() {
@@ -205,7 +206,7 @@ public class MenuLayoutBase extends LayoutWidget implements
     /**
      * Controls what actions are to be taken when a MapMenuButtonWidget is pressed.
      */
-    private void _addPressExpanders(final MapMenuWidget menuWidget) {
+    protected void _addPressExpanders(final MapMenuWidget menuWidget) {
         for (int i = 0; i < menuWidget.getChildCount(); ++i) {
             final MapMenuButtonWidget button = (MapMenuButtonWidget) menuWidget
                     .getChildAt(i);
@@ -259,9 +260,8 @@ public class MenuLayoutBase extends LayoutWidget implements
             if (parentButton.isDisabled())
                 childButton.setDisabled(true);
 
-            final float radius = submenuWidget._buttonRadius
-                    + parentButton.getButtonWidth()
-                    + RING_PADDING;
+            final float radius = getChildMenuRadius(submenuWidget,
+                    parentButton);
             childButton.setOrientation(childButton.getOrientationAngle(),
                     radius);
 
@@ -326,7 +326,14 @@ public class MenuLayoutBase extends LayoutWidget implements
         }
     }
 
-    private void _expandPressSubmenu(MapMenuWidget menuWidget,
+    protected float getChildMenuRadius(final MapMenuWidget submenuWidget,
+            final MapMenuButtonWidget parentButton) {
+        return submenuWidget._buttonRadius
+                + parentButton.getButtonWidth()
+                + RING_PADDING;
+    }
+
+    protected void _expandPressSubmenu(MapMenuWidget menuWidget,
             MapMenuButtonWidget parentButton) {
         MapMenuWidget submenuWidget = _openSubmenu(menuWidget, parentButton);
         if (submenuWidget != null) {
@@ -418,36 +425,48 @@ public class MenuLayoutBase extends LayoutWidget implements
         return totalWeight;
     }
 
-    private void layoutAsMenu(MapMenuWidget menuWidget) {
+    protected void layoutAsMenu(MapMenuWidget menuWidget) {
         final float totalWeight = cullAndWeighButtons(menuWidget, false);
         orientLayout(menuWidget, totalWeight);
     }
 
-    private void layoutAsSubmenu(MapMenuWidget menuWidget,
+    protected void layoutAsSubmenu(MapMenuWidget menuWidget,
             MapMenuButtonWidget parentButton) {
+
+        // get all buttons possible prior to culling, and their unit span
+        float submenuSpan = 0f; // an unreasonable default, but defined.
+        if (menuWidget.getExplicitSizing()) {
+            submenuSpan = menuWidget.getCoveredAngle()
+                    / menuWidget.getChildCount();
+        } else {
+            submenuSpan = parentButton.getButtonSpan();
+
+            // parentButton's orientation radius appears to be its inner dimension
+            // Size the submenu button for nominally equivalent arc length as its parent
+            final float parentRadius = parentButton.getOrientationRadius();
+            menuWidget.setInnerRadius(parentRadius);
+
+            final float parentWidth = parentButton.getButtonWidth();
+            menuWidget.setButtonWidth(parentWidth);
+        }
 
         // cull before we figure our dimensioning
         final float totalWeight = cullAndWeighButtons(menuWidget, true);
-        final float parentOrient = parentButton.getOrientationAngle();
-        final float parentWidth = parentButton.getButtonWidth();
-        // parentButton's orientation radius appears to be its inner dimension
-        // Size the submenu button for nominally equivalent arc length as its parent
-        final float parentRadius = parentButton.getOrientationRadius();
-        float submenuSpan = parentButton.getButtonSpan();
+
         float coveredAngle = submenuSpan * menuWidget.getChildCount();
         if (360f < coveredAngle) {
             submenuSpan = 360f / menuWidget.getChildCount();
             coveredAngle = 360f;
         }
+        menuWidget.setCoveredAngle(coveredAngle);
+
+        final float parentOrient = parentButton.getOrientationAngle();
         final float startingAngle = normalizeAngle(
                 menuWidget.isClockwiseWinding()
                         ? parentOrient + (coveredAngle - submenuSpan) / 2f
                         : parentOrient - (coveredAngle - submenuSpan) / 2f);
-
-        menuWidget.setCoveredAngle(coveredAngle);
         menuWidget.setStartAngle(startingAngle);
-        menuWidget.setInnerRadius(parentRadius);
-        menuWidget.setButtonWidth(parentWidth);
+
         orientLayout(menuWidget, totalWeight);
     }
 

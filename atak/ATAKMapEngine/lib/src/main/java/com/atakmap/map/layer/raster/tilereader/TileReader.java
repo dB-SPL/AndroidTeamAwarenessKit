@@ -12,13 +12,10 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.IdentityHashMap;
-import java.util.Iterator;
-import java.util.LinkedList;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import android.app.DownloadManager;
 import android.os.SystemClock;
 
 import com.atakmap.coremap.log.Log;
@@ -851,6 +848,9 @@ public abstract class TileReader implements Controls {
      *          image and tile dimensions.
      */
     public static int getNumResolutionLevels(long width, long height, long tileWidth, long tileHeight) {
+        if(tileWidth <= 0 || tileHeight <= 0)
+            throw new IllegalArgumentException();
+
         long numTilesX = (long) Math.ceil((double) width / (double) tileWidth);
         long numTilesY = (long) Math.ceil((double) height / (double) tileHeight);
 

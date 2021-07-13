@@ -9,8 +9,14 @@ import android.graphics.Color;
 import com.atakmap.android.icons.UserIcon;
 import com.atakmap.android.ipc.AtakBroadcast;
 import com.atakmap.android.maps.MapView;
+import com.atakmap.annotations.DeprecatedApi;
 import com.atakmap.coremap.maps.coords.GeoPoint;
 
+/**
+ * @deprecated use MarkerCreator to create and place markers
+ */
+@Deprecated
+@DeprecatedApi(since = "4.1", forRemoval = true, removeAt = "4.4")
 public class PlaceBroadcastReceiver extends BroadcastReceiver {
 
     public static final String TAG = "PlaceBroadcastReceiver";
@@ -27,9 +33,11 @@ public class PlaceBroadcastReceiver extends BroadcastReceiver {
      * @param intent the intent
      *
      * Do Not Use "com.atakmap.android.maps.PLACE" instead use MarkerCreator to create and place
-     * your markers.
-     * @deprecated
+     * your markers.  This should only be used by the radial menu actions.
+     * @deprecated use MarkerCreator to create and place markers
      */
+    @Deprecated
+    @DeprecatedApi(since = "4.1", forRemoval = true, removeAt = "4.4")
     @Override
     public void onReceive(Context context, Intent intent) {
         if ("com.atakmap.android.maps.PLACE".equals(intent.getAction())) {
@@ -75,6 +83,10 @@ public class PlaceBroadcastReceiver extends BroadcastReceiver {
             if (intent.getStringExtra("five_line") != null &&
                     intent.getStringExtra("five_line").equals("true")) {
                 markerCreator.setShowFiveLine(true);
+            }
+
+            if (intent.getStringExtra("action") != null) {
+                markerCreator.setAction(intent.getStringExtra("action"));
             }
 
             if (intent.hasExtra("show_new_radial") &&

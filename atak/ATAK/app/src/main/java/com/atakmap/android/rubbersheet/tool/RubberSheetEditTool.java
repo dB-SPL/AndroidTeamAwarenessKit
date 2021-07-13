@@ -16,19 +16,28 @@ import com.atakmap.android.maps.MapItem;
 import com.atakmap.android.maps.MapMode;
 import com.atakmap.android.maps.MapTouchController;
 import com.atakmap.android.maps.MapView;
-import com.atakmap.android.preference.AtakPreferences;
+import com.atakmap.android.preference.UnitPreferences;
 import com.atakmap.android.rubbersheet.maps.AbstractSheet;
-import com.atakmap.android.rubbersheet.maps.RubberSheetMapGroup;
 import com.atakmap.android.toolbar.ToolManagerBroadcastReceiver;
 import com.atakmap.android.toolbar.widgets.TextContainer;
 import com.atakmap.android.tools.ActionBarReceiver;
 import com.atakmap.android.tools.ActionBarView;
+import com.atakmap.android.util.ATAKUtilities;
+import com.atakmap.android.util.AltitudeUtilities;
 import com.atakmap.android.util.EditAction;
+import com.atakmap.android.widgets.LinearLayoutWidget;
+import com.atakmap.android.widgets.RootLayoutWidget;
+import com.atakmap.android.widgets.TextWidget;
 import com.atakmap.app.R;
+import com.atakmap.coremap.conversions.Angle;
+import com.atakmap.coremap.conversions.AngleUtilities;
 import com.atakmap.coremap.maps.coords.DistanceCalculations;
 import com.atakmap.coremap.maps.coords.GeoPoint;
 import com.atakmap.coremap.maps.coords.GeoPointMetaData;
+import com.atakmap.coremap.maps.coords.NorthReference;
 import com.atakmap.map.AtakMapController;
+import com.atakmap.map.MapRenderer2;
+import com.atakmap.map.MapSceneModel;
 
 /**
  * Rotation tool
@@ -52,9 +61,11 @@ public class RubberSheetEditTool extends RectangleEditTool
     protected final View[] _buttons = new View[5];
 
     protected final Context _context;
-    protected final AtakPreferences _prefs;
+    protected final UnitPreferences _prefs;
     protected final MapGroup _group;
     protected final TextContainer _cont;
+    protected final TextWidget _subText;
+    protected final LinearLayoutWidget _topEdge;
     protected AbstractSheet _sheet;
     protected double[] _p0, _p1, _p2, _p3;
     protected GeoPointMetaData[] _oldPoints;
@@ -67,7 +78,7 @@ public class RubberSheetEditTool extends RectangleEditTool
         super(mapView, null, null);
         _context = mapView.getContext();
         _identifier = TOOL_NAME;
-        _prefs = new AtakPreferences(mapView);
+        _prefs = new UnitPreferences(mapView);
         _group = group;
         _cont = TextContainer.getInstance();
         ToolManagerBroadcastReceiver.getInstance().registerTool(
@@ -88,6 +99,16 @@ public class RubberSheetEditTool extends RectangleEditTool
         _toolbar.findViewById(R.id.close).setOnClickListener(this);
         for (View v : _buttons)
             v.setOnClickListener(this);
+
+        // Widget for displaying heading/elevation
+        RootLayoutWidget root = (RootLayoutWidget) _mapView.getComponentExtra(
+                "rootLayoutWidget");
+        _topEdge = root.getLayout(RootLayoutWidget.TOP_EDGE);
+        _subText = new TextWidget("", 2);
+        _subText.setBackground(TextWidget.TRANSLUCENT_BLACK);
+        _subText.setMargins(0f, 4f, 0f, 0f);
+        _subText.setVisible(false);
+        _topEdge.addWidget(_subText);
     }
 
     @Override
@@ -95,6 +116,7 @@ public class RubberSheetEditTool extends RectangleEditTool
         super.dispose();
         ToolManagerBroadcastReceiver.getInstance().unregisterTool(
                 getIdentifier());
+        _topEdge.removeWidget(_subText);
     }
 
     @Override
@@ -158,11 +180,14 @@ public class RubberSheetEditTool extends RectangleEditTool
     public void onToolEnd() {
         if (_abReceiver.getToolView() == _toolbar)
             _abReceiver.setToolView(null, false);
+        if (_sheet != null && _sheet.hasMetaValue("archive"))
+            _sheet.persist(_mapView.getMapEventDispatcher(), null, getClass());
         unregisterListeners();
         _mapView.getMapController().tiltTo(_oldTilt, false);
         CompassArrowMapComponent.getInstance().enable3DControls(
                 _oldTiltEnabled);
         CompassArrowMapComponent.getInstance().enableSlider(true);
+        _subText.setVisible(false);
         super.onToolEnd();
     }
 
@@ -206,6 +231,31 @@ public class RubberSheetEditTool extends RectangleEditTool
             msg = _context.getString(R.string.rotate_sheet_tooltip);
         if (msg != null)
             _cont.displayPrompt(msg);
+        updateSubText();
+    }
+
+    protected void updateSubText() {
+        int mode = getMode();
+        if (mode == HEADING) {
+            double heading = _sheet.getHeading();
+            GeoPoint center = _sheet.getCenterPoint();
+            Angle unit = _prefs.getBearingUnits();
+            NorthReference ref = _prefs.getNorthReference();
+            if (ref == NorthReference.MAGNETIC)
+                heading = ATAKUtilities.convertFromTrueToMagnetic(center,
+                        heading);
+            else if (ref == NorthReference.GRID)
+                heading -= ATAKUtilities.computeGridConvergence(
+                        center, heading, _sheet.getLength() / 2);
+            _subText.setText(_context.getString(R.string.heading_fmt,
+                    AngleUtilities.format(heading, unit) + ref.getAbbrev()));
+        } else if (mode == ELEV)
+            _subText.setText(AltitudeUtilities.format(_sheet.getCenter()));
+        else {
+            _subText.setVisible(false);
+            return;
+        }
+        _subText.setVisible(true);
     }
 
     @Override
@@ -229,18 +279,22 @@ public class RubberSheetEditTool extends RectangleEditTool
 
         // Change sheet heading/rotation
         else if (mode == HEADING) {
-            if (type.equals(MapEvent.MAP_TILT))
-                event.getExtras().putBoolean("eventNotHandled", false);
-            else if (type.equals(MapEvent.MAP_ROTATE)) {
-                double ang = event.getExtras().getDouble("angle");
-                if (Double.isNaN(_startAngle))
-                    _startAngle = ang;
-                ang -= _startAngle;
-                rotate(ang);
-                event.getExtras().putBoolean("eventNotHandled", false);
-            } else if (type.equals(MapEvent.MAP_RELEASE)) {
-                run(new RotateAction(_sheet, _oldPoints));
-                reset();
+            switch (type) {
+                case MapEvent.MAP_TILT:
+                    event.getExtras().putBoolean("eventNotHandled", false);
+                    break;
+                case MapEvent.MAP_ROTATE:
+                    double ang = event.getExtras().getDouble("angle");
+                    if (Double.isNaN(_startAngle))
+                        _startAngle = ang;
+                    ang -= _startAngle;
+                    rotate(ang);
+                    event.getExtras().putBoolean("eventNotHandled", false);
+                    break;
+                case MapEvent.MAP_RELEASE:
+                    run(new RotateAction(_sheet, _oldPoints));
+                    reset();
+                    break;
             }
         }
 
@@ -260,6 +314,7 @@ public class RubberSheetEditTool extends RectangleEditTool
                 _center.get(), _p3[1] - ang, _p3[0]);
         _sheet.setPoints(GeoPointMetaData.wrap(p0), GeoPointMetaData.wrap(p1),
                 GeoPointMetaData.wrap(p2), GeoPointMetaData.wrap(p3));
+        updateSubText();
     }
 
     protected void reset() {
@@ -276,12 +331,20 @@ public class RubberSheetEditTool extends RectangleEditTool
 
         int mode = getMode();
         if (mode == HEADING && _center != null) {
-            _mapView.getMapController().tiltTo(0, false);
-            _mapView.getMapController().panTo(_center.get(), false);
+            final MapSceneModel sm = _mapView.getRenderer3().getMapSceneModel(
+                    false, MapRenderer2.DisplayOrigin.UpperLeft);
+            _mapView.getMapController().dispatchOnPanRequested();
+            _mapView.getRenderer3().lookAt(
+                    _center.get(),
+                    sm.gsd,
+                    sm.camera.azimuth,
+                    0d,
+                    false);
         }
         _sheet.setEditable(mode == DRAG);
         _mapView.getMapTouchController().setUserOrientation(freeRotate()
                 || mode == HEADING);
+        updateSubText();
     }
 
     @Override

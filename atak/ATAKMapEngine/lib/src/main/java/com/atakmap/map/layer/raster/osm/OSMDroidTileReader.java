@@ -1,20 +1,21 @@
 package com.atakmap.map.layer.raster.osm;
 
-import android.database.DatabaseErrorHandler;
-import android.database.sqlite.SQLiteDatabase;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 
+import com.atakmap.coremap.io.DatabaseInformation;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.database.CursorIface;
 import com.atakmap.database.DatabaseIface;
 import com.atakmap.database.Databases;
 import com.atakmap.database.QueryIface;
-import com.atakmap.database.android.AndroidDatabaseAdapter;
 import com.atakmap.map.layer.raster.tilepyramid.AbstractTilePyramidTileReader;
 import com.atakmap.map.layer.raster.tilereader.TileReader;
 import com.atakmap.map.layer.raster.tilereader.TileReaderSpi;
 import com.atakmap.map.layer.raster.tilereader.TileReaderFactory.Options;
+
+import java.io.File;
 
 public class OSMDroidTileReader extends AbstractTilePyramidTileReader {
 
@@ -36,31 +37,7 @@ public class OSMDroidTileReader extends AbstractTilePyramidTileReader {
             // try spatialite first
             database = null;
             try {
-                database = Databases.openDatabase(uri, true);
-                final TileReader retval = createImpl(uri, database, options);
-                if(retval != null) {
-                    database = null;
-                    return retval;
-                }
-            } catch(Throwable ignored) {
-            } finally {
-                if(database != null)
-                    database.close();
-            }
-            
-            // try android sqlite
-            database = null;
-            try {
-                database = new AndroidDatabaseAdapter(SQLiteDatabase.openDatabase(uri, null,
-                        SQLiteDatabase.OPEN_READONLY
-                        | SQLiteDatabase.NO_LOCALIZED_COLLATORS,
-                new DatabaseErrorHandler() {
-                    @Override
-                    public void onCorruption(SQLiteDatabase dbObj) {
-                        dbObj.close();
-                    }
-                }));
-
+                database = IOProviderFactory.createDatabase(new File(uri), DatabaseInformation.OPTION_READONLY);
                 final TileReader retval = createImpl(uri, database, options);
                 if(retval != null) {
                     database = null;
@@ -82,7 +59,7 @@ public class OSMDroidTileReader extends AbstractTilePyramidTileReader {
 
             DatabaseIface database = null;
             try {
-                database = Databases.openDatabase(uri, true);
+                database = IOProviderFactory.createDatabase(new File(uri), DatabaseInformation.OPTION_READONLY);
                 return OSMUtils.isOSMDroidSQLite(database);
             } catch(Exception e) {
                 return false;

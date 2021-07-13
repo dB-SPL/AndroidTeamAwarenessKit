@@ -7,6 +7,8 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.preference.PreferenceManager;
+import android.util.Log;
+
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
@@ -14,9 +16,15 @@ import com.atakmap.android.ipc.AtakBroadcast;
 import com.atakmap.android.overlay.DefaultMapGroupOverlay;
 import com.atakmap.android.routes.Route;
 import com.atakmap.android.routes.RouteMapReceiver;
-import com.atakmap.coremap.log.Log;
+import com.atakmap.annotations.DeprecatedApi;
+import com.atakmap.util.Disposable;
 
 import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 public class DoghouseReceiver extends BroadcastReceiver implements
         MapItem.OnVisibleChangedListener,
@@ -67,7 +75,7 @@ public class DoghouseReceiver extends BroadcastReceiver implements
 
     public static final String SHOW_NORTH_REF = "doghouseShowNorthReference";
 
-    private MapView _mapView;
+    private final MapView _mapView;
     private final DefaultMapGroupOverlay _overlay;
     private final MapGroup _doghouseGroup;
     private final DoghouseViewModel _viewModel;
@@ -132,7 +140,8 @@ public class DoghouseReceiver extends BroadcastReceiver implements
     }
 
     @NonNull
-    public static DoghouseReceiver newInstance(@NonNull MapView mapView) {
+    public synchronized static DoghouseReceiver newInstance(
+            @NonNull MapView mapView) {
         if (instance == null) {
             instance = new DoghouseReceiver(mapView);
         }
@@ -141,7 +150,7 @@ public class DoghouseReceiver extends BroadcastReceiver implements
     }
 
     @NonNull
-    public static DoghouseReceiver getInstance() {
+    public synchronized static DoghouseReceiver getInstance() {
         if (instance == null) {
             throw new IllegalStateException(
                     "instance is null. did you forget to call `create()` somewhere?");
@@ -164,7 +173,8 @@ public class DoghouseReceiver extends BroadcastReceiver implements
             route.addOnVisibleChangedListener(this);
             route.addOnStrokeColorChangedListener(this);
             route.addOnRouteMethodChangedListener(this);
-            route.addOnRoutePointsChangedListener(this);
+            // TODO: remove commented out line when method is removed
+            //            route.addOnRoutePointsChangedListener(this);
             route.addOnPointsChangedListener(this);
         } else if (MapEvent.ITEM_REMOVED.equals(event.getType())) {
             if (route.getRouteMethod() == Route.RouteMethod.Flying
@@ -174,7 +184,8 @@ public class DoghouseReceiver extends BroadcastReceiver implements
             route.removeOnVisibleChangedListener(this);
             route.removeOnStrokeColorChangedListener(this);
             route.removeOnRouteMethodChangedListener(this);
-            route.removeOnRoutePointsChangedListener(this);
+            // TODO: remove commented out line when method is removed
+            //            route.removeOnRoutePointsChangedListener(this);
             route.removeOnPointsChangedListener(this);
         }
     }
@@ -216,27 +227,36 @@ public class DoghouseReceiver extends BroadcastReceiver implements
 
     /**
      * If a route is edited, re-compute the doghouses for the new route points.
+     *
+     * Deprecating because I think that Shape.OnPointsChanged events are sufficient.
+     *
      * @param route The route that was edited
      */
     @Override
-    public void onRoutePointsChanged(Route route) {
-        Log.d("DoghouseReceiver", "State: onRoutePointsChanged");
-        Log.d("DoghouseReceiver", "Route: " + route.toString());
-        List<Doghouse> doghouses = _viewModel.getDoghousesForRoute(route);
+    @Deprecated
+    @DeprecatedApi(since = "4.2", forRemoval = true, removeAt = "4.5")
+    public void onRoutePointsChanged(final Route route) {
+        // TODO: Remove excessive debugging statements.
+        final List<Doghouse> doghouses = _viewModel.getDoghousesForRoute(route);
         if (doghouses != null) {
             for (int i = 0; i < route.getNumPoints() - 1; i++) {
                 Doghouse dh = doghouses.get(i);
                 PointMapItem pmi = route.getPointMapItem(i + 1);
-                String callsign = pmi.getTitle() != null
-                        ? pmi.getTitle()
-                        : pmi.getMetaString("callsign",
-                                Integer.toString(i + 1));
-                if (callsign == null || callsign.length() == 0) {
-                    callsign = Integer.toString(i + 1);
+                if (pmi != null) {
+                    String callsign = pmi.getTitle() != null
+                            ? pmi.getTitle()
+                            : pmi.getMetaString("callsign",
+                                    Integer.toString(i + 1));
+                    if (callsign == null || callsign.length() == 0) {
+                        callsign = Integer.toString(i + 1);
+                    }
+                    if (dh != null) {
+                        dh.setMetaString(
+                                Doghouse.DoghouseFields.NEXT_CHECKPOINT
+                                        .toString(),
+                                callsign);
+                    }
                 }
-                dh.setMetaString(
-                        Doghouse.DoghouseFields.NEXT_CHECKPOINT.toString(),
-                        callsign);
             }
         }
     }
@@ -246,11 +266,10 @@ public class DoghouseReceiver extends BroadcastReceiver implements
         if (!(s instanceof Route)) {
             return;
         }
-        Route route = (Route) s;
+        final Route route = (Route) s;
         if (route.getRouteMethod() == Route.RouteMethod.Flying
                 && route.getMetaBoolean(META_SHOW_DOGHOUSES, true)) {
-            _viewModel.removeDoghouses(route);
-            _viewModel.addDoghouses(route);
+            _viewModel.updateDoghouses(route);
         }
     }
 
@@ -278,6 +297,8 @@ public class DoghouseReceiver extends BroadcastReceiver implements
      * @param route The route to add Doghouses for
      * @deprecated Use {@link #addDoghousesForRoute(Route)}
      */
+    @Deprecated
+    @DeprecatedApi(since = "4.1", forRemoval = true, removeAt = "4.4")
     public void addDoghouse(@NonNull
     final Route route) {
         addDoghousesForRoute(route);
@@ -334,6 +355,8 @@ public class DoghouseReceiver extends BroadcastReceiver implements
      * @param route The route to remove doghouses for
      * @deprecated Use {@link #removeDoghousesForRoute(Route)}
      */
+    @Deprecated
+    @DeprecatedApi(since = "4.1", forRemoval = true, removeAt = "4.4")
     public void removeDoghouse(@NonNull
     final Route route) {
         removeDoghousesForRoute(route);

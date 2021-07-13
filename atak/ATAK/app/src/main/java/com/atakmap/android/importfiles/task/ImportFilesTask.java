@@ -10,6 +10,8 @@ import com.atakmap.android.importfiles.sort.ImportAlternateContactSort;
 import com.atakmap.android.importfiles.sort.ImportCertSort;
 import com.atakmap.android.importfiles.sort.ImportCotSort;
 import com.atakmap.android.importfiles.sort.ImportDRWSort;
+import com.atakmap.android.importfiles.sort.ImportGMLSort;
+import com.atakmap.android.importfiles.sort.ImportGMLZSort;
 import com.atakmap.android.importfiles.sort.ImportGPXSort;
 import com.atakmap.android.importfiles.sort.ImportGPXRouteSort;
 import com.atakmap.android.importfiles.sort.ImportGRGSort;
@@ -32,7 +34,9 @@ import com.atakmap.android.importfiles.sort.ImportTXTSort;
 import com.atakmap.android.importfiles.sort.ImportTilesetSort;
 import com.atakmap.android.importfiles.sort.ImportUserIconSetSort;
 import com.atakmap.android.importfiles.sort.ImportVideoSort;
+import com.atakmap.android.tools.ImportActionBarSort;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.map.layer.raster.ImageryFileType;
 
@@ -72,6 +76,7 @@ public class ImportFilesTask extends AsyncTask<Void, Void, Integer> {
         extensions.add("cot");
         extensions.add("sqlite");
         extensions.add("shp");
+        extensions.add("gml");
         extensions.add("gpx");
         extensions.add("jpg");
         extensions.add("jpeg");
@@ -80,11 +85,7 @@ public class ImportFilesTask extends AsyncTask<Void, Void, Integer> {
         extensions.add("inf");
         extensions.add("infz");
         extensions.add("apk");
-        extensions.add("ts");
-        extensions.add("mpg");
-        extensions.add("mpeg");
-        extensions.add("avi");
-        extensions.add("mp4");
+        extensions.addAll(ImportVideoSort.VIDEO_EXTENSIONS);
 
         // now pull in all supported native imagery extensions
         String[] exts;
@@ -222,6 +223,7 @@ public class ImportFilesTask extends AsyncTask<Void, Void, Integer> {
                 importInPlace));
         sorters.add(new ImportKMZSort(context, validateExt, copyFile,
                 importInPlace, bKMZStrict));
+        sorters.add(new ImportActionBarSort(context, validateExt, copyFile));
         sorters.add(new ImportTXTSort(context, ".xml", validateExt, copyFile));
         sorters.add(new ImportTXTSort(context, ".txt", validateExt, copyFile));
         sorters.add(new ImportAlternateContactSort(context, validateExt,
@@ -246,8 +248,16 @@ public class ImportFilesTask extends AsyncTask<Void, Void, Integer> {
         //sorters.add(new ImportImagerySort(context, validateExt, copyFile));
         sorters.add(new ImportSHPSort(context, validateExt, copyFile,
                 importInPlace));
+
         sorters.add(new ImportSHPZSort(context, validateExt, copyFile,
                 importInPlace));
+
+        sorters.add(new ImportGMLSort(context, validateExt, copyFile,
+                importInPlace));
+        sorters.add(new ImportGMLZSort(context, validateExt, copyFile,
+                importInPlace));
+
+
         sorters.add(new ImportDTEDZSort.ImportDTEDZv1Sort(context, validateExt,
                 copyFile,
                 importInPlace));
@@ -263,15 +273,7 @@ public class ImportFilesTask extends AsyncTask<Void, Void, Integer> {
         //  considered a video if validateExt is false
         // See ATAK-10892 - Files were previously falling through and being
         // accepted by the MPEG sorter if all other matchers failed
-        sorters.add(
-                new ImportVideoSort(context, ".mpeg", true, copyFile));
-        sorters.add(
-                new ImportVideoSort(context, ".mpg", true, copyFile));
-        sorters.add(new ImportVideoSort(context, ".ts", true, copyFile));
-        sorters.add(
-                new ImportVideoSort(context, ".avi", true, copyFile));
-        sorters.add(
-                new ImportVideoSort(context, ".mp4", true, copyFile));
+        sorters.add(new ImportVideoSort(context, true, copyFile));
 
         // now add dynamically registered importers
         // TODO we could further refactor all resolvers to be dynamically registered, and add
@@ -318,24 +320,24 @@ public class ImportFilesTask extends AsyncTask<Void, Void, Integer> {
         if (dir == null) {
             Log.d(TAG, "Import directory null.");
             return 0;
-        } else if (!dir.exists()) {
+        } else if (!IOProviderFactory.exists(dir)) {
             Log.d(TAG, "Import dir not found: " + dir.getAbsolutePath());
             return 0;
-        } else if (!dir.isDirectory()) {
+        } else if (!IOProviderFactory.isDirectory(dir)) {
             Log.d(TAG, "Import path not a directory: " + dir.getAbsolutePath());
             return 0;
         }
 
         Log.d(TAG, "Importing from directory: " + dir.getAbsolutePath());
         int numberSorted = 0;
-        File[] files = dir.listFiles();
+        File[] files = IOProviderFactory.listFiles(dir);
         if (files != null && files.length > 0) {
             for (File file : files) {
-                if (file == null || !file.exists())
+                if (file == null || !IOProviderFactory.exists(file))
                     continue;
 
                 // if subdir, recurse
-                if (file.isDirectory()) {
+                if (IOProviderFactory.isDirectory(file)) {
                     numberSorted += sort(file, sorters);
                     continue;
                 }
@@ -392,9 +394,9 @@ public class ImportFilesTask extends AsyncTask<Void, Void, Integer> {
         }
 
         // if no files left in this directory, remove it
-        files = dir.listFiles();
+        files = IOProviderFactory.listFiles(dir);
 
-        if (dir.exists() && dir.isDirectory()
+        if (IOProviderFactory.exists(dir) && IOProviderFactory.isDirectory(dir)
                 && (files == null || files.length < 1)) {
             Log.i(TAG, "Cleaning up empty directory: " + dir.getAbsolutePath());
             FileSystemUtils.delete(dir);

@@ -4,7 +4,9 @@ package com.atakmap.android.editableShapes;
 import com.atakmap.android.maps.MapView;
 import com.atakmap.android.maps.graphics.GLImageCache;
 import com.atakmap.android.maps.graphics.GLPolyline;
+import com.atakmap.app.DeveloperOptions;
 import com.atakmap.app.R;
+import com.atakmap.map.Globe;
 import com.atakmap.map.MapRenderer;
 import com.atakmap.map.opengl.GLMapView;
 import com.atakmap.map.opengl.GLRenderGlobals;
@@ -19,10 +21,18 @@ class GLEditablePolyline extends GLPolyline implements
     private boolean _editable;
     private final EditablePolyline _subject;
 
+    private boolean disableVertexPointDrawing = false;
+
     public GLEditablePolyline(MapRenderer surface, EditablePolyline subject) {
         super(surface, subject);
         _editable = subject.getEditable();
         _subject = subject;
+
+        // working around an issue with the MPU 5 and the GL_POINTS
+        // this is temporary and should be removed as soon as possible but for the
+        // purposes of 4.1.0.1, this is probably the least intrusive bandaid.
+        disableVertexPointDrawing = DeveloperOptions
+                .getIntOption("disable-vertex-points", 0) == 1;
     }
 
     @Override
@@ -44,8 +54,10 @@ class GLEditablePolyline extends GLPolyline implements
 
         super.draw(ortho, renderPass);
         int dragIndex = -1;
-        if (_editable && _verts2 != null
-                && (_subject.shouldDisplayVertices(ortho.drawMapScale)
+        if (_editable && _verts2 != null && currentDraw == ortho.drawVersion
+                && (_subject.shouldDisplayVertices(
+                        Globe.getMapResolution(ortho.getSurface().getDpi(),
+                                ortho.currentScene.drawMapResolution))
                         || _subject.hasMetaValue("dragInProgress")
                                 && (dragIndex = _subject.getMetaInteger(
                                         "hit_index", -1)) > -1)) {
@@ -82,8 +94,10 @@ class GLEditablePolyline extends GLPolyline implements
                         GLES20FixedPipeline.GL_TEXTURE_2D,
                         _vertexIconEntry.getTextureId());
                 // // HACK; don't actually need texture coords since these are points
-                GLES20FixedPipeline.glPointSize(Math
-                        .round(32 * MapView.DENSITY));
+                GLES20FixedPipeline.glPointSize(Math.max(Math
+                        .round(32 * MapView.DENSITY
+                                / (ortho.currentPass.relativeScaleHint / 2f)),
+                        1));
 
                 // Set up points at which to draw vertexes
                 GLES20FixedPipeline.glVertexPointer(_verts2Size,
@@ -91,14 +105,17 @@ class GLEditablePolyline extends GLPolyline implements
                 GLES20FixedPipeline.glEnableClientState(
                         GLES20FixedPipeline.GL_VERTEX_ARRAY);
 
-                if (dragIndex > -1 && dragIndex < this.numPoints) {
-                    // Draw single vertex being dragged
-                    GLES20FixedPipeline.glDrawArrays(
-                            GLES20FixedPipeline.GL_POINTS, dragIndex, 1);
-                } else {
-                    // Draw all vertices
-                    GLES20FixedPipeline.glDrawArrays(
-                            GLES20FixedPipeline.GL_POINTS, 0, this.numPoints);
+                if (!disableVertexPointDrawing) {
+                    if (dragIndex > -1 && dragIndex < this.numPoints) {
+                        // Draw single vertex being dragged
+                        GLES20FixedPipeline.glDrawArrays(
+                                GLES20FixedPipeline.GL_POINTS, dragIndex, 1);
+                    } else {
+                        // Draw all vertices
+                        GLES20FixedPipeline.glDrawArrays(
+                                GLES20FixedPipeline.GL_POINTS, 0,
+                                this.numPoints);
+                    }
                 }
 
                 // Disable features
@@ -114,7 +131,17 @@ class GLEditablePolyline extends GLPolyline implements
 
     @Override
     public void onEditableChanged(EditablePolyline polyline) {
-        _editable = polyline.getEditable();
+        context.queueEvent(new Runnable() {
+            @Override
+            public void run() {
+                _editable = polyline.getEditable();
+                markSurfaceDirty(true);
+            }
+        });
+
+
+
+
     }
 
     @Override

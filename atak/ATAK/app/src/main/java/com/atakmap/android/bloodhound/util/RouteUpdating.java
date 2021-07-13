@@ -5,6 +5,7 @@ import android.util.Pair;
 
 import com.atakmap.android.maps.PointMapItem;
 import com.atakmap.android.routes.Route;
+import com.atakmap.coremap.log.Log;
 import com.atakmap.coremap.maps.coords.GeoCalculations;
 import com.atakmap.coremap.maps.coords.GeoPoint;
 import com.atakmap.coremap.maps.coords.GeoPointMetaData;
@@ -18,16 +19,18 @@ import java.util.UUID;
  *  bloodhound route based on where the start/end points have moved. */
 public class RouteUpdating {
 
+    private static final String TAG = "com.atakmap.android.bloodhound.RouteUpdating";
+
     /** Update a route by truncating both the beginning and ending of the route. */
-    private static void updateRoute(GeoPoint origin, GeoPoint dest,
-            Route route) {
+    private static void updateRoute(final GeoPoint origin, final GeoPoint dest,
+            final Route route) {
         truncateRouteBeginning(origin, route);
         truncateRouteEnding(dest, route);
     }
 
     /** Helper function to get the points of a route. */
     private static List<GeoPoint> getRoutePoints(Route route) {
-        List<GeoPoint> geoPoints = new ArrayList<GeoPoint>();
+        List<GeoPoint> geoPoints = new ArrayList<>();
         for (PointMapItem pmi : route.getPointMapItems()) {
             geoPoints.add(pmi.getPoint());
         }
@@ -37,7 +40,7 @@ public class RouteUpdating {
     /** Helper function to calculate the segments of a route. */
     private static List<RouteSegment> getRouteSegments(Route route) {
         List<GeoPoint> routePoints = getRoutePoints(route);
-        List<RouteSegment> routeSegments = new ArrayList<RouteSegment>();
+        List<RouteSegment> routeSegments = new ArrayList<>();
         for (int i = 0; i < routePoints.size(); i++) {
             if (i + 1 < routePoints.size()) {
                 routeSegments.add(new RouteSegment(routePoints.get(i),
@@ -51,9 +54,11 @@ public class RouteUpdating {
      *  and truncates the beginning of route by removing points that have already been travelled,
      *  and drawing a line from the point navigating along the route,
      *  to the closest point on the route to that point. */
-    public synchronized static void truncateRouteBeginning(GeoPoint origin,
-            Route route) {
+    public synchronized static void truncateRouteBeginning(
+            final GeoPoint origin,
+            final Route route) {
         synchronized (route) {
+            Log.d(TAG, "Truncating route beginning");
             if (route.getNumPoints() > 2) {
                 Pair<GeoPoint, Integer> pair = closestPointOnRoute(origin,
                         route, true);
@@ -76,8 +81,9 @@ public class RouteUpdating {
     /** Takes a route, and the current location of a point being navigated to by the roue, and
      *  updates the end of the route so that the last route segement is a line from the point
      *  being navigated to, to the closest point on the route to the point being navigated to. */
-    public synchronized static void truncateRouteEnding(GeoPoint dest,
-            Route route) {
+    public synchronized static void truncateRouteEnding(final GeoPoint dest,
+            final Route route) {
+        Log.d(TAG, "Truncating route ending");
         synchronized (route) {
             if (route.getNumPoints() > 2) {
                 Pair<GeoPoint, Integer> pair = closestPointOnRoute(dest, route,
@@ -108,10 +114,9 @@ public class RouteUpdating {
      *                      is the same as the last point or the first point on the given route. */
     private static Pair<GeoPoint, Integer> closestPointOnRoute(GeoPoint point,
             Route route, Boolean fromBeginning) {
-        List<GeoPoint> routePoints = getRoutePoints(route);
         List<RouteSegment> routeSegments = getRouteSegments(route);
-        List<Double> distances = new ArrayList<Double>();
-        List<GeoPoint> closestPoints = new ArrayList<GeoPoint>();
+        List<Double> distances = new ArrayList<>();
+        List<GeoPoint> closestPoints = new ArrayList<>();
 
         int startIndex;
         int endIndex;
@@ -133,10 +138,10 @@ public class RouteUpdating {
             closestPoints.add(nearestPoint);
         }
 
-        Integer indexOfClosestSegment = distances
+        int indexOfClosestSegment = distances
                 .indexOf(Collections.min(distances));
 
-        return new Pair<GeoPoint, Integer>(
+        return new Pair<>(
                 closestPoints.get(indexOfClosestSegment),
                 indexOfClosestSegment);
     }

@@ -1,8 +1,6 @@
 package com.atakmap.map.layer;
 
 import com.atakmap.map.layer.feature.opengl.GLBatchGeometryFeatureDataStoreRenderer;
-import com.atakmap.map.layer.feature.opengl.GLFeatureLayer;
-import com.atakmap.map.layer.feature.opengl.PersistentDataSourceFeatureDataStoreGLLayerSpi2;
 import com.atakmap.map.layer.feature.style.opengl.GLBasicFillStyle;
 import com.atakmap.map.layer.feature.style.opengl.GLBasicStrokeStyle;
 import com.atakmap.map.layer.feature.style.opengl.GLCompositeStyle;
@@ -13,7 +11,6 @@ import com.atakmap.map.layer.feature.style.opengl.GLStyleFactory;
 import com.atakmap.map.layer.opengl.GLLayerFactory;
 import com.atakmap.map.layer.opengl.GLMultiLayer;
 import com.atakmap.map.layer.opengl.GLProxyLayer;
-import com.atakmap.map.layer.raster.PrecisionImageryFactory;
 import com.atakmap.map.layer.raster.gdal.GdalTileReader;
 import com.atakmap.map.layer.raster.gpkg.GeoPackageTileContainer;
 import com.atakmap.map.layer.raster.mbtiles.MBTilesSingleTileReader;
@@ -32,7 +29,6 @@ import com.atakmap.map.layer.raster.tilematrix.TileClientFactory;
 import com.atakmap.map.layer.raster.tilematrix.TileContainerFactory;
 import com.atakmap.map.layer.raster.tilereader.TileReaderFactory;
 import com.atakmap.map.layer.raster.tilereader.opengl.GLTiledMapLayer2;
-import com.atakmap.map.projection.ProjectionFactory;
 
 import java.util.Collection;
 
@@ -44,8 +40,16 @@ import java.util.Collection;
 public final class Layers {
 
     private static boolean registered;
+
+    private static FlavorSpecificRegistration flavorSpecificRegistration;
     
     private Layers() {}
+
+    
+    public static void setFlavorSpecificRegistration(final FlavorSpecificRegistration specificRegistration) { 
+         flavorSpecificRegistration = specificRegistration;   
+    } 
+
    
     /**
      * Registers all layer related service providers that are part of the SDK.
@@ -84,7 +88,8 @@ public final class Layers {
 
         GLMapLayerFactory.registerSpi(GLTiledMapLayer2.SPI);
 
-        FlavorSpecificRegistration.register();
+        if (flavorSpecificRegistration != null) 
+             flavorSpecificRegistration.register();
         
         TileClientFactory.registerSpi(MobacTileClient2.SPI);
 

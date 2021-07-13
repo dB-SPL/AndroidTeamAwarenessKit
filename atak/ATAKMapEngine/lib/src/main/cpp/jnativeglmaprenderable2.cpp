@@ -24,7 +24,7 @@ JNIEXPORT void JNICALL Java_com_atakmap_map_opengl_NativeGLMapRenderable2_draw
         ATAKMapEngineJNI_checkOrThrow(env, TE_InvalidArg);
         return;
     }
-    std::shared_ptr<GLMapView2> cview;
+    std::shared_ptr<GLGlobeBase> cview;
     code = Renderer::Core::Interop_marshal(cview, *env, mview);
     if(ATAKMapEngineJNI_checkOrThrow(env, code))
         return;
@@ -51,7 +51,7 @@ JNIEXPORT jint JNICALL Java_com_atakmap_map_opengl_NativeGLMapRenderable2_getRen
         return 0;
     }
     const int crenderPass = layer->getRenderPass();
-    int mrenderPass = 0;
+    jint mrenderPass = 0;
     Renderer::Core::Interop_marshal(&mrenderPass, (GLMapView2::RenderPass)crenderPass);
     return mrenderPass;
 }

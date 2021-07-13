@@ -37,7 +37,6 @@ import com.foxykeep.datadroid.requestmanager.RequestManager;
 import com.foxykeep.datadroid.requestmanager.RequestManager.RequestListener;
 
 import java.io.File;
-import java.io.UnsupportedEncodingException;
 
 /**
  * HTTP download support APKs. Leverages Android Service to offload async HTTP
@@ -98,6 +97,7 @@ public class ApkDownloader implements RequestListener {
         //once user has indicated desire to interact, we now report errors
         this._bSilent = false;
 
+        //Destination needs to be outside of the IO Abstraction
         File apkDir = FileSystemUtils
                 .getItem(RemoteProductProvider.REMOTE_REPO_CACHE_PATH);
         if (!apkDir.mkdirs())
@@ -285,7 +285,6 @@ public class ApkDownloader implements RequestListener {
         LayoutInflater inflater = LayoutInflater.from(context);
         View dialogView = inflater.inflate(R.layout.login_dialog, null);
 
-
         final EditText uidText = dialogView
                 .findViewById(R.id.txt_name);
         final EditText pwdText = dialogView
@@ -347,18 +346,23 @@ public class ApkDownloader implements RequestListener {
                         AtakAuthenticationCredentials.TYPE_APK_DOWNLOADER,
                         request.getUrl());
 
-
-        final CheckBox checkBox = dialogView.findViewById(R.id.password_checkbox);
-        checkBox.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
-            @Override
-            public void onCheckedChanged(CompoundButton compoundButton, boolean isChecked) {
-                if (isChecked) {
-                    pwdText.setTransformationMethod(HideReturnsTransformationMethod.getInstance());
-                } else {
-                    pwdText.setTransformationMethod(PasswordTransformationMethod.getInstance());
-                }
-            }
-        });
+        final CheckBox checkBox = dialogView
+                .findViewById(R.id.password_checkbox);
+        checkBox.setOnCheckedChangeListener(
+                new CompoundButton.OnCheckedChangeListener() {
+                    @Override
+                    public void onCheckedChanged(CompoundButton compoundButton,
+                            boolean isChecked) {
+                        if (isChecked) {
+                            pwdText.setTransformationMethod(
+                                    HideReturnsTransformationMethod
+                                            .getInstance());
+                        } else {
+                            pwdText.setTransformationMethod(
+                                    PasswordTransformationMethod.getInstance());
+                        }
+                    }
+                });
 
         if (credentials != null) {
             if (!FileSystemUtils.isEmpty(credentials.username))
@@ -381,8 +385,6 @@ public class ApkDownloader implements RequestListener {
                 checkBox.setEnabled(true);
             }
         }
-
-
 
         loginDialog.show();
     }

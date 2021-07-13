@@ -136,6 +136,7 @@ public abstract class AbstractTilePyramidTileReader extends TileReader {
         int[] tileArgb = null;
         Bitmap retval = null;
         ReadResult[] code = new ReadResult[1];
+        boolean forceRecycle = false;
         try {
             synchronized(this.readLock) {
                 BitmapFactory.Options opts = new BitmapFactory.Options();
@@ -153,9 +154,10 @@ public abstract class AbstractTilePyramidTileReader extends TileReader {
             }
             if(retval != null) {
                 if(retval.getWidth() != this.tileWidth || retval.getHeight() != this.tileHeight) {
-                    // XXX - 
-                    Log.w(TAG, "Unexpected actual tile dimension {level=" + level + ",column=" + tileColumn + ",row=" + tileRow + "}");
-                    return ReadResult.ERROR;
+                    final Bitmap scaled = Bitmap.createScaledBitmap(retval, tileWidth, tileHeight, true);
+                    tileData.put(retval);
+                    forceRecycle = true;
+                    retval = scaled;
                 }
                 
                 if(this.debugTile) {
@@ -190,7 +192,7 @@ public abstract class AbstractTilePyramidTileReader extends TileReader {
 
             return code[0];
         } finally {
-            if(retval != null && !tileData.put(retval))
+            if(retval != null && (forceRecycle || !tileData.put(retval)))
                 retval.recycle();
             if(tileArgb != null)
                 this.tileArgb.put(tileArgb);
@@ -319,7 +321,7 @@ outer:      for(long ty = sty; ty <= fty; ty++) {
         
         p.setStyle(Paint.Style.FILL);
         p.setTextSize(16f);
-        g.drawText("[" + String.valueOf(level) + "," + String.valueOf(tileCol) + "," + String.valueOf(tileRow) + "]", 10, height/2, p);
+        g.drawText("[" + String.valueOf(level) + "," + String.valueOf(tileCol) + "," + String.valueOf(tileRow) + "]", 10, height/2f, p);
     }
 
     @Override

@@ -11,16 +11,16 @@ namespace TAK {
     namespace Engine {
         namespace Elevation {
 
-            class ElevationChunk
+            class ENGINE_API ElevationChunk
             {
             public :
                 struct Data
                 {
                 public :
                     std::shared_ptr<Model::Mesh> value;
-                    int srid;
+                    int srid {0};
                     Math::Matrix2 localFrame;
-                    bool interpolated;
+                    bool interpolated {false};
                 };
             public:
                 virtual ~ElevationChunk() NOTHROWS = 0;

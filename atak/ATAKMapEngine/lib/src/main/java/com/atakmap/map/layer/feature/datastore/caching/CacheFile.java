@@ -1,6 +1,7 @@
 package com.atakmap.map.layer.feature.datastore.caching;
 
 import java.io.EOFException;
+import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -11,6 +12,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.map.layer.feature.AttributeSet;
 import com.atakmap.map.layer.feature.DataStoreException;
 import com.atakmap.map.layer.feature.Feature;
@@ -21,6 +23,7 @@ import com.atakmap.map.layer.feature.FeatureSet;
 import com.atakmap.map.layer.feature.geometry.Geometry;
 import com.atakmap.nio.Buffers;
 import com.atakmap.util.Disposable;
+import com.atakmap.util.zip.IoUtils;
 
 /**
  * magic number [0x54414B464541545552454341434845]
@@ -32,6 +35,8 @@ import com.atakmap.util.Disposable;
  * cache data [var]
  */
 public final class CacheFile implements Disposable {
+
+    private static final String TAG = "CacheFile";
 
     final static byte[] MAGIC_NUMBER = new byte[]
             {
@@ -250,42 +255,31 @@ public final class CacheFile implements Disposable {
     /**************************************************************************/
     
     public static void createCacheFile(int clientVersion, int level, int index, long timestamp, FeatureDataStore2 features, FeatureQueryParameters params, String path) throws IOException, DataStoreException {
-        FileOutputStream stream = null;
-        FileChannel channel = null;
-        try {
-            stream = new FileOutputStream(path);
-            channel = stream.getChannel();
-            
+        try (FileChannel channel = IOProviderFactory.getChannel(new File(path), "rw")) {
+
             ByteBuffer buf = ByteBuffer.allocate(24);
             buf.put(MAGIC_NUMBER);
             Buffers.skip(buf, 1);
-            buf.put((buf.order() == ByteOrder.BIG_ENDIAN) ? (byte)0x01 : (byte)0x00);
+            buf.put((buf.order() == ByteOrder.BIG_ENDIAN) ? (byte) 0x01 : (byte) 0x00);
             Buffers.skip(buf, 1);
-            buf.putShort((short)CURRENT_VERSION);
+            buf.putShort((short) CURRENT_VERSION);
             buf.putInt(clientVersion);
             buf.flip();
             channel.write(buf);
 
             Format fmt = FORMATS.get(CURRENT_VERSION);
-            if(fmt == null)
+            if (fmt == null)
                 throw new IllegalStateException();
-            
+
             fmt.writeCache(channel, buf.order(), level, index, timestamp, features, params);
-        } finally {
-            if(stream != null)
-                stream.close();
-            if(channel != null)
-                channel.close();
         }
     }
     
     public static CacheFile readCacheFile(String path) throws IOException {
-        FileInputStream stream = null;
         FileChannel channel = null;
         try {
-            stream = new FileInputStream(path);
-            channel = stream.getChannel();
-            
+            channel = IOProviderFactory.getChannel(new File(path), "r");
+
             ByteBuffer buf = ByteBuffer.allocate(24);
             int retval = channel.read(buf);
             if (retval < 20)
@@ -335,17 +329,13 @@ public final class CacheFile implements Disposable {
                 final CacheFile retFile = new CacheFile(clientVersion, metadata, fmt, ctx, channel);
                 ctx = null;
                 channel = null;
-                stream = null;
                 return retFile;
             } finally {
                 if(ctx != null)
                     fmt.closeFormatContext(ctx);
             }
         } finally {
-            if(stream != null)
-                stream.close();
-            if(channel != null)
-                channel.close();
+            IoUtils.close(channel, TAG);
         }
     }
 }

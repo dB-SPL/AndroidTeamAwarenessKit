@@ -1,17 +1,18 @@
 package com.atakmap.map.layer.raster.osm;
 
-import android.database.DatabaseErrorHandler;
-import android.database.sqlite.SQLiteDatabase;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 
+import com.atakmap.coremap.io.DatabaseInformation;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.database.CursorIface;
 import com.atakmap.database.DatabaseIface;
 import com.atakmap.database.Databases;
 import com.atakmap.database.QueryIface;
-import com.atakmap.database.android.AndroidDatabaseAdapter;
 import com.atakmap.map.projection.WebMercatorProjection;
+
+import java.io.File;
 
 public final class OSMDroidInfo {
     public enum BoundsDiscovery {
@@ -56,34 +57,7 @@ public final class OSMDroidInfo {
         // try spatialite first
         database = null;
         try {
-            database = Databases.openDatabase(path, true);
-            final OSMDroidInfo retval = get(database, bounds);
-            if(retval != null) {
-                if(returnRef != null) {
-                    returnRef[0] = database;
-                    database = null;
-                }
-                database = null;
-                return retval;
-            }
-        } catch(Throwable ignored) {
-        } finally {
-            if(database != null)
-                database.close();
-        }
-        
-        // try android sqlite
-        database = null;
-        try {
-            database = new AndroidDatabaseAdapter(SQLiteDatabase.openDatabase(path, null,
-                    SQLiteDatabase.OPEN_READONLY
-                    | SQLiteDatabase.NO_LOCALIZED_COLLATORS,
-            new DatabaseErrorHandler() {
-                @Override
-                public void onCorruption(SQLiteDatabase dbObj) {
-                    dbObj.close();
-                }
-            }));
+            database = IOProviderFactory.createDatabase(new File(path), DatabaseInformation.OPTION_READONLY);
             final OSMDroidInfo retval = get(database, bounds);
             if(retval != null) {
                 if(returnRef != null) {

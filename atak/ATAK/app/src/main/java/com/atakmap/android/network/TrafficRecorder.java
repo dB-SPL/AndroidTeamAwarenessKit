@@ -6,6 +6,7 @@ import android.content.DialogInterface;
 import android.view.View;
 import android.widget.Toast;
 
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
 
 import com.atakmap.comms.NetworkUtils;
@@ -14,6 +15,7 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.io.PrintWriter;
 import java.net.DatagramPacket;
 import java.net.InetAddress;
@@ -105,13 +107,11 @@ public class TrafficRecorder implements Runnable {
             }
         }
 
-        FileOutputStream fos = null;
-        PrintWriter idxos = null;
         long filelength = 0;
 
-        try {
-            fos = new FileOutputStream(file);
-            idxos = new PrintWriter(index);
+        try (FileOutputStream fos = IOProviderFactory.getOutputStream(file);
+                OutputStream os = IOProviderFactory.getOutputStream(index);
+                PrintWriter idxos = new PrintWriter(os)) {
 
             while (!cancelled) {
                 socket.receive(packet);
@@ -129,18 +129,6 @@ public class TrafficRecorder implements Runnable {
         } catch (IOException ioe) {
             if (!cancelled)
                 Log.d(TAG, "exception has occurred: ", ioe);
-        } finally {
-            try {
-                if (fos != null) {
-                    try {
-                        fos.close();
-                    } catch (Exception ignored) {
-                    }
-                }
-                if (idxos != null)
-                    idxos.close();
-            } catch (Exception ignored) {
-            }
         }
         dismiss(null, ad);
     }

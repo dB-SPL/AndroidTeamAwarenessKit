@@ -83,6 +83,7 @@ namespace TAK
 
             //    friend ENGINE_API Util::TAKErr GLTexture2_createCompressedTexture(std::unique_ptr<GLTexture2, void(*)(const GLTexture2 *)> &, const Bitmap2 &) NOTHROWS;
 				friend ENGINE_API Util::TAKErr GLTexture2_createCompressedTexture(std::unique_ptr<GLTexture2, void(*)(const GLTexture2 *)> &value, const struct GLCompressedTextureData &data) NOTHROWS;
+                friend ENGINE_API Util::TAKErr GLTexture2_orphan(GLuint* result, GLTexture2& texture) NOTHROWS;
             };
 
             typedef std::unique_ptr<GLTexture2, void(*)(const GLTexture2 *)> GLTexture2Ptr;
@@ -161,11 +162,11 @@ namespace TAK
 
 			struct GLCompressedTextureData {
 				TAK::Engine::Util::array_ptr<unsigned char> compressedData;
-				std::size_t compressedSize;
-				std::size_t alignedW;
-				std::size_t alignedH;
-				GLenum glalg;
-				Bitmap2::Format cbfmt;
+				std::size_t compressedSize {0};
+				std::size_t alignedW {0};
+				std::size_t alignedH {0};
+				GLenum glalg {0};
+				Bitmap2::Format cbfmt {};
 			};
 
 			ENGINE_API Util::TAKErr GLTexture2_createCompressedTextureData(std::unique_ptr<GLCompressedTextureData, void(*)(GLCompressedTextureData *)> &data, const Bitmap2 &bitmap) NOTHROWS;
@@ -175,6 +176,12 @@ namespace TAK
              * <P>Must be invoked on thread with valid GL context
              */
             ENGINE_API Util::TAKErr GLTexture2_createCompressedTexture(GLTexture2Ptr &value, const Bitmap2 &bitmap) NOTHROWS;
+
+            /**
+             * Relinquish the ownership of the texture id from the GLTexture2 opbject. The id must eventually
+             * be released with glDeleteTextures().
+             */
+            ENGINE_API Util::TAKErr GLTexture2_orphan(GLuint* result, GLTexture2& texture) NOTHROWS;
         }
     }
 }

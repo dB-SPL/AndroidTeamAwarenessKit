@@ -1,11 +1,12 @@
 
 package com.atakmap.comms.app;
 
+import com.atakmap.android.maps.MapView;
 import com.atakmap.android.metrics.activity.MetricActivity;
+import com.atakmap.android.util.ATAKUtilities;
 import com.atakmap.comms.NetConnectString;
 import android.app.Activity;
 import android.app.AlertDialog;
-import android.content.Context;
 import android.content.Intent;
 import android.os.Bundle;
 import android.os.Environment;
@@ -23,12 +24,13 @@ import android.widget.Spinner;
 import android.widget.TextView;
 
 import com.atakmap.android.gui.ImportFileBrowserDialog;
-import com.atakmap.android.maps.MapView;
 import com.atakmap.android.preference.AtakPreferenceFragment;
 import com.atakmap.app.R;
 import com.atakmap.comms.CotServiceRemote;
+import com.atakmap.comms.NetworkUtils;
 import com.atakmap.comms.TAKServer;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.net.AtakAuthenticationCredentials;
 import com.atakmap.net.AtakAuthenticationDatabase;
@@ -83,7 +85,12 @@ public class AddNetInfoActivity extends MetricActivity {
         final String addressText = getAddress();
 
         if (FileSystemUtils.isEmpty(addressText)) {
-            String message = "Address is invalid";
+            String message = getString(R.string.address_blank_error);
+            showErrorDialog(message);
+            return null;
+        } else if (!NetworkUtils.isValid(addressText)) {
+            String message = String.format(
+                    getString(R.string.address_invalid_error), addressText);
             showErrorDialog(message);
             return null;
         }
@@ -180,7 +187,7 @@ public class AddNetInfoActivity extends MetricActivity {
 
         // under the possibility that the type is null, just close the activity and return;
         if (type == null) {
-            Log.e(TAG, "error occured, extras type == null");
+            Log.e(TAG, "error occurred, extras type == null");
             this.finish();
             return;
         }
@@ -333,7 +340,7 @@ public class AddNetInfoActivity extends MetricActivity {
         keystorePassword.setEnabled(!useDefaultCerts);
 
         boolean showExportKeystoreButton = PreferenceManager
-                .getDefaultSharedPreferences(MapView.getMapView().getContext())
+                .getDefaultSharedPreferences(this)
                 .getBoolean("certEnrollmentExport", false);
 
         exportKeystoreButton
@@ -644,11 +651,10 @@ public class AddNetInfoActivity extends MetricActivity {
                         .sanitizeWithSpacesAndSlashes(FileSystemUtils.getRoot()
                                 + "/cert/" + description + "_clientCert.p12");
 
-                FileOutputStream fos = null;
-                try {
-                    fos = new FileOutputStream(new File(
-                            absolutePath));
-                    ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                try (FileOutputStream fos = IOProviderFactory
+                        .getOutputStream(new File(absolutePath));
+                        ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
+
                     if (clientCertificate != null) {
                         baos.write(clientCertificate);
                     }
@@ -656,22 +662,16 @@ public class AddNetInfoActivity extends MetricActivity {
                 } catch (Exception e) {
                     Log.e(TAG, "Exception exporting client certificate!", e);
                     return;
-                } finally {
-                    if (fos != null)
-                        try {
-                            fos.close();
-                        } catch (Exception ignored) {
-                        }
                 }
 
-                Context context = MapView.getMapView().getContext();
                 new AlertDialog.Builder(AddNetInfoActivity.this)
                         .setTitle(String.format(
-                                context.getString(R.string.importmgr_exported),
+                                AddNetInfoActivity.this
+                                        .getString(R.string.importmgr_exported),
                                 "Certificate"))
                         .setMessage(
                                 String.format(
-                                        context.getString(
+                                        AddNetInfoActivity.this.getString(
                                                 R.string.importmgr_exported_file),
                                         absolutePath))
                         .setPositiveButton(
@@ -718,12 +718,18 @@ public class AddNetInfoActivity extends MetricActivity {
 
         File certDir = FileSystemUtils.getItem(atakSubdir);
 
-        final String directory;
-
-        if (certDir != null && certDir.exists() && certDir.isDirectory())
-            directory = certDir.getAbsolutePath();
-        else
-            directory = Environment.getExternalStorageDirectory().getPath();
+        String directory;
+        if (IOProviderFactory.isDefault()) {
+            if (certDir != null && IOProviderFactory.exists(certDir)
+                    && IOProviderFactory.isDirectory(certDir)) {
+                directory = certDir.getAbsolutePath();
+            } else {
+                directory = Environment.getExternalStorageDirectory().getPath();
+            }
+        } else {
+            directory = ATAKUtilities
+                    .getStartDirectory(MapView.getMapView().getContext());
+        }
 
         ImportFileBrowserDialog.show(getString(R.string.select_space) +
                 title + getString(R.string.to_import),

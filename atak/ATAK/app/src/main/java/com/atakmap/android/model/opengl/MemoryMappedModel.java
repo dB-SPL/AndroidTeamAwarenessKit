@@ -3,7 +3,9 @@ package com.atakmap.android.model.opengl;
 
 import android.graphics.Color;
 
+import com.atakmap.annotations.DeprecatedApi;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
 
 import com.atakmap.lang.Unsafe;
@@ -34,6 +36,7 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.ShortBuffer;
 import java.nio.channels.Channels;
+import java.nio.channels.FileChannel;
 import java.nio.channels.ReadableByteChannel;
 import java.nio.channels.WritableByteChannel;
 import java.util.HashMap;
@@ -42,6 +45,8 @@ import java.util.List;
 import java.util.Map;
 
 /** @deprecated NAME SUBJECT TO CHANGE !!!! */
+@Deprecated
+@DeprecatedApi(since = "4.1")
 public class MemoryMappedModel {
 
     private static final String TAG = "MemoryMappedModel";
@@ -56,28 +61,13 @@ public class MemoryMappedModel {
         @Override
         public Model create(ModelInfo object, ModelSpi.Callback callback) {
             File f = new File(object.uri);
-            if (!f.exists())
+            if (!IOProviderFactory.exists(f))
                 return null;
-            FileInputStream fis = null;
-            try {
-                fis = new FileInputStream(f);
-                return read(fis.getChannel(), Integer.MAX_VALUE);
+            try (FileChannel fis = IOProviderFactory.getChannel(f, "r")) {
+                return read(fis, Integer.MAX_VALUE);
             } catch (Throwable t) {
                 Log.e(TAG, "error", t);
                 return null;
-            } finally {
-                if (fis != null) {
-                    try {
-                        fis.close();
-                    } catch (IOException ignored) {
-                    }
-                }
-                if (fis != null) {
-                    try {
-                        fis.close();
-                    } catch (IOException ignored) {
-                    }
-                }
             }
         }
 
@@ -327,11 +317,16 @@ public class MemoryMappedModel {
     }
 
     public static void write(Model m, OutputStream stream) throws IOException {
-        if (stream instanceof FileOutputStream)
+        if (stream.getClass().equals(FileOutputStream.class))
             write(m, ((FileOutputStream) stream).getChannel(),
                     Integer.MAX_VALUE);
         else
             write(m, Channels.newChannel(stream), 1024 * 1024);
+    }
+
+    public static void write(Model m, FileChannel channel) throws IOException {
+        write(m, channel,
+                Integer.MAX_VALUE);
     }
 
     private static void write(Model m, WritableByteChannel stream, int limit)
@@ -485,11 +480,15 @@ public class MemoryMappedModel {
     }
 
     public static Model read(InputStream stream) throws IOException {
-        if (stream instanceof FileInputStream)
+        if (stream.getClass().equals(FileInputStream.class))
             return read(((FileInputStream) stream).getChannel(),
                     Integer.MAX_VALUE);
         else
             return read(Channels.newChannel(stream), 1024 * 1024);
+    }
+
+    public static Model read(FileChannel channel) throws IOException {
+        return read(channel, Integer.MAX_VALUE);
     }
 
     private static Model read(ReadableByteChannel channel, int readLimit)

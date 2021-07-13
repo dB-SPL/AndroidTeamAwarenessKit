@@ -479,7 +479,7 @@ public class Route extends EditablePolyline {
 
     private boolean addWaypointsToGroup = true;
 
-    private Map<String, NavigationCue> navigationCues = new ConcurrentHashMap<>();
+    private final Map<String, NavigationCue> navigationCues = new ConcurrentHashMap<>();
 
     private final DefaultMetaDataHolder cpMeta; // used to describe control points for a route
 
@@ -608,7 +608,7 @@ public class Route extends EditablePolyline {
     }
 
     @Override
-    public void refresh(MapEventDispatcher d, Bundle b, Class clazz) {
+    public void refresh(MapEventDispatcher d, Bundle b, Class<?> clazz) {
         if (this.getMetaBoolean("__ignoreRefresh", false))
             return;
         super.refresh(d, b, clazz);
@@ -909,6 +909,7 @@ public class Route extends EditablePolyline {
                         item.setVisible(visible);
                     }
                     item.setMetaInteger("color", getColor());
+                    item.setTouchable(isTouchable());
                     if (addWaypointsToGroup && item.getGroup() == null)
                         waypointGroup.addItem(item);
                     addListeners(item);
@@ -1040,7 +1041,7 @@ public class Route extends EditablePolyline {
     /**
      * Associates a NavigationCue for a point in the route with the given UID.
      *
-     * @param uid UID of the point to associate the cue with
+     * @param uid UID of the point map item on the route to associate the cue with
      * @param cue Cue to associate with point
      */
     public void setNavigationCueForPoint(String uid, NavigationCue cue) {
@@ -1120,6 +1121,7 @@ public class Route extends EditablePolyline {
                 this.waypoints.add(item);
                 if (isAutomaticName(item.getMetaString("callsign", null)))
                     item.setMetaString("callsign", getNextWaypointName());
+                item.setTouchable(isTouchable());
 
                 // Listen for marker name change events so we can re-validate the waypoint names.
                 this.mapView.getMapEventDispatcher().addMapItemEventListener(
@@ -1195,6 +1197,7 @@ public class Route extends EditablePolyline {
         boolean lastPointBad = lastPoint == null || !lastPoint.getType()
                 .equals(WAYPOINT_TYPE);
 
+        final ArrayList<MapItem> pointsToRefresh = new ArrayList<>(4);
         if (!createIfMissing) {
             PointMapItem[] cps = getContactPoints();
             if (firstPointBad) {
@@ -1223,8 +1226,7 @@ public class Route extends EditablePolyline {
                 if (addWaypointsToGroup)
                     waypointGroup.addItem(addMarker);
 
-                addMarker.refresh(mapView.getMapEventDispatcher(), null,
-                        this.getClass());
+                pointsToRefresh.add(addMarker);
             }
             if (lastPointBad) {
                 GeoPointMetaData lastGeoPoint = getPoint(last);
@@ -1241,31 +1243,47 @@ public class Route extends EditablePolyline {
                 if (addWaypointsToGroup)
                     waypointGroup.addItem(addMarker);
 
-                addMarker.refresh(mapView.getMapEventDispatcher(), null,
-                        this.getClass());
+                pointsToRefresh.add(addMarker);
             }
         }
 
         if (firstPoint != null && isAutomaticName(firstPoint.getMetaString(
                 "callsign", null))) {
             firstPoint.setMetaString("callsign", firstCPName);
+            firstPoint.setTouchable(isTouchable());
             if (firstPoint instanceof Marker)
                 firstPoint.setTitle(firstCPName);
-            firstPoint.refresh(mapView.getMapEventDispatcher(), null,
-                    this.getClass());
+            pointsToRefresh.add(firstPoint);
         }
 
         if (lastPoint != null && isAutomaticName(lastPoint.getMetaString(
                 "callsign", null))) {
             lastPoint.setMetaString("callsign", lastCPName);
+            lastPoint.setTouchable(isTouchable());
             if (lastPoint instanceof Marker)
                 lastPoint.setTitle(lastCPName);
-            lastPoint.refresh(mapView.getMapEventDispatcher(), null,
-                    this.getClass());
+            pointsToRefresh.add(lastPoint);
         }
 
         if (validateWaypointNames())
             onRoutePointsChanged();
+
+        // if either end point needs refresh, post to the main dispatch thread
+        // for invocation on the next pump. execution in the current stack may
+        // deadlock if a point is shared between two routes and they are being
+        // imported by separate mechanisms (e.g. one from statesaver and the
+        // other from mission package)
+        if (!pointsToRefresh.isEmpty())
+            mapView.post(new Runnable() {
+                @Override
+                public void run() {
+                    for (MapItem item : pointsToRefresh) {
+                        item.refresh(mapView.getMapEventDispatcher(), null,
+                                Route.this.getClass());
+                    }
+                }
+            });
+
     }
 
     synchronized void fixSPandVDO() {

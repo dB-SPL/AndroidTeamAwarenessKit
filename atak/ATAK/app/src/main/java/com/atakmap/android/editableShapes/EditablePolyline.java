@@ -30,6 +30,7 @@ import com.atakmap.android.routes.Route;
 import com.atakmap.android.routes.RouteGpxIO;
 import com.atakmap.android.util.EditAction;
 import com.atakmap.android.util.Undoable;
+import com.atakmap.annotations.DeprecatedApi;
 import com.atakmap.app.R;
 import com.atakmap.coremap.cot.event.CotDetail;
 import com.atakmap.coremap.cot.event.CotEvent;
@@ -47,6 +48,7 @@ import com.atakmap.coremap.maps.coords.Vector2D;
 import com.atakmap.coremap.maps.time.CoordinatedTime;
 import com.atakmap.map.layer.feature.Feature.AltitudeMode;
 import com.atakmap.math.MathUtils;
+import com.atakmap.math.PointD;
 import com.atakmap.spatial.file.export.GPXExportWrapper;
 import com.atakmap.spatial.file.export.KMZFolder;
 import com.atakmap.spatial.file.export.OGRFeatureExportWrapper;
@@ -120,15 +122,12 @@ public class EditablePolyline extends Polyline implements AnchoredMapItem,
     private boolean initialBulkLoad = false; // do not need to worry about inserting points into an
     // existing line;
 
-    private boolean clampToGroundKMLElevation = true;
-
     private String _title;
 
     private Undoable _undo;
 
     private final List<MutableGeoBounds> _partitionBounds = new ArrayList<>();
     private final List<RectF> _partitionRects = new ArrayList<>();
-    private static final int PARTITION_SIZE = 25;
 
     private final GeoPointMetaData _avgAltitude = new GeoPointMetaData();
     private final GeoPointMetaData _maxAltitude = new GeoPointMetaData();
@@ -137,9 +136,6 @@ public class EditablePolyline extends Polyline implements AnchoredMapItem,
     private int _linkColor = getStrokeColor();
     private boolean _closed = false;
     private boolean _filled;
-
-    private final float _hitRadius = 32 * MapView.DENSITY;
-    protected final float _hitRadiusSq = _hitRadius * _hitRadius;
 
     private final ConcurrentLinkedQueue<OnEditableChangedListener> _onEditableChanged = new ConcurrentLinkedQueue<>();
     private final MutableGeoBounds _bounds = new MutableGeoBounds(0, 0, 0, 0);
@@ -247,16 +243,13 @@ public class EditablePolyline extends Polyline implements AnchoredMapItem,
         removeOnGroupChangedListener(this);
         removeOnZOrderChangedListener(this);
 
-        synchronized (this) {
-            // clear waypoints
-            clearPoints();
+        // clear waypoints
+        clearPoints();
 
-            // and marker
-            final Marker marker = getMarker();
-            if (marker != null) {
-                marker.removeFromGroup();
-            }
-        }
+        // and marker
+        final Marker marker = getMarker();
+        if (marker != null)
+            marker.removeFromGroup();
 
         // remove the route itself; has to happen, otherwise the route .cot file in storage
         // isn't removed. ATM removing the mapGroup it's in doesn't remove it.
@@ -299,15 +292,12 @@ public class EditablePolyline extends Polyline implements AnchoredMapItem,
     /**
      * Toggle the touchability of a route.
      */
+    @Override
     public void setTouchable(boolean state) {
-        setMetaBoolean("touchable", state);
+        super.setTouchable(state);
         final Set<PointMapItem> items = markerToIndex.keySet();
-        for (final PointMapItem item : items) {
-            if (item instanceof Marker)
-                ((Marker) item).setTouchable(state);
-            else
-                item.setMetaBoolean("touchable", state);
-        }
+        for (final PointMapItem item : items)
+            item.setTouchable(state);
     }
 
     public void hideLabels(boolean state) {
@@ -326,7 +316,7 @@ public class EditablePolyline extends Polyline implements AnchoredMapItem,
     }
 
     public void setLocked(boolean locked) {
-        setMetaBoolean("touchable", !locked);
+        setTouchable(!locked);
         final Set<PointMapItem> items = markerToIndex.keySet();
         for (final PointMapItem item : items) {
             if (locked) {
@@ -352,7 +342,7 @@ public class EditablePolyline extends Polyline implements AnchoredMapItem,
             MapView view) {
 
         // First check if the line is even touchable
-        if (!getMetaBoolean("touchable", true))
+        if (!isTouchable())
             return false;
 
         // Check if the line is being rendered
@@ -366,10 +356,9 @@ public class EditablePolyline extends Polyline implements AnchoredMapItem,
 
         // Determine if we need to do a 2D or 3D hit test so we can perform
         // some optimizations
-        boolean test3D = view.getMapTilt() != 0
-                && getAltitudeMode() != AltitudeMode.ClampToGround;
+        boolean test3D = getAltitudeMode() != AltitudeMode.ClampToGround;
 
-        float radius = _hitRadius;
+        float radius = getHitRadius(view);
         Vector2D touch = new Vector2D(xpos, ypos);
 
         // Build the screen hit rectangle (for 3D) or hit box bounds (for 2D)
@@ -429,7 +418,7 @@ public class EditablePolyline extends Polyline implements AnchoredMapItem,
             //Log.d(TAG, "hit maybe contained in geobounds: " + i);
             int start = partition * PARTITION_SIZE;
             int end = Math.min(start + PARTITION_SIZE, _points.size());
-            if (testLinesHit(view, start, end, touch) != null)
+            if (testLinesHit(view, start, end, touch, point) != null)
                 return true;
         }
 
@@ -464,9 +453,10 @@ public class EditablePolyline extends Polyline implements AnchoredMapItem,
                     continue;
             } else if (hitRect != null) {
                 // Screen touch check (2D or 3D)
-                PointF pt = view
-                        .forward(view.getRenderElevationAdjustedPoint(gp));
-                if (!hitRect.contains(pt.x, pt.y))
+                PointD pt = new PointD(0d, 0d, 0d);
+                view.getSceneModel()
+                        .forward(view.getRenderElevationAdjustedPoint(gp), pt);
+                if (pt.z >= 1d || !hitRect.contains((float) pt.x, (float) pt.y))
                     continue;
             } else
                 continue;
@@ -490,6 +480,16 @@ public class EditablePolyline extends Polyline implements AnchoredMapItem,
     }
 
     /**
+     * @deprecated use {@link #testLinesHit(MapView, int, int, Vector2D, GeoPoint)}
+     */
+    @Deprecated
+    @DeprecatedApi(since = "4.2", forRemoval = true, removeAt = "4.5")
+    protected final GeoPoint testLinesHit(MapView view, int startIdx,
+            int endIdx, Vector2D touch) {
+        return testLinesHit(view, startIdx, endIdx, touch, null);
+    }
+
+    /**
      * Test if a touch point intersects any lines in the given partition
      * - A partition being the points spanning from startIdx to endIdx
      * - This method works for both 2D and 3D hit testing
@@ -498,10 +498,12 @@ public class EditablePolyline extends Polyline implements AnchoredMapItem,
      * @param startIdx Starting point index to search (inclusive)
      * @param endIdx Ending point index to search (inclusive)
      * @param touch The 2D screen point to test
+     * @param gp    The LLA corresponding to the 2D screen point, optionally
+     *              previously computed
      * @return Point that was hit or null if nothing hit
      */
     protected final GeoPoint testLinesHit(MapView view, int startIdx,
-            int endIdx, Vector2D touch) {
+            int endIdx, Vector2D touch, GeoPoint gp) {
         int count = _points.size();
 
         // Search hit on all lines
@@ -509,10 +511,11 @@ public class EditablePolyline extends Polyline implements AnchoredMapItem,
         double unwrap = view.getIDLHelper().getUnwrap(this.minimumBoundingBox);
         GeoPoint lastPoint = null;
         int currentIndex = 0;
-        PointF pt1, pt2 = null;
+        PointD pt1, pt2 = null;
 
         GeoPoint curPoint;
 
+        double hitRadiusSq = Math.pow(getHitRadius(view), 2);
         for (int i = startIdx; i <= endIdx; i++) {
             if (i == count) {
                 if (isClosed()) {
@@ -530,10 +533,15 @@ public class EditablePolyline extends Polyline implements AnchoredMapItem,
             }
 
             // Need to account for map tilt
-            if (view.getMapTilt() != 0)
-                curPoint = view.getRenderElevationAdjustedPoint(curPoint);
+            curPoint = view.getRenderElevationAdjustedPoint(curPoint);
 
-            PointF pt = view.forward(curPoint, unwrap);
+            PointD pt = new PointD(0d, 0d, 0d);
+            if (view.isContinuousScrollEnabled()
+                    && (unwrap * curPoint.getLongitude()) < 0)
+                curPoint = new GeoPoint(curPoint.getLatitude(),
+                        curPoint.getLongitude() + unwrap,
+                        curPoint.getAltitude());
+            view.getSceneModel().forward(curPoint, pt);
 
             if (lastPoint == null) {
                 lastPoint = curPoint;
@@ -550,9 +558,22 @@ public class EditablePolyline extends Polyline implements AnchoredMapItem,
                     new Vector2D(pt1.x, pt1.y),
                     new Vector2D(pt2.x, pt2.y));
             double dist = nearest.distanceSq(touch);
-            if (_hitRadiusSq > dist) {
-                GeoPoint gp = view.inverseWithElevation((float) nearest.x,
-                        (float) nearest.y).get();
+            if (hitRadiusSq > dist && (pt1.z < 1d && pt2.z < 1d)) {
+                if (gp == null) {
+                    final double seg_px = MathUtils.distance(pt1.x, pt1.y,
+                            pt2.x, pt2.y);
+                    final double seg_pct = MathUtils.distance(nearest.x,
+                            nearest.y, pt1.x, pt1.y);
+
+                    gp = GeoCalculations.pointAtDistance(lastPoint,
+                            GeoCalculations.bearingTo(lastPoint, curPoint),
+                            GeoCalculations.distanceTo(lastPoint, curPoint)
+                                    * (seg_pct / seg_px));
+                    gp = view.getRenderElevationAdjustedPoint(gp);
+                    // subject to deadlock
+                    //gp = view.inverseWithElevation((float) nearest.x,
+                    //        (float) nearest.y).get();
+                }
                 setMetaString("hit_type", "line");
                 setMetaInteger("hit_index", currentIndex + startIdx - 1);
                 setMetaString("menu", getEditable() ? getLineMenu()
@@ -1011,22 +1032,20 @@ public class EditablePolyline extends Polyline implements AnchoredMapItem,
     }
 
     @Override
-    public void setVisible(boolean visible) {
-        if (visible != getVisible()) {
-            super.setVisible(visible);
+    protected void onVisibleChanged() {
+        boolean visible = getVisible();
+        synchronized (this) {
+            // TODO: leave edit mode if you hide the route you were editing?
 
-            synchronized (this) {
-                // TODO: leave edit mode if you hide the route you were editing?
+            // Make constituent waypoints visible only if at least one route they're in is still
+            // visible
+            for (PointMapItem point : this.markerToIndex.keySet())
+                point.setVisible(visible);
 
-                // Make constituent waypoints visible only if at least one route they're in is still
-                // visible
-                for (PointMapItem point : this.markerToIndex.keySet())
-                    point.setVisible(visible);
-
-                if (_shapeMarker != null)
-                    _shapeMarker.setVisible(visible);
-            }
+            if (_shapeMarker != null)
+                _shapeMarker.setVisible(visible);
         }
+        super.onVisibleChanged();
     }
 
     @Override
@@ -1079,10 +1098,12 @@ public class EditablePolyline extends Polyline implements AnchoredMapItem,
             E = W = Ex = Wx = p.get().getLongitude() + 360;
 
         int numPoints = _points.size();
+        if (!isClosed())
+            numPoints--;
         int partNum = 1;
-        for (int i = 1; i <= numPoints; ++i) {
+        for (int i = 0; i <= numPoints; ++i) {
             boolean lastPoint = i == numPoints;
-            p = _points.get(lastPoint ? 0 : i);
+            p = _points.get(isClosed() && lastPoint ? 0 : i);
 
             double lat = p.get().getLatitude();
             double lon = p.get().getLongitude();
@@ -1099,16 +1120,14 @@ public class EditablePolyline extends Polyline implements AnchoredMapItem,
             else if (lon < W)
                 W = lon;
 
-            if (!lastPoint || isClosed()) {
-                if (lat > Nx)
-                    Nx = lat;
-                else if (lat < Sx)
-                    Sx = lat;
-                if (lon > Ex)
-                    Ex = lon;
-                else if (lon < Wx)
-                    Wx = lon;
-            }
+            if (lat > Nx)
+                Nx = lat;
+            else if (lat < Sx)
+                Sx = lat;
+            if (lon > Ex)
+                Ex = lon;
+            else if (lon < Wx)
+                Wx = lon;
 
             if (partNum == PARTITION_SIZE || lastPoint) {
                 if (wrap180 && Ex > 180)
@@ -1252,7 +1271,7 @@ public class EditablePolyline extends Polyline implements AnchoredMapItem,
         if (!(point instanceof Marker))
             return;
         final Marker marker = (Marker) point;
-        if (marker.getIcon() == null || marker.getIcon().getImageUri(0) == null)
+        if (marker.getIcon() == null || marker.getIcon().getImageUri(Icon.STATE_DEFAULT) == null)
             return;
 
         if (Route.WAYPOINT_TYPE.equals(point.getType())) {
@@ -1261,7 +1280,7 @@ public class EditablePolyline extends Polyline implements AnchoredMapItem,
             // onIconChanged doesn't get fired off because the icon is still the same object!
             // Need to build a new one
             Icon.Builder b = new Icon.Builder();
-            b.setImageUri(0, marker.getIcon().getImageUri(0));
+            b.setImageUri(0, marker.getIcon().getImageUri(Icon.STATE_DEFAULT));
             b.setAnchor(16, 16);
             b.setColor(0, color);
 
@@ -1351,6 +1370,20 @@ public class EditablePolyline extends Polyline implements AnchoredMapItem,
         return mapScale >= DEFAULT_MIN_RENDER_VERTS;
     }
 
+    @Deprecated
+    private boolean forceAltitude = false;
+
+    /**
+     * Forces the polyline to be rendered at altitude independent of the height and also turns off
+     * any extrusion.
+     * @param forceAltitude true if we are going to force the polyline to be at altitude
+     * @deprecated
+     */
+    @Deprecated
+    public void setAbsoluteKMLElev(final boolean forceAltitude) {
+        this.forceAltitude = forceAltitude;
+    }
+
     @Override
     public void setZOrder(double zOrder) {
         // do not allow for the zorder to be modified if the 
@@ -1372,8 +1405,11 @@ public class EditablePolyline extends Polyline implements AnchoredMapItem,
             // Update the point list that draws the underlying shape
             synchronized (EditablePolyline.this) {
                 Integer index = EditablePolyline.this.markerToIndex.get(item);
-                if (index == null)
-                    throw new IllegalStateException();
+                if (index == null) {
+                    Log.e(TAG, "Item with UID " + item.getUID() + " not found in line");
+                    return;
+                }
+
                 GeoPoint gp = item.getPoint();
                 GeoPointMetaData gpm = GeoPointMetaData.wrap(gp)
                         .setAltitudeSource(item.getMetaString(
@@ -1770,21 +1806,23 @@ public class EditablePolyline extends Polyline implements AnchoredMapItem,
     }
 
     protected void clearPointsImpl(boolean notifyPointsChanged) {
+        List<PointMapItem> toRemove;
         synchronized (this) {
             // clear out the waypoints first...
-            for (PointMapItem item : this.markerToIndex.keySet()) {
-                // remove deletion listener
-                this.removeListeners(item);
-
-                // TODO: move to routes?
-                if (item.getType().equals(Route.WAYPOINT_TYPE))
-                    item.removeFromGroup();
-            }
-
+            toRemove = new ArrayList<>(this.markerToIndex.keySet());
             _points.clear();
             this.markerToIndex.clear();
             this.indexToMarker.clear();
             this.indexToMarker2.clear();
+        }
+
+        for (PointMapItem item : toRemove) {
+            // remove deletion listener
+            removeListeners(item);
+
+            // TODO: move to routes?
+            if (item.getType().equals(Route.WAYPOINT_TYPE))
+                item.removeFromGroup();
         }
 
         if (notifyPointsChanged)
@@ -1845,6 +1883,7 @@ public class EditablePolyline extends Polyline implements AnchoredMapItem,
     protected CotEvent toCot() {
 
         CotEvent event = new CotEvent();
+        event.setType(getType());
 
         CoordinatedTime time = new CoordinatedTime();
         event.setTime(time);
@@ -1904,10 +1943,6 @@ public class EditablePolyline extends Polyline implements AnchoredMapItem,
             detail.addChild(firstLink);
 
         return event;
-    }
-
-    public void setAbsoluteKMLElev(boolean useAbsoluteKMLElevation) {
-        this.clampToGroundKMLElevation = !useAbsoluteKMLElevation;
     }
 
     protected Folder toKml() {
@@ -2021,18 +2056,24 @@ public class EditablePolyline extends Polyline implements AnchoredMapItem,
 
         GeoPointMetaData textLoc;
         GeoPointMetaData[] pts = this.getMetaDataPoints();
+
+        boolean clampToGroundKMLElevation = Double.isNaN(getHeight())
+                || Double.compare(getHeight(), 0.0) == 0;
+
+        // reintroduce legacy behavior
+        if (forceAltitude)
+            clampToGroundKMLElevation = false;
+
         if (this.isClosed()) {
             Polygon lr = KMLUtil.createPolygonWithLinearRing(pts,
                     this.getUID(), clampToGroundKMLElevation,
-                    _bounds.crossesIDL());
+                    _bounds.crossesIDL(), getHeight());
             if (lr == null) {
                 Log.w(TAG, "Unable to create KML Geometry");
                 return null;
             }
-            if (clampToGroundKMLElevation)
-                lr.setAltitudeMode("clampToGround");
-            else
-                lr.setAltitudeMode("absolute");
+            if (forceAltitude)
+                lr.setExtrude(false);
 
             outerGeometries.add(lr);
             textLoc = this.getCenter();
@@ -2043,10 +2084,9 @@ public class EditablePolyline extends Polyline implements AnchoredMapItem,
                 Log.w(TAG, "Unable to create KML Geometry");
                 return null;
             }
-            if (clampToGroundKMLElevation)
-                ls.setAltitudeMode("clampToGround");
-            else
-                ls.setAltitudeMode("absolute");
+            if (forceAltitude)
+                ls.setExtrude(false);
+
             outerGeometries.add(ls);
 
             // use the middle point if a line, center might not be on the line
@@ -2061,10 +2101,6 @@ public class EditablePolyline extends Polyline implements AnchoredMapItem,
             Log.w(TAG, "No center marker location set");
         } else {
             Point centerPoint = new Point();
-            if (clampToGroundKMLElevation)
-                centerPoint.setAltitudeMode("clampToGround");
-            else
-                centerPoint.setAltitudeMode("absolute");
             centerPoint.setCoordinates(coord);
 
             // icon for the middle of this drawing rectangle
@@ -2143,7 +2179,7 @@ public class EditablePolyline extends Polyline implements AnchoredMapItem,
     }
 
     @Override
-    public boolean isSupported(Class target) {
+    public boolean isSupported(Class<?> target) {
         return CotEvent.class.equals(target) ||
                 Folder.class.equals(target) ||
                 KMZFolder.class.equals(target) ||
@@ -2153,7 +2189,7 @@ public class EditablePolyline extends Polyline implements AnchoredMapItem,
     }
 
     @Override
-    public Object toObjectOf(Class target, ExportFilters filters) {
+    public Object toObjectOf(Class<?> target, ExportFilters filters) {
         if (filters != null && filters.filter(this))
             return null;
 

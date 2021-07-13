@@ -5,6 +5,8 @@ import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+
+import com.atakmap.android.data.ClearContentRegistry;
 import com.atakmap.android.ipc.AtakBroadcast.DocumentedIntentFilter;
 import android.content.SharedPreferences;
 import android.os.Bundle;
@@ -12,7 +14,6 @@ import android.preference.PreferenceManager;
 import android.widget.Toast;
 
 import com.atakmap.android.cot.CotMapComponent;
-import com.atakmap.android.data.DataMgmtReceiver;
 import com.atakmap.android.filesharing.android.service.WebServer;
 import com.atakmap.android.importexport.ExporterManager;
 import com.atakmap.android.ipc.AtakBroadcast;
@@ -28,6 +29,7 @@ import com.atakmap.android.missionpackage.export.MissionPackageExportMarshal;
 import com.atakmap.android.missionpackage.file.MissionPackageFileIO;
 import com.atakmap.android.missionpackage.file.MissionPackageManifest;
 import com.atakmap.android.missionpackage.http.datamodel.MissionPackageQueryResult;
+import com.atakmap.android.missionpackage.lasso.LassoContentProvider;
 import com.atakmap.android.missionpackage.ui.MissionPackageMapOverlay;
 import com.atakmap.android.missionpackage.ui.MissionPackagePreferenceFragment;
 import com.atakmap.android.widgets.AbstractWidgetMapComponent;
@@ -101,6 +103,7 @@ public class MissionPackageMapComponent extends AbstractWidgetMapComponent
     //private BroadcastReceiver compCreatedRec;
 
     private MissionPackageConnectorHandler _connectorHandler;
+    private LassoContentProvider _lassoProvider;
 
     public static MissionPackageMapComponent getInstance() {
         return _self;
@@ -259,11 +262,11 @@ public class MissionPackageMapComponent extends AbstractWidgetMapComponent
                                 "The TAK server connect net connect string",
                                 true, String.class),
                 });
-        fileShareFilter
-                .addAction(DataMgmtReceiver.ZEROIZE_CONFIRMED_ACTION,
-                        "When the local system is zeroized, all Mission Packages are removed");
+
         AtakBroadcast.getInstance()
                 .registerReceiver(_receiver, fileShareFilter);
+
+        ClearContentRegistry.getInstance().registerListener(_receiver.ccl);
 
         // allow receiver to be activated when selected from Tools list
         DocumentedIntentFilter toolFilter = new DocumentedIntentFilter();
@@ -346,6 +349,8 @@ public class MissionPackageMapComponent extends AbstractWidgetMapComponent
         // thread...
         new DefaultHttpClient(new BasicHttpParams());
 
+        // Lasso content provider
+        _lassoProvider = new LassoContentProvider(mapView);
     }
 
     private void finishStartup() {
@@ -475,6 +480,9 @@ public class MissionPackageMapComponent extends AbstractWidgetMapComponent
         disable(false);
         _fileIO.disableFileWatching();
 
+        if (_lassoProvider != null)
+            _lassoProvider.dispose();
+
         AtakBroadcast.getInstance().unregisterReceiver(toolreceiver);
         //AtakBroadcast.getInstance().unregisterReceiver(compCreatedRec);
 
@@ -485,6 +493,8 @@ public class MissionPackageMapComponent extends AbstractWidgetMapComponent
 
         if (_overlay != null)
             _overlay.dispose();
+
+        ClearContentRegistry.getInstance().unregisterListener(_receiver.ccl);
 
         if (_receiver != null) {
             AtakBroadcast.getInstance().unregisterReceiver(_receiver);

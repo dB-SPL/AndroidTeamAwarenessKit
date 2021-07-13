@@ -17,10 +17,13 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 
+import android.net.Uri;
 import android.util.Pair;
 
 import com.atakmap.content.BindArgument;
 import com.atakmap.content.WhereClauseBuilder;
+import com.atakmap.coremap.io.DatabaseInformation;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.database.CursorIface;
 import com.atakmap.database.CursorWrapper;
@@ -37,7 +40,6 @@ import com.atakmap.map.layer.feature.Feature;
 import com.atakmap.map.layer.feature.FeatureCursor;
 import com.atakmap.map.layer.feature.FeatureDataSource;
 import com.atakmap.map.layer.feature.FeatureDataStore;
-import com.atakmap.map.layer.feature.FeatureDataStore3;
 import com.atakmap.map.layer.feature.FeatureDefinition;
 import com.atakmap.map.layer.feature.FeatureDefinition2;
 import com.atakmap.map.layer.feature.FeatureDefinition3;
@@ -114,7 +116,9 @@ abstract class FDB2 extends AbstractFeatureDataStore3 {
     final Map<String, AttributeSpec> keyToAttrSchema;
     boolean attrSchemaDirty;
     
-    protected FDB2(File db, int modificationFlags, int visibilityFlags) {
+    protected FDB2(File db,
+                   int modificationFlags,
+                   int visibilityFlags) {
         this(db,
              true,
              modificationFlags,
@@ -122,20 +126,20 @@ abstract class FDB2 extends AbstractFeatureDataStore3 {
     }
 
     protected FDB2(File dbFile,
-                  boolean buildIndices,
-                  int modificationFlags,
-                  int visibilityFlags) {
+                   boolean buildIndices,
+                   int modificationFlags,
+                   int visibilityFlags) {
 
         super(modificationFlags, visibilityFlags);
 
         this.databaseFile = (dbFile != null) ? dbFile.getAbsolutePath() : ":memory:";
-        if(dbFile == null || !dbFile.exists() || dbFile.length() == 0L) {
-            this.database = Databases.openOrCreateDatabase(this.databaseFile);
-            
+        if(dbFile == null || !IOProviderFactory.exists(dbFile) || IOProviderFactory.length(dbFile) == 0L) {
+            this.database = IOProviderFactory.createDatabase(dbFile);
+
             this.buildTables(buildIndices);
             this.spatialIndexEnabled = buildIndices;
         } else {
-            this.database = Databases.openOrCreateDatabase(this.databaseFile);
+            this.database = IOProviderFactory.createDatabase(dbFile);
 
             // test for spatial index
             this.spatialIndexEnabled = (Databases.getTableNames(this.database).contains("idx_features_geometry"));
@@ -2590,7 +2594,7 @@ abstract class FDB2 extends AbstractFeatureDataStore3 {
             if(dis != null)
                 try {
                     dis.close();
-                } catch(IOException e) {}
+                } catch(IOException ignored) {}
         }
     }
 

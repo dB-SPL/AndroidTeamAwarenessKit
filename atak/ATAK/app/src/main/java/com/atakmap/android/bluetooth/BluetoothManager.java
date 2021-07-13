@@ -13,6 +13,7 @@ import android.widget.Toast;
 import com.atakmap.android.bluetooth.BluetoothDevicesConfig.BluetoothDeviceConfig;
 import com.atakmap.android.ipc.AtakBroadcast;
 import com.atakmap.android.maps.MapView;
+import com.atakmap.annotations.DeprecatedApi;
 import com.atakmap.app.R;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
 import com.atakmap.coremap.log.Log;
@@ -236,6 +237,8 @@ public class BluetoothManager {
      * ATSK is retired.
      * @deprecated
      */
+    @Deprecated
+    @DeprecatedApi(since = "4.1")
     synchronized public void disableForATSK() {
         Object o = DEVICE_MAP.remove("R10");
         DEVICE_MAP.remove("R8");
@@ -474,47 +477,41 @@ public class BluetoothManager {
 
             Log.d(TAG, "no supported bluetooth devices are paired");
             if (adapter.startDiscovery()) {
-                if (context != null) {
-                    mapView.post(new Runnable() {
-                        @Override
-                        public void run() {
-                            Toast.makeText(
-                                    context,
-                                    R.string.bt_classic_time,
-                                    Toast.LENGTH_LONG).show();
-                            Log.d(TAG,
-                                    "Starting scan for supported BT devices");
-                        }
-                    });
-                }
-            } else {
-                if (context != null) {
-                    mapView.post(new Runnable() {
-                        @Override
-                        public void run() {
-                            Toast.makeText(context, R.string.bt_classic_error,
-                                    Toast.LENGTH_SHORT)
-                                    .show();
-                            Log.w(TAG, "Unable to start BT scan");
-                        }
-                    });
-                }
-            }
-
-        } else {
-            Log.d(TAG, "attempting connect to " + devices.size()
-                    + " bt devices");
-            if (context != null) {
                 mapView.post(new Runnable() {
                     @Override
                     public void run() {
                         Toast.makeText(
                                 context,
                                 R.string.bt_classic_time,
-                                Toast.LENGTH_SHORT).show();
+                                Toast.LENGTH_LONG).show();
+                        Log.d(TAG,
+                                "Starting scan for supported BT devices");
+                    }
+                });
+            } else {
+                mapView.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        Toast.makeText(context, R.string.bt_classic_error,
+                                Toast.LENGTH_SHORT)
+                                .show();
+                        Log.w(TAG, "Unable to start BT scan");
                     }
                 });
             }
+
+        } else {
+            Log.d(TAG, "attempting connect to " + devices.size()
+                    + " bt devices");
+            mapView.post(new Runnable() {
+                @Override
+                public void run() {
+                    Toast.makeText(
+                            context,
+                            R.string.bt_classic_time,
+                            Toast.LENGTH_SHORT).show();
+                }
+            });
 
             for (final BluetoothDevice d : devices) {
                 try {
@@ -569,7 +566,6 @@ public class BluetoothManager {
 
     public void dispose() {
         unregisterReceivers();
-        context = null;
     }
 
     void registerReceiversAsNeeded() {

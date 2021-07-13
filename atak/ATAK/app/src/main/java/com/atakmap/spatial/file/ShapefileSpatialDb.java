@@ -3,19 +3,19 @@ package com.atakmap.spatial.file;
 
 import com.atakmap.app.R;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
+import com.atakmap.coremap.locale.LocaleUtil;
+import com.atakmap.coremap.log.Log;
 import com.atakmap.io.ZipVirtualFile;
 import com.atakmap.map.layer.feature.DataSourceFeatureDataStore;
 import com.atakmap.map.layer.feature.FeatureDataSource;
+import com.atakmap.util.zip.ZipEntry;
+import com.atakmap.util.zip.ZipFile;
 
 import java.io.File;
 import java.io.FileFilter;
 import java.io.IOException;
-import com.atakmap.coremap.locale.LocaleUtil;
-
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipFile;
 import java.util.Enumeration;
-import com.atakmap.coremap.log.Log;
 
 /**
  * Support ingesting ESRI Shapefiles
@@ -27,7 +27,8 @@ public class ShapefileSpatialDb extends OgrSpatialDb {
     private final static FileFilter SHP_FILTER = new FileFilter() {
         @Override
         public boolean accept(File arg0) {
-            return (arg0.isDirectory() || arg0.getName().endsWith(".shp"));
+            return (IOProviderFactory.isDirectory(arg0)
+                    || arg0.getName().endsWith(".shp"));
         }
 
     };
@@ -39,9 +40,7 @@ public class ShapefileSpatialDb extends OgrSpatialDb {
             if (!(file instanceof ZipVirtualFile)) {
                 do {
                     // check if it is a zip file
-                    if (file.getAbsolutePath()
-                            .toLowerCase(LocaleUtil.getCurrent())
-                            .contains(".zip")) {
+                    if (FileSystemUtils.isZipPath(file)) {
                         try {
                             // to to create, if we fail, we'll drop through to return null
                             file = new ZipVirtualFile(file);
@@ -82,7 +81,7 @@ public class ShapefileSpatialDb extends OgrSpatialDb {
 
     @Override
     public int processAccept(File file, int depth) {
-        if (file.isFile() && file.canRead()) {
+        if (IOProviderFactory.isFile(file) && IOProviderFactory.canRead(file)) {
             String lc = file.getName().toLowerCase(LocaleUtil.getCurrent());
             if (lc.endsWith(".shp"))
                 return PROCESS_ACCEPT;
@@ -138,7 +137,7 @@ public class ShapefileSpatialDb extends OgrSpatialDb {
 
     @Override
     public boolean processFile(File file) {
-        if (file.getName().endsWith(".zip"))
+        if (FileSystemUtils.checkExtension(file, "zip"))
             try {
                 file = new ZipVirtualFile(file);
             } catch (IllegalArgumentException | IllegalStateException ignored) {

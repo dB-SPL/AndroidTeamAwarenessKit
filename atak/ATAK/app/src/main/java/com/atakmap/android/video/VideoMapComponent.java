@@ -33,7 +33,7 @@ public class VideoMapComponent extends DropDownMapComponent {
     private VideoManager manager;
     private VideoDropDownReceiver vdr;
     private VideoBrowserDropDownReceiver vbdr;
-    private VideoBrowserMapOverlay overlay;
+    protected VideoBrowserMapOverlay overlay;
     private ImportVideoAliasSort aliasSorter;
     private VideoAliasImporter cotImporter;
     private VideoDetailHandler cotHandler;
@@ -51,23 +51,28 @@ public class VideoMapComponent extends DropDownMapComponent {
         NativeLoader.loadLibrary("pgscmobilevid");
     }
 
-    static {
-        try {
-            /* Initialize Gv2F **/
-            MediaProcessor.PGSCMediaInit(new byte[0], 0, 0);
-
-        } catch (MediaException e) {
-            Log.e(TAG,
-                    "Error when initializing native components for video player",
-                    e);
-            throw new RuntimeException(e);
-        }
-
-    }
+    static boolean initDone = false;
 
     @Override
     public void onCreate(Context context, Intent intent, MapView view) {
         super.onCreate(context, intent, view);
+
+        if (!initDone) {
+            try {
+                /* Initialize Gv2F **/
+                MediaProcessor.PGSCMediaInit(context.getApplicationContext());
+
+            } catch (MediaException e) {
+                Log.e(TAG,
+                        "Error when initializing native components for video player {"
+                                + context.getApplicationContext()
+                                        .getPackageName()
+                                + "}",
+                        e);
+                throw new RuntimeException(e);
+            }
+            initDone = true;
+        }
 
         manager = new VideoManager(view);
         manager.init();
@@ -108,6 +113,7 @@ public class VideoMapComponent extends DropDownMapComponent {
                 cotHandler = new VideoDetailHandler(view));
         CotImporterManager.getInstance().registerImporter(
                 cotImporter = new VideoAliasImporter(view, cotHandler));
+
     }
 
     @Override
@@ -129,7 +135,6 @@ public class VideoMapComponent extends DropDownMapComponent {
         view.getMapOverlayManager().removeOverlay(overlay);
         overlay.dispose();
         manager.dispose();
-
     }
 
     /**
@@ -186,7 +191,6 @@ public class VideoMapComponent extends DropDownMapComponent {
         }
     }
 
-
     /**
      * Given a set of parameters, this will construct a video connection entry and add it to the
      * video managemement system.
@@ -223,6 +227,5 @@ public class VideoMapComponent extends DropDownMapComponent {
             Log.e(TAG, "error adding a new or updating an existing alias", e);
         }
     }
-
 
 }

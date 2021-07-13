@@ -14,6 +14,7 @@ import com.atakmap.android.hierarchy.action.GoTo;
 import com.atakmap.android.importexport.send.TAKContactSender;
 import com.atakmap.android.importexport.send.TAKServerSender;
 import com.atakmap.android.importexport.send.ThirdPartySender;
+import com.atakmap.android.importfiles.http.NetworkLinkDownloader;
 import com.atakmap.android.ipc.AtakBroadcast.DocumentedIntentFilter;
 import android.content.SharedPreferences;
 import android.os.Bundle;
@@ -80,8 +81,7 @@ public class ImportExportMapComponent extends AbstractMapComponent implements
 
     protected static final String TAG = "ImportExportMapComponent";
 
-    private final HandlerThread handlerThread = new HandlerThread(
-            "ImportExportHandlerThread");
+    private HandlerThread handlerThread;
 
     public final static String ACTION_IMPORT_DATA = "com.atakmap.android.importexport.IMPORT_DATA";
     public final static String ACTION_DELETE_DATA = "com.atakmap.android.importexport.DELETE_DATA";
@@ -152,6 +152,7 @@ public class ImportExportMapComponent extends AbstractMapComponent implements
     private final List<ImportListener> _importListeners = new ArrayList<>();
 
     private static ImportExportMapComponent _instance;
+    private boolean _isSoftReset = false;
 
     public static ImportExportMapComponent getInstance() {
         return _instance;
@@ -255,32 +256,7 @@ public class ImportExportMapComponent extends AbstractMapComponent implements
                         KMLUtil.DEFAULT_NETWORKLINK_INTERVAL_SECS);
                 boolean bStop = intent.getBooleanExtra("kml_networklink_stop",
                         false);
-
-                if (_kmlDownloader == null) {
-                    Log.w(TAG, "Unable to process KML_NETWORK_LINK_REFRESH: "
-                            + url);
-                    return;
-                }
-
-                if (bStop) {
-                    if (filename == null) {
-                        Log.w(TAG,
-                                "Unable to remove KML_NETWORK_LINK_REFRESH with missing parameters");
-                        return;
-                    }
-
-                    _kmlDownloader.getLinkRefresh().remove(filename);
-                } else {
-                    if (url == null || filename == null) {
-                        Log.w(TAG,
-                                "Unable to add KML_NETWORK_LINK_REFRESH with missing parameters");
-                        return;
-                    }
-
-                    _kmlDownloader.getLinkRefresh().add(url, filename,
-                            intervalSeconds,
-                            TimeUnit.SECONDS);
-                }
+                refreshNetworkLink(url, filename, intervalSeconds, bStop);
             }
         }
     };
@@ -526,9 +502,15 @@ public class ImportExportMapComponent extends AbstractMapComponent implements
     CotImportExportHandler cotHandler;
     KmlImportExportHandler kmlHandler;
 
+    public ImportExportMapComponent() {
+        super(true);
+    }
+
     @Override
     public void onCreate(Context context, Intent intent, MapView mapView) {
         _mapView = mapView;
+        handlerThread = new HandlerThread(
+                "ImportExportHandlerThread");
         _stillStarting = true;
         handlerThread.start();
 
@@ -629,7 +611,8 @@ public class ImportExportMapComponent extends AbstractMapComponent implements
         mapView.getMapEventDispatcher().addMapEventListener(
                 MapEvent.ITEM_ADDED, this);
 
-        _importerResolvers = new ArrayList<>();
+        if (!_isSoftReset)
+            _importerResolvers = new ArrayList<>();
 
         // Send methods used by export
         _senders.add(new TAKContactSender(mapView));
@@ -640,7 +623,8 @@ public class ImportExportMapComponent extends AbstractMapComponent implements
 
         _errorLogsClient = new ErrorLogsClient(_mapView.getContext());
 
-        _instance = this;
+        if (!_isSoftReset)
+            _instance = this;
 
         //now check for streaming KML connections
         //_dropDown.refresh();
@@ -650,27 +634,68 @@ public class ImportExportMapComponent extends AbstractMapComponent implements
 
     @Override
     protected void onDestroyImpl(Context context, MapView view) {
-        _cotRemote.disconnect();
-        cotHandler.shutdown();
-        kmlHandler.shutdown();
-        handler.getLooper().quit();
-        handler.removeCallbacksAndMessages(null);
-        handlerThread.interrupt();
-        _downloader.shutdown();
-        _kmlDownloader.shutdown();
-        _ftp.dispose();
-        _dropDown.dispose();
+        // all receivers unregistered in `super.onDestroy(...)`
 
+        if (_errorLogsClient != null) {
+            _errorLogsClient.dispose();
+            _errorLogsClient = null;
+        }
+        for (URIContentSender s : _senders)
+            URIContentManager.getInstance().unregisterSender(s);
+        _senders.clear();
+        if (!_isSoftReset)
+            _importerResolvers.clear();
+        _mapView.getMapEventDispatcher()
+                .removeMapEventListener(MapEvent.ITEM_ADDED, this);
         if (_serverListener != null) {
             _serverListener.dispose();
             _serverListener = null;
         }
-
-        for (URIContentSender s : _senders)
-            URIContentManager.getInstance().unregisterSender(s);
+        if (_cotRemote != null) {
+            _cotRemote.setCotEventListener(null);
+            _cotRemote.disconnect();
+            _cotRemote = null;
+        }
+        if (kmlHandler != null) {
+            kmlHandler.shutdown();
+            kmlHandler = null;
+        }
+        if (cotHandler != null) {
+            cotHandler.shutdown();
+            cotHandler = null;
+        }
+        if (_ftp != null) {
+            _ftp.dispose();
+            _ftp = null;
+        }
+        if (_kmlDownloader != null) {
+            _kmlDownloader.shutdown();
+            _kmlDownloader.shutdown();
+        }
+        if (_downloader != null) {
+            _downloader.shutdown();
+            _downloader = null;
+        }
+        if (_dropDown != null) {
+            _dropDown.dispose();
+            _dropDown = null;
+        }
+        if (handler != null) {
+            handler.getLooper().quit();
+            handler.removeCallbacksAndMessages(null);
+            handler = null;
+        }
+        if (_overlay != null) {
+            _mapView.getMapOverlayManager().removeOverlay(_overlay);
+            _overlay = null;
+        }
+        if (handlerThread != null) {
+            handlerThread.interrupt();
+            handlerThread = null;
+        }
     }
 
-    public void download(RemoteResource resource) {
+    public void download(RemoteResource resource, boolean showNotifications) {
         if (resource == null) {
             return;
         }
@@ -682,11 +707,18 @@ public class ImportExportMapComponent extends AbstractMapComponent implements
             return;
         }
 
-        if (resource.isKML()) {
-            _kmlDownloader.download(resource);
-        } else {
-            _downloader.download(resource);
-        }
+        if (resource.isKML())
+            _kmlDownloader.download(resource, showNotifications);
+        else
+            _downloader.download(resource, showNotifications);
+
+        // Ping refresher in case it hasn't been started yet
+        if (resource.getRefreshSeconds() > 0)
+            refreshNetworkLink(resource, false);
+    }
+
+    public void download(RemoteResource resource) {
+        download(resource, true);
     }
 
     @Override
@@ -867,5 +899,46 @@ public class ImportExportMapComponent extends AbstractMapComponent implements
                 AtakBroadcast.getInstance().sendBroadcast(intent);
             }
         }
+    }
+
+    public void refreshNetworkLink(RemoteResource res, boolean stop) {
+        if (_kmlDownloader == null || _downloader == null) {
+            Log.w(TAG, "Unable to process KML_NETWORK_LINK_REFRESH: " + res);
+            return;
+        }
+        if (stop) {
+            if (res == null) {
+                Log.w(TAG,
+                        "Unable to remove KML_NETWORK_LINK_REFRESH with missing parameters");
+                return;
+            }
+            _downloader.removeRefreshLink(res);
+            _kmlDownloader.removeRefreshLink(res);
+        } else {
+            if (res == null) {
+                Log.w(TAG,
+                        "Unable to add KML_NETWORK_LINK_REFRESH with missing parameters");
+                return;
+            }
+            NetworkLinkDownloader downloader = res.isKML()
+                    ? _kmlDownloader
+                    : _downloader;
+            downloader.addRefreshLink(res);
+        }
+    }
+
+    public void refreshNetworkLink(String url, String name, long interval,
+            boolean stop) {
+        RemoteResource res = new RemoteResource();
+        res.setUrl(url);
+        res.setName(name);
+        res.setType(RemoteResource.Type.KML);
+        res.setDeleteOnExit(false);
+        res.setLocalPath("");
+        res.setRefreshSeconds(interval);
+        res.setLastRefreshed(0);
+        res.setMd5("");
+        res.setSource(RemoteResource.Source.LOCAL_STORAGE);
+        refreshNetworkLink(res, stop);
     }
 }

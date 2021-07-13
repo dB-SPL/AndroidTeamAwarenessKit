@@ -1,6 +1,7 @@
 
 package com.atakmap.coremap.maps.coords;
 
+import com.atakmap.annotations.DeprecatedApi;
 import com.atakmap.coremap.log.Log;
 
 import java.util.ArrayList;
@@ -32,12 +33,18 @@ public class GeoPointMetaData {
     public final static String DTED2 = "DTED2";
     public final static String DTED3 = "DTED3";
     public final static String LIDAR = "LIDAR";
+    /** @deprecated Will be removed without replacement */
+    @Deprecated
+    @DeprecatedApi(since = "4.2", forRemoval = true, removeAt = "4.5")
     public final static String PFI = "PFI";
     public final static String USER = "USER";
     public final static String UNKNOWN = "???";
     public final static String GPS = "GPS";
     public final static String SRTM1 = "SRTM1";
     public final static String COT = "COT";
+    /** @deprecated Will be removed without replacement */
+    @Deprecated
+    @DeprecatedApi(since = "4.2", forRemoval = true, removeAt = "4.5")
     public final static String PRI = "PRI";
     public final static String CALCULATED = "CALC";
     public final static String ESTIMATED = "ESTIMATED";
@@ -230,8 +237,11 @@ public class GeoPointMetaData {
      */
     public static GeoPoint[] unwrap(GeoPointMetaData[] pts) {
         GeoPoint[] ret = new GeoPoint[pts.length];
-        for (int i = 0; i < pts.length; ++i)
-            ret[i] = pts[i].get();
+        for (int i = 0; i < pts.length; ++i) {
+            if (pts[i] != null) {
+                ret[i] = pts[i].get();
+            }
+        }
         return ret;
     }
 
@@ -263,9 +273,10 @@ public class GeoPointMetaData {
     /**
      * Get a human readable representation of the GeoPoint in the format:
      *      latitude,longitude,altitudeHAE_meters,ce90,le90,altitude_source,geopoint_source
-     * @deprecated
-     *
+     * @deprecated use {@link #toString()}
      */
+    @Deprecated
+    @DeprecatedApi(since = "4.1", forRemoval = true, removeAt = "4.4")
     public String toStringRepresentation() {
         return geopoint.getLatitude() + "," +
                 geopoint.getLongitude() + "," +
@@ -327,6 +338,8 @@ public class GeoPointMetaData {
      * @return A GeoPoint instance or null if the String cannot be parsed.
      * @deprecated
      */
+    @Deprecated
+    @DeprecatedApi(since = "4.1")
     public static GeoPointMetaData parseGeoPoint(String str) {
         if (str == null) {
             return null;
@@ -383,4 +396,15 @@ public class GeoPointMetaData {
 
     }
 
+    public static boolean isPrecisionImageryDerived(GeoPointMetaData gpm) {
+        if (gpm == null)
+            return false;
+        // test if all metadata is present and correctly represented
+        final Object file = gpm.getMetaData(PRECISE_IMAGE_FILE);
+        final Object imgx = gpm.getMetaData(PRECISE_IMAGE_FILE_X);
+        final Object imgy = gpm.getMetaData(PRECISE_IMAGE_FILE_Y);
+        return (file instanceof String) &&
+                (imgx instanceof Number) &&
+                (imgy instanceof Number);
+    }
 }

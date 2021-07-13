@@ -4,14 +4,14 @@
 ////
 ////    DESCRIPTION:    Abstract base class for map layers.
 ////
-
+////    AUTHOR(S):      scott           scott_barrett@partech.com
 ////
 ////
 ////    HISTORY:
 ////
 ////      DATE          AUTHOR          COMMENTS
 ////      ------------  --------        --------
-////      Nov 18, 2014
+////      Nov 18, 2014  scott           Created.
 ////
 ////========================================================================////
 ////                                                                        ////
@@ -31,6 +31,8 @@
 ////========================================================================////
 
 #include <memory>
+
+#include "port/Platform.h"
 
 ////========================================================================////
 ////                                                                        ////
@@ -60,7 +62,7 @@ namespace core                          // Open core namespace.
 ///=============================================================================
 
 
-class Layer
+class ENGINE_API Layer
   {
                                         //====================================//
   public:                               //                      PUBLIC        //
@@ -78,7 +80,7 @@ class Layer
 
     virtual
     ~Layer ()
-        throw ()
+        NOTHROWS
         = 0;
 
     //
@@ -102,7 +104,7 @@ class Layer
     const char*
     getName ()
         const
-        throw ()
+        NOTHROWS
         = 0;
 
     //
@@ -152,7 +154,7 @@ class Layer::VisibilityListener
 
     virtual
     ~VisibilityListener ()
-        throw ()
+        NOTHROWS
       { };
 
     //

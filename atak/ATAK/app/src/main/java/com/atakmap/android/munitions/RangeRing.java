@@ -11,7 +11,7 @@ import com.atakmap.android.maps.MapItem;
 import com.atakmap.android.maps.MapView;
 import com.atakmap.android.maps.PointMapItem;
 import com.atakmap.android.munitions.util.MunitionsHelper;
-import com.atakmap.android.nineline.RemarksConstants;
+
 import com.atakmap.android.util.ATAKUtilities;
 import com.atakmap.android.util.Circle;
 import com.atakmap.app.R;
@@ -107,7 +107,7 @@ public class RangeRing extends PointMapItem implements AnchoredMapItem,
         _target.addOnGroupChangedListener(this);
         _mapGroup.addItem(this);
 
-        if (!hasNoLine()) {
+        if (hasNoLine()) {
             DangerCloseCalculator.getInstance().registerListener(this, _target);
         }
         if (_target.getMetaInteger("dangerclose", 0) < _outerRange)
@@ -246,48 +246,40 @@ public class RangeRing extends PointMapItem implements AnchoredMapItem,
     }
 
     @Override
-    public void setVisible(boolean visible) {
-        if (visible != getVisible()) {
-            superSetVisible(visible);
-            if (_target != null) {
-                if (!hasNoLine())
-                    _target.setMetaBoolean(_fromLine
-                            + RemarksConstants.WPN_DISPLAY, visible);
-                else
-                    _target.setMetaBoolean(
-                            TargetMunitionsDetailHandler.TARGET_MUNITIONS_VISIBLE,
-                            visible);
-                if (_mapGroup != null) {
-                    for (MapItem i : _mapGroup.getItems()) {
-                        if (i == this)
-                            continue;
-                        String targetUID = i.getMetaString("target", "");
-                        if (targetUID.equals(_target.getUID())
-                                && i instanceof RangeRing) {
-                            RangeRing rr = (RangeRing) i;
-                            if (rr.getFromLine().equals(_fromLine)) {
-                                rr.superSetVisible(visible);
-                                rr.onVisibleChanged(this);
-                            }
-                        }
+    protected void onVisibleChanged() {
+        boolean visible = getVisible();
+        if (_target != null) {
+            if (!hasNoLine())
+                _target.setMetaBoolean(_fromLine
+                        + MunitionsHelper.WPN_DISPLAY, visible);
+            else
+                _target.setMetaBoolean(
+                        TargetMunitionsDetailHandler.TARGET_MUNITIONS_VISIBLE,
+                        visible);
+            if (_mapGroup != null) {
+                for (MapItem i : _mapGroup.getItems()) {
+                    if (i == this)
+                        continue;
+                    String targetUID = i.getMetaString("target", "");
+                    if (targetUID.equals(_target.getUID())
+                            && i instanceof RangeRing) {
+                        RangeRing rr = (RangeRing) i;
+                        if (rr.getFromLine().equals(_fromLine))
+                            rr.setVisible(visible);
                     }
                 }
-                _target.persist(_mapView.getMapEventDispatcher(),
-                        null, this.getClass());
             }
-            this.onVisibleChanged(this);
+            _target.persist(_mapView.getMapEventDispatcher(),
+                    null, this.getClass());
         }
-    }
-
-    private void superSetVisible(boolean visible) {
-        super.setVisible(visible);
+        super.onVisibleChanged();
     }
 
     @Override
     public boolean getVisible() {
         return super.getVisible() && (_target == null
                 || !hasNoLine() && _target.getMetaBoolean(_fromLine
-                        + RemarksConstants.WPN_DISPLAY, true)
+                        + MunitionsHelper.WPN_DISPLAY, true)
                 || _target.getMetaBoolean(
                         TargetMunitionsDetailHandler.TARGET_MUNITIONS_VISIBLE,
                         true));

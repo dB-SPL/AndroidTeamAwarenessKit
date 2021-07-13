@@ -4,6 +4,7 @@ package com.atakmap.android.rubbersheet.data.create;
 import android.util.Xml;
 
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.locale.LocaleUtil;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.coremap.maps.coords.GeoPoint;
@@ -14,7 +15,6 @@ import org.xml.sax.Locator;
 import org.xml.sax.SAXException;
 
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 
@@ -41,20 +41,12 @@ public class KMLParser implements ContentHandler {
 
     public KMLParser(File docKml) {
         _file = docKml;
-        InputStream is = null;
-        try {
-            is = new FileInputStream(docKml);
+        try (InputStream is = IOProviderFactory.getInputStream(docKml)) {
             Xml.parse(is, Xml.Encoding.UTF_8, this);
         } catch (IOException e) {
             Log.e(TAG, "Failed to read doc.kml: " + docKml);
         } catch (SAXException e) {
             Log.e(TAG, "Failed to parse doc.kml: " + docKml);
-        } finally {
-            try {
-                if (is != null)
-                    is.close();
-            } catch (IOException ignored) {
-            }
         }
     }
 
@@ -93,22 +85,32 @@ public class KMLParser implements ContentHandler {
     public void characters(char[] ch, int start, int length) {
         if (_element != null) {
             String content = new String(ch, start, length);
-            if (_element.equals(EL_NAME))
-                _name = content;
-            else if (_element.equals(EL_HREF))
-                _iconHref = content;
-            else if (_element.equals(EL_COORDINATES))
-                _coords = content;
-            else if (_element.equals(EL_NORTH))
-                _north = content;
-            else if (_element.equals(EL_SOUTH))
-                _south = content;
-            else if (_element.equals(EL_EAST))
-                _east = content;
-            else if (_element.equals(EL_WEST))
-                _west = content;
-            else if (_element.equals(EL_ROTATION))
-                _rotation = content;
+            switch (_element) {
+                case EL_NAME:
+                    _name = content;
+                    break;
+                case EL_HREF:
+                    _iconHref = content;
+                    break;
+                case EL_COORDINATES:
+                    _coords = content;
+                    break;
+                case EL_NORTH:
+                    _north = content;
+                    break;
+                case EL_SOUTH:
+                    _south = content;
+                    break;
+                case EL_EAST:
+                    _east = content;
+                    break;
+                case EL_WEST:
+                    _west = content;
+                    break;
+                case EL_ROTATION:
+                    _rotation = content;
+                    break;
+            }
         }
     }
 

@@ -8,12 +8,14 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
 
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.map.elevation.ElevationChunk;
 import com.atakmap.map.elevation.ElevationData;
 import com.atakmap.map.elevation.ElevationSource;
 import com.atakmap.map.elevation.ElevationSourceManager;
 import com.atakmap.map.elevation.TiledElevationSource;
 import com.atakmap.map.gdal.GdalElevationChunk;
+import com.atakmap.map.gdal.GdalLibrary;
 import com.atakmap.map.layer.feature.geometry.Envelope;
 import com.atakmap.map.layer.raster.tilematrix.TileMatrix;
 
@@ -85,7 +87,7 @@ public final class SrtmElevationSource {
         SRTM30_TILE_MATRIX[0].tileHeight = 50; // spans 50deg lat
     }
 
-    private static Map<File, Collection<ElevationSource>> mounts = new HashMap<>();
+    private final static Map<File, Collection<ElevationSource>> mounts = new HashMap<>();
 
     private SrtmElevationSource() {}
 
@@ -182,7 +184,7 @@ public final class SrtmElevationSource {
                     return ElevationChunk.Factory.makeShared(cached);
             }
 
-            ElevationChunk chunk = null;
+            ElevationChunk chunk;
             do {
                 // check for the regular file
                 chunk = createSrtm(new File(dir, key), true);
@@ -242,7 +244,7 @@ public final class SrtmElevationSource {
             @Override
             public boolean moveToNext() {
                 // Make sure the STRM directory exists before continuing
-                return dir.exists() && super.moveToNext();
+                return IOProviderFactory.exists(dir) && super.moveToNext();
             }
         }
 
@@ -347,9 +349,9 @@ public final class SrtmElevationSource {
     }
 
     private static ElevationChunk createSrtm(File f, boolean srtm30) {
-        if(!f.exists())
+        if(!IOProviderFactory.exists(f))
             return null;
-        Dataset dataset = gdal.Open(f.getAbsolutePath());
+        Dataset dataset = GdalLibrary.openDatasetFromFile(f);
         if(dataset == null)
             return null;
         // XXX -

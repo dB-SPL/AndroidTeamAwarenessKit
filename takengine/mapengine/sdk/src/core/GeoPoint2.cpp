@@ -119,7 +119,7 @@ GeoPoint2::~GeoPoint2() NOTHROWS
 
 bool GeoPoint2::operator==(const GeoPoint2& rhs) const
 {
-    double epsilon = std::numeric_limits<double>::epsilon();
+    constexpr double epsilon = std::numeric_limits<double>::epsilon();
     bool bEquals = (altitudeRef == rhs.altitudeRef);
     bEquals = bEquals && (fabs(latitude - rhs.latitude) < epsilon);
     bEquals = bEquals && (fabs(longitude - rhs.longitude) < epsilon);
@@ -344,4 +344,10 @@ TAKErr TAK::Engine::Core::GeoPoint2_lobIntersection(GeoPoint2 &intersection, con
     intersection.longitude = lambda3 / M_PI * 180.0;
 
     return TE_Ok;
+}
+
+ENGINE_API double TAK::Engine::Core::GeoPoint2_distanceToHorizon(const double altitudeMsl) NOTHROWS
+{
+    // https://en.wikipedia.org/wiki/Horizon#Distance_to_the_horizon
+    return sqrt((2.0*Ellipsoid2::WGS84.semiMajorAxis*altitudeMsl) + (altitudeMsl*altitudeMsl));
 }

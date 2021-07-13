@@ -109,6 +109,12 @@
 -dontwarn com.iai.**
 -dontwarn org.simpleframework.**
 
+# for system level interfaces so there are no colisions between the abstract
+# class and the interface at the time of obfuscation
+-keep class com.atakmap.app.system.AbstractSystemComponent {*;}
+-keep interface com.atakmap.app.system.FlavorProvider {*;}
+-keeppackagenames com.atakmap.map.layer.raster.mobac
+
 -keep class android.database.** {*;}
 -keep class android.support.** {*;}
 -keep class com.healthmarketscience.** {*;}
@@ -149,8 +155,8 @@
 -keep class com.lizardtech.android.mrsid.** {*;}
 -keep class com.iai.** {*;}
 -keep class com.atak.plugins.impl.** {*;}
--keep class com.atak.plugins.impl.AtakPluginRegistry.PluginDescriptor {*;}
--keep class com.atak.plugins.impl.AtakPluginRegistry.Extension {*;}
+-keep class com.atak.plugins.impl.AtakPluginRegistry$PluginDescriptor {*;}
+-keep class com.atak.plugins.impl.AtakPluginRegistry$Extension {*;}
 -keep class com.atakmap.android.toolbar.IToolbarExtension {*;}
 
 # For newer Android distributions
@@ -244,10 +250,17 @@
 -keep class com.hoho.android.usbserial.** {*;}
 
 # Native code
+-keep class com.atakmap.android.maps.MapTextFormat {*;}
+-keep class com.atakmap.database.Bindable {*;}
+-keep class com.atakmap.database.CursorIface {*;}
+-keep class com.atakmap.database.DatabaseIface {*;}
+-keep class com.atakmap.database.QueryIface {*;}
 -keep class com.atakmap.database.RowIterator {*;}
+-keep class com.atakmap.database.StatementIface {*;}
 -keep class com.atakmap.interop.NotifyCallback {*;}
 -keep class com.atakmap.interop.Pointer {*;}
 -keep class com.atakmap.interop.ProgressCallback {*;}
+-keep class com.atakmap.io.ProtocolHandler {*;}
 -keep class com.atakmap.map.AtakMapView {*;}
 -keep class com.atakmap.map.AtakMapView$* {*;}
 -keep class com.atakmap.map.AtakMapController {*;}
@@ -267,6 +280,11 @@
 -keep class com.atakmap.map.elevation.ElevationSourceManager$* {*;}
 -keep class com.atakmap.map.elevation.NativeElevationSource {*;}
 -keep class com.atakmap.map.elevation.NativeElevationSource$* {*;}
+-keep class com.atakmap.map.formats.c3dt.ContentSource {*;}
+-keep class com.atakmap.map.formats.c3dt.GLTFBitmap {*;}
+-keep class com.atakmap.map.formats.c3dt.GLTF {*;}
+-keep class com.atakmap.map.gdal.VSIStatBuf {*;}
+-keep class com.atakmap.map.gdal.VSIJFileFilesystemHandler {*;}
 -keep class com.atakmap.map.layer.Layer {*;}
 -keep class com.atakmap.map.layer.Layer$* {*;}
 -keep class com.atakmap.map.layer.NativeLayer {*;}
@@ -290,18 +308,23 @@
 -keep class com.atakmap.map.opengl.GLAntiMeridianHelper {*;}
 -keep class com.atakmap.map.opengl.GLMapRenderable2 {*;}
 -keep class com.atakmap.map.opengl.GLMapView {*;}
+-keep class com.atakmap.map.opengl.GLMapView$* {*;}
 -keep class com.atakmap.map.opengl.NativeGLMapRenderable2 {*;}
 -keep class com.atakmap.map.projection.NativeProjection {*;}
 -keep class com.atakmap.map.projection.MapProjectionDisplayModel {*;}
 -keep class com.atakmap.map.projection.Projection {*;}
 -keep class com.atakmap.map.projection.ProjectionFactory {*;}
 -keep class com.atakmap.map.projection.ProjectionSpi {*;}
+-keep class com.atakmap.math.Frustum {*;}
 -keep class com.atakmap.math.GeometryModel {*;}
 -keep class com.atakmap.math.Matrix {*;}
 -keep class com.atakmap.math.NativeGeometryModel {*;}
 -keep class com.atakmap.math.PointD {*;}
 -keep class com.atakmap.math.Ray {*;}
 -keep class com.atakmap.math.Vector3D {*;}
+-keep class com.atakmap.map.layer.feature.falconview.FalconViewFeatureDataSource {*;}
 
 # make sure jassimp is happy
 -keep class jassimp.** {*;}
+
+-keep class com.atakmap.coremap.filesystem.RemovableStorageHelper {*;}

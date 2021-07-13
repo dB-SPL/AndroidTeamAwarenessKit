@@ -11,6 +11,7 @@ import com.atakmap.android.importexport.handlers.KmlMapItemImportHandler;
 import com.atakmap.android.maps.MapGroup;
 import com.atakmap.android.maps.MapView;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.comms.CommsMapComponent.ImportResult;
 
@@ -71,18 +72,11 @@ class DrawingToolsKMLImporter extends AbstractImporter {
         if (!FileSystemUtils.isFile(path))
             return ImportResult.FAILURE;
 
-        FileInputStream fis = null;
-        try {
-            fis = new FileInputStream(new File(path));
+        try (FileInputStream fis = IOProviderFactory
+                .getInputStream(new File(path))) {
             return importKmlImpl(fis);
         } catch (Exception e) {
             Log.e(TAG, "Failed to import KML shape", e);
-        } finally {
-            try {
-                if (fis != null)
-                    fis.close();
-            } catch (Exception ignore) {
-            }
         }
         return ImportResult.FAILURE;
     }

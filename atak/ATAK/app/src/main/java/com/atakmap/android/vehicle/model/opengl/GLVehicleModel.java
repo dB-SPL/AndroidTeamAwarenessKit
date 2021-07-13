@@ -12,6 +12,7 @@ import com.atakmap.coremap.maps.coords.GeoPoint;
 import com.atakmap.map.MapRenderer;
 import com.atakmap.map.MapSceneModel;
 import com.atakmap.map.layer.model.Mesh;
+import com.atakmap.map.layer.model.ModelInfo;
 import com.atakmap.map.layer.model.Models;
 import com.atakmap.map.projection.ECEFProjection;
 import com.atakmap.math.GeometryModel;
@@ -31,11 +32,12 @@ public class GLVehicleModel extends GLRubberModel {
     public static final Comparator<GLVehicleModel> SORT_Z = new Comparator<GLVehicleModel>() {
         @Override
         public int compare(GLVehicleModel o1, GLVehicleModel o2) {
-            return Double.compare(o2._modelAnchorPoint.z, o1._modelAnchorPoint.z);
+            return Double.compare(o2._modelAnchorPoint.z,
+                    o1._modelAnchorPoint.z);
         }
     };
 
-    private GLInstanceData _instanceData = new GLInstanceData();
+    private final GLInstanceData _instanceData = new GLInstanceData();
 
     private final Matrix _localECEF = Matrix.getIdentity();
 
@@ -56,6 +58,10 @@ public class GLVehicleModel extends GLRubberModel {
         }
 
         return ret;
+    }
+
+    public ModelInfo getModelInfo() {
+        return _modelInfo;
     }
 
     /**

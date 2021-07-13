@@ -8,12 +8,12 @@ import com.atakmap.app.R;
 import com.atakmap.app.preferences.PreferenceControl;
 import com.atakmap.app.preferences.json.JSONPreferenceControl;
 import com.atakmap.comms.http.HttpUtil;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
 
 import java.io.BufferedReader;
 import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileNotFoundException;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.util.Set;
@@ -37,9 +37,9 @@ public class ImportJSONPrefSort extends ImportInternalSDResolver {
         if (!super.match(file))
             return false;
 
-        try {
-            return isPreference(new FileInputStream(file));
-        } catch (FileNotFoundException e) {
+        try (InputStream is = IOProviderFactory.getInputStream(file)) {
+            return isPreference(is);
+        } catch (IOException e) {
             Log.e(TAG, "Failed to match Pref file: " + file.getAbsolutePath(),
                     e);
             return false;

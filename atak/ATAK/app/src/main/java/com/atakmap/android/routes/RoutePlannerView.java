@@ -42,6 +42,8 @@ import com.atakmap.android.editableShapes.EditablePolyline;
 import com.atakmap.android.gui.ColorPalette;
 import com.atakmap.android.gui.ColorPalette.OnColorSelectedListener;
 import com.atakmap.android.gui.NonEmptyEditTextDialog;
+import com.atakmap.android.hashtags.HashtagContent;
+import com.atakmap.android.hashtags.HashtagManager;
 import com.atakmap.android.hashtags.view.RemarksLayout;
 import com.atakmap.android.ipc.AtakBroadcast;
 import com.atakmap.android.maps.MapActivity;
@@ -90,7 +92,8 @@ public class RoutePlannerView extends LinearLayout implements
         Route.OnRouteMethodChangedListener, Route.OnEditableChangedListener,
         MapItem.OnGroupChangedListener, AdapterView.OnItemClickListener,
         DropDown.OnStateListener, MapEventDispatcher.MapEventDispatchListener,
-        SharedPreferences.OnSharedPreferenceChangeListener, Undoable {
+        SharedPreferences.OnSharedPreferenceChangeListener, Undoable,
+        HashtagManager.OnUpdateListener {
 
     public static final Comparator<String> ALPHA_SORT = new Comparator<String>() {
         @Override
@@ -100,14 +103,14 @@ public class RoutePlannerView extends LinearLayout implements
     };
 
     private static final String TAG = "RoutePlannerView";
-    private static final int LARGE_POINT_COUNT = 5000;
+    protected static final int LARGE_POINT_COUNT = 5000;
 
-    private MapView _mapView;
-    private Context _context;
-    private SharedPreferences _prefs;
+    protected MapView _mapView;
+    protected Context _context;
+    protected SharedPreferences _prefs;
     private RoutePlannerManager _routeManager;
 
-    private Route _route;
+    protected Route _route;
     private PointMapItem[] _cps = new PointMapItem[0];
     private RouteMapReceiver _receiver;
     private RouteData _routeData;
@@ -116,6 +119,7 @@ public class RoutePlannerView extends LinearLayout implements
     private boolean _active = false;
     private RoutePlannerInterface _planner;
     private RouteGenerationHandler _routeGenHandler;
+    protected ColorClickListener colorOnClick = new ColorClickListener();
 
     // Undo functionality
     private final Stack<EditAction> _undoStack = new Stack<>();
@@ -124,7 +128,8 @@ public class RoutePlannerView extends LinearLayout implements
 
     // Children views
     private EditText _routeName;
-    private ImageButton _routePlannerBtn, _colorButton, _editRoute;
+    private ImageButton _routePlannerBtn, _editRoute;
+    protected ImageButton _colorButton;
     private ImageView _routeTypeIcon;
     private TextView _routeType;
     private RemarksLayout _remarksLayout;
@@ -159,7 +164,7 @@ public class RoutePlannerView extends LinearLayout implements
 
         // View init
         _colorButton = findViewById(R.id.route_color);
-        _colorButton.setOnClickListener(_colorOnClick);
+        _colorButton.setOnClickListener(colorOnClick);
         _routeName = findViewById(R.id.route_name);
 
         _routeName.setOnClickListener(new NonEmptyEditTextDialog());
@@ -222,6 +227,8 @@ public class RoutePlannerView extends LinearLayout implements
         refreshPoints();
         refresh();
 
+        HashtagManager.getInstance().registerUpdateListener(this);
+
         if (autoPlan != null && route.getNumWaypoint() >= 2) {
             PointMapItem origin = route.getMarker(0);
             PointMapItem dest = route.getMarker(route.getNumPoints() - 1);
@@ -273,9 +280,14 @@ public class RoutePlannerView extends LinearLayout implements
     }
 
     public void close() {
-        if (_dropDown != null && !_dropDown.isClosed())
-            _dropDown.closeDropDown();
-        onClose();
+        _mapView.post(new Runnable() {
+            @Override
+            public void run() {
+                if (_dropDown != null && !_dropDown.isClosed())
+                    _dropDown.closeDropDown();
+                onClose();
+            }
+        });
     }
 
     public Route getRoute() {
@@ -317,14 +329,25 @@ public class RoutePlannerView extends LinearLayout implements
             if (!_receiver.isNavigating())
                 _receiver.dimRoutes(false);
 
+            // Unregister hashtags/remarks listener
+            HashtagManager.getInstance().unregisterUpdateListener(this);
+
+            // Update remarks
+            String remarks = _remarksLayout.getText();
+            if (remarks != null && !FileSystemUtils.isEquals(remarks,
+                    _route.getRemarks()))
+                _route.setRemarks(remarks);
+
             // Reset alpha to 255 temporarily so the route is persisted correctly
-            int alpha = Color.alpha(_route.getColor());
-            if (alpha < 255)
-                _route.resetAlpha();
-            _route.persist(_mapView.getMapEventDispatcher(), null,
-                    RoutePlannerView.class);
-            if (alpha < 255)
-                _route.setAlpha(alpha);
+            if (_route.hasMetaValue("archive")) {
+                int alpha = Color.alpha(_route.getColor());
+                if (alpha < 255)
+                    _route.resetAlpha();
+                _route.persist(_mapView.getMapEventDispatcher(), null,
+                        RoutePlannerView.class);
+                if (alpha < 255)
+                    _route.setAlpha(alpha);
+            }
 
             RouteElevationBroadcastReceiver.getInstance().stopProcessing();
 
@@ -335,6 +358,12 @@ public class RoutePlannerView extends LinearLayout implements
                 ActionBarReceiver.getInstance().setToolView(null, false);
             _active = false;
         }
+    }
+
+    @Override
+    public void onHashtagsUpdate(HashtagContent content) {
+        if (content == _route)
+            refresh();
     }
 
     @Override
@@ -559,15 +588,15 @@ public class RoutePlannerView extends LinearLayout implements
     @Override
     public void onItemClick(AdapterView<?> parent, View v, int pos, long id) {
         if (pos > 0 && pos <= _cps.length)
-            MapTouchController.goTo(_cps[pos - 1], false);
+            MapTouchController.goTo(_cps[pos - 1], true);
     }
 
-    private RouteEditTool getEditTool() {
+    protected RouteEditTool getEditTool() {
         Tool tool = ToolManagerBroadcastReceiver.getInstance().getActiveTool();
         return tool instanceof RouteEditTool ? (RouteEditTool) tool : null;
     }
 
-    private boolean endTool() {
+    protected boolean endTool() {
         RouteEditTool tool = getEditTool();
         if (tool != null) {
             tool.requestEndTool();
@@ -577,7 +606,7 @@ public class RoutePlannerView extends LinearLayout implements
         return false;
     }
 
-    private void refresh() {
+    protected void refresh() {
         if (_routeName == null)
             return;
 
@@ -588,7 +617,10 @@ public class RoutePlannerView extends LinearLayout implements
                 if (!_active)
                     return;
                 _routeName.setText(_route.getTitle());
-                _remarksLayout.setText(_route.getRemarks());
+                String remarks = _route.getRemarks();
+                if (!FileSystemUtils.isEquals(_remarksLayout.getText(),
+                        remarks))
+                    _remarksLayout.setText(remarks);
                 _editRoute.setSelected(_route.getEditable());
                 findViewById(R.id.edit_route_spacer).setVisibility(
                         _editRoute.getVisibility());
@@ -648,15 +680,12 @@ public class RoutePlannerView extends LinearLayout implements
         _cps = _route.getContactPoints();
     }
 
-    private void updateName() {
+    protected void updateName() {
         String name;
         if (_routeName != null && _routeName.getText() != null
                 && !FileSystemUtils.isEquals(_route.getTitle(),
                         (name = _routeName.getText().toString().trim())))
             _route.setTitle(name);
-        String remarks = _remarksLayout.getText();
-        if (remarks != null)
-            _route.setRemarks(remarks);
     }
 
     private void updateColorButton() {
@@ -696,7 +725,7 @@ public class RoutePlannerView extends LinearLayout implements
         listenForMapClick(_listeningForMapClick);
     }
 
-    private final OnClickListener _colorOnClick = new OnClickListener() {
+    protected class ColorClickListener implements OnClickListener {
         @Override
         public void onClick(View v) {
             AlertDialog.Builder b = new AlertDialog.Builder(_context);

@@ -1,7 +1,10 @@
 package com.atakmap.io;
 
+import com.atakmap.coremap.io.IOProviderFactory;
+import com.atakmap.util.zip.IoUtils;
+
 import java.io.File;
-import java.io.FileInputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
 import java.util.Arrays;
@@ -12,18 +15,24 @@ import java.util.Collection;
  */
 public class FileProtocolHandler implements ProtocolHandler {
 
+    private static final String TAG = "FileProtocolHandler";
+
     @Override
     public UriFactory.OpenResult handleURI(String uri) {
         File file = getFile(uri);
         if (file == null)
             return null;
 
+        UriFactory.OpenResult result = null;
         try {
-            UriFactory.OpenResult result = new UriFactory.OpenResult();
-            result.inputStream = new FileInputStream(file);
-            result.contentLength = file.length();
+            result = new UriFactory.OpenResult();
+            result.inputStream = openStream(file);
+            result.contentLength = IOProviderFactory.length(file);
             return result;
         } catch (Exception e) {
+            if(result != null){
+                IoUtils.close(result.inputStream);
+            }
             return null;
         }
     }
@@ -32,13 +41,13 @@ public class FileProtocolHandler implements ProtocolHandler {
     public long getContentLength(String uri) {
         File file = getFile(uri);
         if (file != null)
-            return file.length();
+            return IOProviderFactory.length(file);
         return 0;
     }
 
-    private File getFile(String uri) {
+    File getFile(String uri) {
         File f = new File(uri);
-        if(f.exists())
+        if(IOProviderFactory.exists(f))
             return f;
         try {
             URI uriObj = new URI(uri);
@@ -48,6 +57,10 @@ public class FileProtocolHandler implements ProtocolHandler {
             // ignore
         }
         return null;
+    }
+
+    InputStream openStream(File f) throws IOException {
+        return IOProviderFactory.getInputStream(f);
     }
 
     @Override

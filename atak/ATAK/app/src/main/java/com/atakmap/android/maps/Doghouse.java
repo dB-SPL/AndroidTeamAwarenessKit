@@ -31,7 +31,7 @@ public final class Doghouse extends Polyline implements
         RIGHT_OF_ROUTE(1),
         LEFT_OF_ROUTE(2);
 
-        private int _constant;
+        private final int _constant;
 
         DoghouseLocation(int constant) {
             _constant = constant;
@@ -62,9 +62,10 @@ public final class Doghouse extends Polyline implements
         NEXT_CHECKPOINT("Next Checkpoint"),
         BEARING_TO_NEXT("Bearing to Next"),
         DISTANCE_TO_NEXT("Distance to Next"),
-        ETE_NEXT("Time");
+        ETE_NEXT("Time"),
+        CUMULATIVE_TIME("Cumulative Time");
 
-        private String _repr;
+        private final String _repr;
 
         DoghouseFields(String repr) {
             _repr = repr;
@@ -100,23 +101,23 @@ public final class Doghouse extends Polyline implements
     private double _distanceToNext;
     private double _bearingToNext;
     private GeoPoint _nose;
-    private DoghouseFields[] _data;
-    private SharedPreferences _prefs;
+    private final DoghouseFields[] _data;
+    private final SharedPreferences _prefs;
     private int _size;
     private GeoPointMetaData _source;
     private GeoPointMetaData _target;
-    private int _strokeWidth;
+    private final int _strokeWidth;
     private int _strokeColor;
-    private float[] _shadeColor;
-    private float[] _textColor;
+    private final float[] _shadeColor;
+    private final float[] _textColor;
     private DoghouseLocation _relativeLocation;
     private int _distanceFromLeg;
     private double _noseShift;
-    private float _maxScale;
-    private int _sizeSegment;
+    private final float _maxScale;
+    private final int _sizeSegment;
     private boolean _showNorthReference;
 
-    private ConcurrentLinkedQueue<DoghouseChangeListener> _listeners;
+    private final ConcurrentLinkedQueue<DoghouseChangeListener> _listeners;
 
     Doghouse(int turnpointId,
             GeoPointMetaData source,
@@ -252,9 +253,9 @@ public final class Doghouse extends Polyline implements
 
     void removeRow(int index) {
         if (index >= 0 && index < _size) {
-            for (int i = index; i < _size - 1; i++) {
-                _data[i] = _data[i + 1];
-            }
+            if (_size - 1 - index >= 0)
+                System.arraycopy(_data, index + 1, _data, index,
+                        _size - 1 - index);
             _data[--_size] = DoghouseFields.EMPTY;
             fireOnDoghouseChanged();
         }
@@ -312,6 +313,14 @@ public final class Doghouse extends Polyline implements
 
     public GeoPoint getNose() {
         return _nose;
+    }
+
+    public GeoPoint getSource() {
+        return _source.get();
+    }
+
+    public GeoPoint getTarget() {
+        return _target.get();
     }
 
     public int getStrokeWidth() {

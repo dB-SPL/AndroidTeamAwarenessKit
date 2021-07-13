@@ -1,12 +1,14 @@
 package com.atakmap.map.layer.model.assimp;
 
+import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.io.ZipVirtualFile;
 import com.atakmap.map.layer.model.ModelSpi;
 import com.atakmap.util.Disposable;
 
+import java.io.Closeable;
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
@@ -28,7 +30,7 @@ public class ATAKAiIOSystem implements AiIOSystem<AiIOStream>, Disposable {
 
     private Set<InputStreamAiIOStream> streams = Collections.newSetFromMap(new IdentityHashMap<InputStreamAiIOStream, Boolean>());
 
-    private static class InputStreamAiIOStream implements AiIOStream {
+    private static class InputStreamAiIOStream implements AiIOStream, Closeable {
 
         private ModelSpi.Callback callback;
         private int maxProgress;
@@ -171,8 +173,8 @@ public class ATAKAiIOSystem implements AiIOSystem<AiIOStream>, Disposable {
     }
 
     static File findObj(File f) {
-        if(f.isDirectory()) {
-            File[] children = f.listFiles();
+        if(IOProviderFactory.isDirectory(f)) {
+            File[] children = IOProviderFactory.listFiles(f);
             if (children != null) {
                 for(File c : children) {
                     File r = findObj(c);
@@ -190,18 +192,18 @@ public class ATAKAiIOSystem implements AiIOSystem<AiIOStream>, Disposable {
 
     InputStreamAiIOStream openFile(String path) throws IOException {
         File f = new File(path);
-        if(f.exists())
-            return new InputStreamAiIOStream(new FileInputStream(f), f.length(), callback, maxProgress);
+        if(IOProviderFactory.exists(f))
+            return new InputStreamAiIOStream(IOProviderFactory.getInputStream(f), IOProviderFactory.length(f), callback, maxProgress);
         try {
             ZipVirtualFile zf = new ZipVirtualFile(f.getPath());
-            if (zf.exists())
+            if (IOProviderFactory.exists(zf))
                 return new ZipVirualFileAiIOStream(zf, callback, maxProgress);
-        } catch(Throwable t) {}
+        } catch(Throwable ignored) {}
         return null;
     }
 
     static boolean isZipFile(File file) {
-        return file.getName().endsWith(".zip") || file.getAbsolutePath().contains(".zip");
+        return FileSystemUtils.isZipPath(file);
     }
 
     @Override
@@ -235,11 +237,11 @@ public class ATAKAiIOSystem implements AiIOSystem<AiIOStream>, Disposable {
     @Override
     public boolean exists(String path) {
         File f = new File(path);
-        if(f.exists())
+        if(IOProviderFactory.exists(f))
             return true;
         try {
             ZipVirtualFile zf = new ZipVirtualFile(f.getPath());
-            return zf.exists();
+            return IOProviderFactory.exists(zf);
         } catch(Throwable t) {
             return false;
         }

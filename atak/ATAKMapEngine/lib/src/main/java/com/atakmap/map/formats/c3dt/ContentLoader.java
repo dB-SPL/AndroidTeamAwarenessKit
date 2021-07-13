@@ -1,6 +1,5 @@
 package com.atakmap.map.formats.c3dt;
 
-import com.atakmap.io.ProtocolHandler;
 import com.atakmap.map.RenderContext;
 import com.atakmap.util.Disposable;
 
@@ -48,7 +47,7 @@ final class ContentLoader extends ResourceManager.Job implements Disposable {
                     this.done = true;
                     return;
                 }
-            } catch(Throwable t) {
+            } catch(Throwable ignored) {
 
             }
         } while(false);

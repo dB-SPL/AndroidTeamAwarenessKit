@@ -1,6 +1,9 @@
 
 package com.atakmap.android.munitions;
 
+import com.atakmap.app.system.FlavorProvider;
+import com.atakmap.app.system.SystemComponentLoader;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.locale.LocaleUtil;
 
 import android.app.AlertDialog;
@@ -28,7 +31,6 @@ import com.atakmap.coremap.filesystem.FileSystemUtils;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.coremap.xml.XMLUtils;
 
-import javax.xml.XMLConstants;
 import org.w3c.dom.Attr;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
@@ -41,11 +43,9 @@ import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.ByteArrayInputStream;
 import java.io.File;
-import java.io.FileReader;
-import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.charset.Charset;
+import java.io.Reader;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -60,13 +60,38 @@ import javax.xml.transform.TransformerFactory;
 import javax.xml.transform.dom.DOMSource;
 import javax.xml.transform.stream.StreamResult;
 
+/**
+ * In charge of rendering munitions and explosive tables that can be used for danger rings.
+ * This does contain a mechism for overriding the rendered look and feel by a single plugin.
+ */
 public class DangerCloseAdapter extends BaseAdapter
         implements CustomCreator.CustomCreateListener {
 
     public static final String DIRNAME = FileSystemUtils.TOOL_DATA_DIRECTORY
             + File.separatorChar + "fires";
 
+    public static final String ORDNANCE_XML = "ordnance/ordnance_table.xml";
+
     private static final int ORDNANCE_LAST_ID = 219; //the is the ID of the last weapon in ordnance_table.xml
+
+    /**
+     * Allows for a plugin developer to customize or tweak the the display of of an item.
+     */
+    public interface CustomViewAdapter {
+        /**
+         * This method is run as part of the the getView method and is guaranteed to the be the
+         * last call prior to returning the view.   Note - the view passed in is what is currently
+         * saved in the view holder.  If you pass a new view back, please keep this in mind and
+         * appropriately cache your views to the original view in the view holder.
+         *
+         * @param viewHolder the view holder as an opaque object to key into any view management done by the plugin
+         * @param v the view as constructed using the standard mechanics within ATAK
+         * @param targetUID the target currently associated with the adapter.   This uid may or
+         *                  may not be valid when looked up using MapView.getMapItem().
+         * @return the modified view.
+         */
+        public View adapt(ViewHolder viewHolder, View v, String targetUID);
+    }
 
     private final Context _context;
     private final MapView _mapView;
@@ -84,7 +109,9 @@ public class DangerCloseAdapter extends BaseAdapter
     private static Node favoritesNode;
     private static Node customNode;
     private static Node ordnanceNode;
-    private String fromLine;
+    private final String fromLine;
+
+    private static CustomViewAdapter customViewAdapter;
 
     public static HashSet<Integer> favorites;
     public static HashSet<Integer> removing;
@@ -282,6 +309,14 @@ public class DangerCloseAdapter extends BaseAdapter
         }
 
         updateView(holder, position);
+
+        try {
+            if (customViewAdapter != null)
+                customViewAdapter.adapt(holder, convertView, target);
+        } catch (Exception e) {
+            Log.e(TAG, "error using the registered customViewAdapter"
+                    + customViewAdapter.getClass(), e);
+        }
 
         return convertView;
     }
@@ -611,13 +646,17 @@ public class DangerCloseAdapter extends BaseAdapter
         try {
             Log.d(TAG, "load customs: " + location + item);
             File f = new File(location + item);
-            if (f.exists()) {
+            if (IOProviderFactory.exists(f)) {
                 try {
                     DocumentBuilderFactory docFactory = XMLUtils
                             .getDocumenBuilderFactory();
                     DocumentBuilder docBuilder = docFactory
                             .newDocumentBuilder();
-                    Document dom = docBuilder.parse(f);
+
+                    Document dom;
+                    try (InputStream is = IOProviderFactory.getInputStream(f)) {
+                        dom = docBuilder.parse(is);
+                    }
 
                     if (dom != null) {
                         NodeList nodes = dom
@@ -815,8 +854,8 @@ public class DangerCloseAdapter extends BaseAdapter
         try {
             File f = new File(location + item);
             boolean first = true;
-            BufferedWriter writer = new BufferedWriter(new FileWriter(f));
-            try {
+            try (BufferedWriter writer = new BufferedWriter(
+                    IOProviderFactory.getFileWriter(f))) {
                 for (Integer i : favorites) {
                     StringBuilder sBuilder = new StringBuilder();
                     if (first)
@@ -829,8 +868,6 @@ public class DangerCloseAdapter extends BaseAdapter
                     writer.write(sBuilder.toString());
 
                 }
-            } finally {
-                writer.close();
             }
 
         } catch (IOException io) {
@@ -849,23 +886,21 @@ public class DangerCloseAdapter extends BaseAdapter
 
             Log.d(TAG, "load favorites: " + location + item);
             File f = new File(location + item);
-            if (f.exists()) {
-                BufferedReader reader = new BufferedReader(new FileReader(f));
+            if (IOProviderFactory.exists(f)) {
 
-                try {
+                try (Reader r = IOProviderFactory.getFileReader(f);
+                        BufferedReader reader = new BufferedReader(r)) {
                     String line;
                     while ((line = reader.readLine()) != null) {
                         line = line.replace("\n", "");
                         int id = Integer.parseInt(line);
                         favorites.add(id);
                     }
-                } finally {
-                    reader.close();
                 }
 
             } else {
                 File fd = new File(location);
-                if (!fd.mkdir())
+                if (!IOProviderFactory.mkdir(fd))
                     Log.w(TAG,
                             "Failed to create directory"
                                     + fd.getAbsolutePath());
@@ -888,13 +923,16 @@ public class DangerCloseAdapter extends BaseAdapter
         try {
             Log.d(TAG, "load customs: " + location + item);
             File f = new File(location + item);
-            if (f.exists()) {
+            if (IOProviderFactory.exists(f)) {
                 try {
                     DocumentBuilderFactory docFactory = XMLUtils
                             .getDocumenBuilderFactory();
                     DocumentBuilder docBuilder = docFactory
                             .newDocumentBuilder();
-                    Document dom = docBuilder.parse(f);
+                    Document dom;
+                    try (InputStream is = IOProviderFactory.getInputStream(f)) {
+                        dom = docBuilder.parse(is);
+                    }
 
                     if (dom != null) {
                         NodeList nodes = dom
@@ -915,7 +953,7 @@ public class DangerCloseAdapter extends BaseAdapter
             } else {
                 //wrap xml file
                 File fd = new File(location);
-                if (!fd.mkdir())
+                if (!IOProviderFactory.mkdir(fd))
                     Log.w(TAG,
                             "Failed to create directory"
                                     + fd.getAbsolutePath());
@@ -969,14 +1007,17 @@ public class DangerCloseAdapter extends BaseAdapter
         try {
             Log.d(TAG, "removing customs: " + location + item);
             File f = new File(location + item);
-            if (f.exists()) {
+            if (IOProviderFactory.exists(f)) {
                 try {
                     //build the DOM
                     DocumentBuilderFactory docFactory = XMLUtils
                             .getDocumenBuilderFactory();
                     DocumentBuilder docBuilder = docFactory
                             .newDocumentBuilder();
-                    Document dom = docBuilder.parse(f);
+                    Document dom;
+                    try (InputStream is = IOProviderFactory.getInputStream(f)) {
+                        dom = docBuilder.parse(is);
+                    }
 
                     //get all the nodes under 'Custom' tag
                     NodeList nodes = dom
@@ -1064,8 +1105,12 @@ public class DangerCloseAdapter extends BaseAdapter
             DocumentBuilderFactory docFactory = XMLUtils
                     .getDocumenBuilderFactory();
             DocumentBuilder docBuilder = docFactory.newDocumentBuilder();
-            Document dom = docBuilder.parse(new File(location + item));
 
+            Document dom;
+            try (InputStream is = IOProviderFactory
+                    .getInputStream(new File(location + item))) {
+                dom = docBuilder.parse(is);
+            }
             //custom list
             NodeList nodes = dom.getElementsByTagName("Custom_Threat_Rings");
             Element custom;
@@ -1209,8 +1254,18 @@ public class DangerCloseAdapter extends BaseAdapter
             DocumentBuilderFactory docFactory = XMLUtils
                     .getDocumenBuilderFactory();
             DocumentBuilder docBuilder = docFactory.newDocumentBuilder();
-            InputStream is = context.getAssets()
-                    .open("ordnance/ordnance_table.xml");
+            InputStream is = null;
+
+            // see if the flavor supplies the ordnance tables.
+            FlavorProvider provider = SystemComponentLoader.getFlavorProvider();
+            if (provider != null) {
+                is = provider.getAssetInputStream(ORDNANCE_XML);
+            }
+
+            // if the flavor does not, then just grab the localized.
+            if (is == null) {
+                is = context.getAssets().open(ORDNANCE_XML);
+            }
 
             Document dom = docBuilder.parse(is);
             checkEachItemForActiveStatus(dom.getChildNodes());
@@ -1357,7 +1412,7 @@ public class DangerCloseAdapter extends BaseAdapter
         updateList(currNode);
     }
 
-    static class ViewHolder {
+    public static class ViewHolder {
         ImageView nextArrow;
         TextView activeText;
         TextView descText;
@@ -1666,6 +1721,15 @@ public class DangerCloseAdapter extends BaseAdapter
 
             alert.show();
         }
+    }
+
+    /**
+     * Register a custom view adapter for modifying the muninition visual display.   Care must be
+     * taken to unregister this when unloading the plugin.   Unregistration is performed by passing null.
+     * @param cva the custom view adapter
+     */
+    public static void registerCustomViewAdapter(CustomViewAdapter cva) {
+        customViewAdapter = cva;
     }
 
 }

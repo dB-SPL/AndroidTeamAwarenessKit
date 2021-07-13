@@ -21,8 +21,6 @@ using namespace TAK::Engine::Math;
 using namespace TAK::Engine::Port;
 using namespace TAK::Engine::Core;
 
-#define B3DM_OUTPUT_LLA 0
-
 // Use tinygltf's copy of JSON for Modern C++
 #include <tinygltf/json.hpp>
 using json = nlohmann::json;
@@ -48,6 +46,7 @@ namespace {
         DataInput2 *input;
         std::deque<uint8_t> rbuf;
         size_t pos;
+        size_t len_;
         bool record;
     };
 
@@ -158,17 +157,20 @@ Matrix2 rootTransform(Point2<double> rtcCenter) {
     if (code != TE_Ok) \
         return code;
 
-TAKErr parseImpl(ParseData *impl, bool fullParse, DataInput2* input, const char* baseURI) NOTHROWS {
+TAKErr parseImpl(ParseData *impl, bool fullParse, DataInput2* innerInput, const char* baseURI) NOTHROWS {
 
-    if (!input)
+    if (!innerInput)
         return TE_InvalidArg;
+
+    RewindDataInput2 rewindInput(innerInput);
+    rewindInput.enableRewind(false);
 
     TAKErr code = TE_Ok;
 
     size_t numRead = 0;
     uint8_t magic[4] = { 0, 0, 0, 0 };
 
-    code = input->read(magic, &numRead, 4);
+    code = rewindInput.read(magic, &numRead, 4);
     if (code != TE_Ok)
         return code;
     
@@ -179,10 +181,12 @@ TAKErr parseImpl(ParseData *impl, bool fullParse, DataInput2* input, const char*
     uint32_t version = 0;
     uint32_t byteLength = 0;
 
+    DataInput2 *input = &rewindInput;
     READ_UINT(version);
     READ_UINT(byteLength);
 
-    RewindDataInput2 rewindInput(input);
+#if 1
+    rewindInput.enableRewind(true);
 
     code = parse20ByteHeaderVersion(impl, &rewindInput);
     if (code == TE_Unsupported) {
@@ -194,6 +198,9 @@ TAKErr parseImpl(ParseData *impl, bool fullParse, DataInput2* input, const char*
         rewindInput.enableRewind(false);
         code = parse28ByteHeaderVersion(impl, &rewindInput);
     }
+#else
+    code = parse28ByteHeaderVersion(impl, &rewindInput);
+#endif
 
     if (code != TE_Ok)
         return code;
@@ -241,18 +248,11 @@ TAKErr TAK::Engine::Formats::Cesium3DTiles::B3DM_parseInfo(B3DMInfo* info, DataI
     return TE_Ok;
 }
 
-int TAK::Engine::Formats::Cesium3DTiles::B3DM_getSRID() NOTHROWS {
-#if B3DM_OUTPUT_LLA
-    return 4326;
-#else
-    return 4978;
-#endif
-}
-
 namespace {
     RewindDataInput2::RewindDataInput2(DataInput2* input) NOTHROWS
         : input(input),
         pos(0),
+        len_(input ? static_cast<size_t>(input->length()) : 0),
         record(true)
     {}
 
@@ -262,19 +262,28 @@ namespace {
     }
 
     TAKErr RewindDataInput2::read(uint8_t* buf, std::size_t* numRead, const std::size_t len) NOTHROWS {
+        
+        size_t localNumRead = 0;
+        TAKErr retv = TE_IO;
+        
         if (pos < rbuf.size()) {
             size_t avail = rbuf.size() - pos;
             size_t step = avail < len ? avail : len;
-            memcpy(buf, &rbuf[pos], step);
+            std::copy_n(rbuf.begin() + pos, step, buf);
             pos += step;
             size_t directRead = 0;
             TAKErr code = readDirect(buf + step, &directRead, len - step);
-            if (numRead)
-                *numRead = step + directRead;
-            return code;
+            localNumRead = step + directRead;
+            retv = code;
+        } else {
+            retv = readDirect(buf, &localNumRead, len);
         }
 
-        return readDirect(buf, numRead, len);
+        if (numRead)
+            *numRead = localNumRead;
+
+        len_ -= localNumRead;
+        return retv;
     }
 
     TAKErr RewindDataInput2::readByte(uint8_t* value) NOTHROWS {
@@ -314,7 +323,7 @@ namespace {
     }
 
     int64_t RewindDataInput2::length() const NOTHROWS {
-        return input->length();
+        return len_;
     }
 
     TAKErr RewindDataInput2::safe() NOTHROWS {
@@ -327,6 +336,7 @@ namespace {
         if (count > pos)
             return TE_InvalidArg;
         pos -= count;
+        len_ += count;
         return TE_Ok;
     }
 

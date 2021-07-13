@@ -2,7 +2,6 @@
 package com.atakmap.android.tools;
 
 import android.app.ActionBar;
-import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.DialogInterface;
 import android.content.Intent;
@@ -12,9 +11,8 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.preference.PreferenceManager;
 import androidx.core.app.NavUtils;
-import android.text.InputFilter;
+
 import android.text.InputType;
-import android.text.Spanned;
 import android.view.Menu;
 import android.view.MenuInflater;
 import android.view.MenuItem;
@@ -98,7 +96,7 @@ public class AllToolsActivity extends MetricActivity implements
 
     }
 
-    private BroadcastReceiver _quitReceiver = new BroadcastReceiver() {
+    private final BroadcastReceiver _quitReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
             AllToolsActivity.this.finish();
@@ -119,7 +117,7 @@ public class AllToolsActivity extends MetricActivity implements
             try {
                 NavUtils.navigateUpFromSameTask(this);
             } catch (IllegalArgumentException iae) {
-                Log.d(TAG, "error occured", iae);
+                Log.d(TAG, "error occurred", iae);
                 finish();
             }
             return true;
@@ -244,7 +242,7 @@ public class AllToolsActivity extends MetricActivity implements
                                 } else {
                                     MissionPackageManifest mf = MissionPackageApi
                                             .CreateTempManifest(name, true,
-                                                    true, null);
+                                                    false, null);
                                     for (AtakActionBarMenuData exported : exportedList) {
                                         File f = FileSystemUtils
                                                 .getItem(("config/actionbars/"
@@ -255,17 +253,6 @@ public class AllToolsActivity extends MetricActivity implements
                                                         + ".xml").toLowerCase(
                                                                 LocaleUtil
                                                                         .getCurrent()));
-                                        try {
-                                            File dir = FileSystemUtils
-                                                    .createTempDir("actionbar",
-                                                            "tmp", null);
-                                            File nf = new File(dir,
-                                                    f.getName());
-                                            FileSystemUtils.copyFile(f, nf);
-                                            f = nf;
-                                        } catch (IOException ignored) {
-                                        }
-
                                         mf.addFile(f, null);
                                         Log.d(TAG, "added: " + f.getName());
                                     }
@@ -412,7 +399,9 @@ public class AllToolsActivity extends MetricActivity implements
                                                     + orientation);
                                     Toast.makeText(
                                             AllToolsActivity.this,
-                                            R.string.tool_text8 + newLabel,
+                                            AllToolsActivity.this.getString(
+                                                    R.string.tool_text8)
+                                                    + newLabel,
                                             Toast.LENGTH_SHORT)
                                             .show();
                                     return;

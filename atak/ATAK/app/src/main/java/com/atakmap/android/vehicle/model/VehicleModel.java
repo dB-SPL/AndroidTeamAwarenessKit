@@ -11,16 +11,22 @@ import android.graphics.PorterDuff;
 import android.graphics.PorterDuffColorFilter;
 import android.graphics.drawable.Drawable;
 import android.os.Bundle;
+import android.os.SystemClock;
+import android.util.Pair;
 
 import com.atakmap.android.cot.detail.CotDetailManager;
 import com.atakmap.android.icons.UserIcon;
 import com.atakmap.android.imagecapture.CanvasHelper;
 import com.atakmap.android.imagecapture.Capturable;
 import com.atakmap.android.imagecapture.CapturePP;
+import com.atakmap.android.importexport.FormatNotSupportedException;
 import com.atakmap.android.maps.MapGroup;
 import com.atakmap.android.maps.MapItem;
+import com.atakmap.android.maps.MapView;
 import com.atakmap.android.maps.Marker;
 import com.atakmap.android.maps.PointMapItem;
+import com.atakmap.android.maps.graphics.GLCapture;
+import com.atakmap.android.model.opengl.GLModelCaptureCache;
 import com.atakmap.android.rubbersheet.data.ModelProjection;
 import com.atakmap.android.rubbersheet.data.RubberModelData;
 import com.atakmap.android.rubbersheet.data.RubberSheetUtils;
@@ -28,7 +34,6 @@ import com.atakmap.android.rubbersheet.maps.LoadState;
 import com.atakmap.android.rubbersheet.maps.RubberModel;
 import com.atakmap.android.util.ATAKUtilities;
 import com.atakmap.android.vehicle.VehicleMapItem;
-import com.atakmap.android.vehicle.model.icon.GLOffscreenCaptureService;
 import com.atakmap.android.vehicle.model.icon.VehicleModelCaptureRequest;
 import com.atakmap.app.R;
 import com.atakmap.coremap.cot.event.CotDetail;
@@ -37,16 +42,35 @@ import com.atakmap.coremap.cot.event.CotPoint;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.coremap.maps.coords.DistanceCalculations;
+import com.atakmap.coremap.maps.coords.GeoCalculations;
 import com.atakmap.coremap.maps.coords.GeoPoint;
 import com.atakmap.coremap.maps.coords.GeoPointMetaData;
 import com.atakmap.coremap.maps.coords.NorthReference;
+import com.atakmap.coremap.maps.coords.Vector2D;
 import com.atakmap.coremap.maps.time.CoordinatedTime;
+import com.atakmap.map.elevation.ElevationManager;
 import com.atakmap.map.layer.feature.geometry.Envelope;
 import com.atakmap.map.layer.model.Model;
 import com.atakmap.map.layer.model.ModelInfo;
+import com.atakmap.spatial.file.export.KMZFolder;
+import com.atakmap.spatial.file.export.OGRFeatureExportWrapper;
+import com.atakmap.spatial.kml.KMLUtil;
+import com.ekito.simpleKML.model.Coordinate;
+import com.ekito.simpleKML.model.Feature;
+import com.ekito.simpleKML.model.Folder;
+import com.ekito.simpleKML.model.Geometry;
+import com.ekito.simpleKML.model.Icon;
+import com.ekito.simpleKML.model.IconStyle;
+import com.ekito.simpleKML.model.Placemark;
+import com.ekito.simpleKML.model.Point;
+import com.ekito.simpleKML.model.Style;
+import com.ekito.simpleKML.model.StyleSelector;
+
+import org.gdal.ogr.ogr;
 
 import java.io.File;
-import java.io.FileOutputStream;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -111,6 +135,7 @@ public class VehicleModel extends RubberModel implements Capturable,
 
     public VehicleModel(VehicleModelData data) {
         super(data);
+        getCenterMarker().setPoint(data.center);
         setType(COT_TYPE);
         setSharedModel(true);
         showLines(false);
@@ -128,13 +153,24 @@ public class VehicleModel extends RubberModel implements Capturable,
 
         _info = info;
         VehicleModelCache.getInstance().registerUsage(info, getUID());
-        onLoad(new ModelInfo(info.getInfo()), info.getModel());
+        ModelInfo mInfo = info.getInfo();
+        if (mInfo != null)
+            mInfo = new ModelInfo(mInfo);
+        onLoad(mInfo, info.getModel());
         double[] dim = getModelDimensions(false);
         _width = dim[0];
         _length = dim[1];
         _height = dim[2];
-        updateIconPath();
+        updateLegacyIconPath();
         setLoadState(LoadState.SUCCESS);
+
+        // Update offscreen indicator icon
+        Marker center = getCenterMarker();
+        if (center != null)
+            center.setMetaString("offscreen_icon_uri", info.getIconURI());
+
+        // Update points
+        setPoints(getCenter(), getWidth(), getLength(), getHeading());
     }
 
     public VehicleModelInfo getVehicleInfo() {
@@ -192,6 +228,14 @@ public class VehicleModel extends RubberModel implements Capturable,
         setPoints(point, getWidth(), getLength(), getHeading());
     }
 
+    @Override
+    public void setStrokeColor(int strokeColor) {
+        super.setStrokeColor(strokeColor);
+        Marker center = getCenterMarker();
+        if (center != null)
+            center.setMetaInteger("offscreen_icon_color", strokeColor);
+    }
+
     /**
      * Set the azimuth/heading of this vehicle model
      * @param deg Degrees
@@ -223,8 +267,8 @@ public class VehicleModel extends RubberModel implements Capturable,
     }
 
     @Override
-    public void setVisible(boolean visible) {
-        super.setVisible(visible);
+    protected void onVisibleChanged() {
+        super.onVisibleChanged();
         for (PointMapItem pmi : getAnchorMarkers())
             pmi.setVisible(false);
     }
@@ -273,6 +317,13 @@ public class VehicleModel extends RubberModel implements Capturable,
         return hasMetaValue("outline");
     }
 
+    public void updateOffscreenInterest() {
+        Marker center = getCenterMarker();
+        if (center != null)
+            center.setMetaLong("offscreen_interest",
+                    SystemClock.elapsedRealtime());
+    }
+
     @Override
     protected boolean isModelVisible() {
         return super.isModelVisible() || showOutline();
@@ -282,7 +333,7 @@ public class VehicleModel extends RubberModel implements Capturable,
      * For legacy devices receiving this CoT that don't have the ability to
      * show the 3-D model, set a reasonable icon
      */
-    private void updateIconPath() {
+    private void updateLegacyIconPath() {
         String iconPath = "34ae1613-9645-4222-a9d2-e5f243dea2865/";
         switch (_info.category) {
             case "Aircraft":
@@ -300,6 +351,85 @@ public class VehicleModel extends RubberModel implements Capturable,
                 break;
         }
         setMetaString(UserIcon.IconsetPath, iconPath);
+    }
+
+    @Override
+    protected boolean orthoHitModel(int x, int y, GeoPoint point,
+            MapView view) {
+        return showOutline() && orthoHitOutline(x, y, view)
+                || super.orthoHitModel(x, y, point, view);
+    }
+
+    private boolean orthoHitOutline(int x, int y, MapView view) {
+        List<PointF> points = _info.getOutline(null);
+        if (points == null || view.getMapTilt() > 0)
+            return false;
+
+        // The outline points are in meters offset from the center, so
+        // for performance we apply transformations to the touch point
+        // rather than the outline
+        double res = view.getMapResolution();
+        GeoPoint centerGP = getCenterPoint();
+        PointF center = view.forward(centerGP);
+
+        // X and Y click point in meters offset from center
+        float mx = (float) ((x - center.x) * res);
+        float my = (float) ((center.y - y) * res);
+
+        // Apply reverse rotation to click (instead of rotating the entire outline)
+        double a = Math.toRadians(getAzimuth(NorthReference.TRUE)
+                - view.getMapRotation());
+        double aCos = Math.cos(-a), aSin = Math.sin(-a);
+        float rmx = (float) (mx * aCos + my * aSin);
+        float rmy = (float) (my * aCos - mx * aSin);
+        mx = rmx;
+        my = rmy;
+
+        // Convert hit radius to meters
+        float mr = (float) (getHitRadius(view) * res);
+        float mr2 = mr / 2f, mrSq = mr * mr;
+
+        // Perform hit test on vertices and lines
+        PointF lp = null;
+        Vector2D touch = new Vector2D(mx, my);
+        PointF hit = null;
+        for (PointF p : points) {
+            // Test hit on vertex
+            if (Math.abs(p.x - mx) < mr2 && Math.abs(p.y - my) < mr2) {
+                hit = p;
+                break;
+            }
+            // Test hit on last line
+            if (lp != null) {
+                Vector2D nearest = Vector2D.nearestPointOnSegment(touch,
+                        new Vector2D(p.x, p.y),
+                        new Vector2D(lp.x, lp.y));
+                double dist = nearest.distanceSq(touch);
+                if (mrSq > dist) {
+                    hit = new PointF((float) nearest.x,
+                            (float) nearest.y);
+                    break;
+                }
+            }
+            lp = p;
+        }
+
+        if (hit == null)
+            return false;
+
+        // Found a hit
+        double azimuth = Math.toDegrees(Math.atan2(hit.x, hit.y) + a)
+                + view.getMapRotation();
+        double dist = Math.hypot(hit.x, hit.y);
+        GeoPoint point = new GeoPoint(GeoCalculations.pointAtDistance(
+                centerGP, azimuth, dist),
+                GeoPoint.Access.READ_WRITE);
+        double alt = ElevationManager.getElevation(
+                point.getLatitude(), point.getLongitude(), null);
+        point.set(alt);
+        setTouchPoint(point);
+        setMetaString("menu_point", point.toString());
+        return true;
     }
 
     @Override
@@ -343,11 +473,6 @@ public class VehicleModel extends RubberModel implements Capturable,
     // Maximum width/height for a vehicle capture
     private static final int MAX_RENDER_SIZE = 1024;
 
-    // Temporary storage for render captures, so we can read from a file
-    // instead of capturing every time
-    private static final File RENDER_CACHE_DIR = FileSystemUtils.getItem(
-            FileSystemUtils.TMP_DIRECTORY + "/vehicle_model_captures");
-
     @Override
     public Bundle preDrawCanvas(CapturePP cap) {
         Bundle data = new Bundle();
@@ -369,7 +494,7 @@ public class VehicleModel extends RubberModel implements Capturable,
                     PointF src = points.get(i);
                     double a = CanvasHelper.angleTo(pCen, src);
                     double d = CanvasHelper.length(pCen, src);
-                    a += heading;
+                    a += heading + 180;
                     outline[i] = cap.forward(DistanceCalculations
                             .computeDestinationPoint(center, a, d));
                 }
@@ -449,100 +574,21 @@ public class VehicleModel extends RubberModel implements Capturable,
     /**
      * Get or create bitmap display of the vehicle
      * If a cached image of the bitmap does not exist, it is created
+     * @param size Image dimensions of the bitmap
      * @return Bitmap of the vehicle
      */
-    private Bitmap getBitmap() {
-        File cacheDir = new File(RENDER_CACHE_DIR, _info.category);
-        File cacheFile = new File(cacheDir, _info.name + ".bmp");
-
-        // Check if cached screenshot already exists we can quickly read from
-        if (cacheFile.exists()) {
-            try {
-                // XXX - BitmapFactory doesn't take bytes as input,
-                // for some (probably stupid) reason
-                byte[] d = FileSystemUtils.read(cacheFile);
-                int[] pixels = new int[(d.length / 4) - 1];
-                int p = 0;
-                int width = ((d[0] & 0xFF) << 8) | (d[1] & 0xFF);
-                int height = ((d[2] & 0xFF) << 8) | (d[3] & 0xFF);
-                for (int i = 4; i < d.length; i += 4) {
-                    int a = (d[i] & 0xFF) << 24;
-                    int r = (d[i + 1] & 0xFF) << 16;
-                    int g = (d[i + 2] & 0xFF) << 8;
-                    int b = (d[i + 3] & 0xFF);
-                    pixels[p++] = a | (r + g + b);
-                }
-                return Bitmap.createBitmap(pixels, width, height,
-                        Bitmap.Config.ARGB_8888);
-            } catch (Exception e) {
-                FileSystemUtils.delete(cacheFile);
-                Log.e(TAG, "Failed to read vehicle render cache: " + cacheFile);
-            }
-        }
-
-        // Setup capture request for the model
-        final Bitmap[] image = new Bitmap[1];
-        VehicleModelCaptureRequest req = new VehicleModelCaptureRequest(
-                _info);
-        req.setOutputSize(MAX_RENDER_SIZE, true);
+    private Bitmap getBitmap(int size) {
+        VehicleModelCaptureRequest req = new VehicleModelCaptureRequest(_info);
+        req.setOutputSize(size, true);
         req.setLightingEnabled(true);
-        req.setCallback(new VehicleModelCaptureRequest.Callback() {
-            @Override
-            public void onCaptureFinished(File file, Bitmap bmp) {
-                image[0] = bmp;
-                synchronized (VehicleModel.this) {
-                    VehicleModel.this.notify();
-                }
-            }
-        });
-        GLOffscreenCaptureService.getInstance().request(req);
 
-        // Wait for renderer for finish
-        synchronized (this) {
-            while (image[0] == null) {
-                try {
-                    this.wait();
-                } catch (Exception ignored) {
-                }
-            }
-        }
+        GLModelCaptureCache cache = new GLModelCaptureCache(
+                _info.category + "/" + _info.name + "_" + size);
+        return cache.getBitmap(req);
+    }
 
-        // Save bitmap data straight to file (no header data needed)
-        if (cacheDir.exists() || cacheDir.mkdirs()) {
-            int width = image[0].getWidth();
-            int height = image[0].getHeight();
-            FileOutputStream fos = null;
-            try {
-                int[] pixels = new int[width * height];
-                image[0].getPixels(pixels, 0, width, 0, 0, width, height);
-                byte[] b = new byte[(pixels.length + 1) * 4];
-                b[0] = (byte) (width >> 8);
-                b[1] = (byte) (width & 0xFF);
-                b[2] = (byte) (height >> 8);
-                b[3] = (byte) (height & 0xFF);
-                int i = 4;
-                for (int p : pixels) {
-                    b[i] = (byte) (p >> 24);
-                    b[i + 1] = (byte) ((p >> 16) & 0xFF);
-                    b[i + 2] = (byte) ((p >> 8) & 0xFF);
-                    b[i + 3] = (byte) (p & 0xFF);
-                    i += 4;
-                }
-                fos = new FileOutputStream(cacheFile);
-                fos.write(b);
-            } catch (Exception e) {
-                FileSystemUtils.delete(cacheFile);
-                Log.e(TAG, "Failed to read vehicle render cache: " + cacheFile);
-            } finally {
-                try {
-                    if (fos != null)
-                        fos.close();
-                } catch (Exception ignored) {
-                }
-            }
-        }
-
-        return image[0];
+    private Bitmap getBitmap() {
+        return getBitmap(MAX_RENDER_SIZE);
     }
 
     private List<PointF> getOutline() {
@@ -570,5 +616,174 @@ public class VehicleModel extends RubberModel implements Capturable,
         }
 
         return _info.getOutline(null);
+    }
+
+    @Override
+    protected Folder toKml() {
+        Marker center = getCenterMarker();
+        if (center == null)
+            return null;
+        try {
+            return (Folder) center.toObjectOf(Folder.class, null);
+        } catch (Exception ignored) {
+        }
+        return null;
+    }
+
+    @Override
+    protected KMZFolder toKmz() {
+        KMZFolder folder = new KMZFolder();
+        folder.setName(_info.category);
+
+        Style style = new Style();
+
+        List<StyleSelector> styles = new ArrayList<>();
+        styles.add(style);
+        folder.setStyleSelector(styles);
+        List<Feature> folderFeatures = new ArrayList<>();
+        folder.setFeatureList(folderFeatures);
+
+        // Include vehicle icon PNG
+        Bitmap bmp = getBitmap(32);
+        if (bmp != null) {
+            IconStyle istyle = new IconStyle();
+            style.setIconStyle(istyle);
+
+            Icon icon = new Icon();
+            istyle.setIcon(icon);
+
+            // GRG sort of image overlay export
+            /*GeoPointMetaData[] points = getGeoPoints();
+            LatLonQuad quad = new LatLonQuad();
+            Coordinates coords = new Coordinates(KMLUtil.convertKmlCoords(
+                    new GeoPointMetaData[]{
+                            points[2], points[3], points[0], points[1]
+                    }, true, true, getHeight()));
+            quad.setCoordinates(coords);
+            
+            GroundOverlay overlay = new GroundOverlay();
+            overlay.setName(getTitle());
+            overlay.setColor(Integer.toHexString(getFillColor()));
+            overlay.setIcon(icon);
+            overlay.setLatLonQuad(quad);
+            overlay.setAltitudeMode("absolute");
+            overlay.setAltitude(getCenterPoint().getAltitude());
+            folderFeatures.add(overlay);*/
+
+            String subPath = _info.category + "/" + _info.name + "_32.png";
+            File f = new File(GLModelCaptureCache.RENDER_CACHE_DIR, subPath);
+            try {
+                GLCapture.compress(bmp, 100, Bitmap.CompressFormat.PNG, f,
+                        true);
+            } catch (Exception e) {
+                Log.e(TAG, "Failed to compress bitmap: " + f, e);
+            }
+            if (FileSystemUtils.isFile(f)) {
+                Pair<String, String> pair = new Pair<>(
+                        f.getAbsolutePath(), subPath);
+                List<Pair<String, String>> files = folder.getFiles();
+                if (!files.contains(pair))
+                    files.add(pair);
+                icon.setHref(subPath);
+            }
+        }
+
+        String styleId = KMLUtil.hash(style);
+        style.setId(styleId);
+
+        Placemark pointPlacemark = new Placemark();
+        pointPlacemark.setId(getUID());
+        pointPlacemark.setName(getTitle());
+        pointPlacemark.setStyleUrl("#" + styleId);
+        pointPlacemark.setVisibility(getVisible() ? 1 : 0);
+
+        String altitudeMode = "absolute";
+        Marker centerMarker = getCenterMarker();
+        if (centerMarker != null) {
+            String desc = Marker.getKMLDescription(centerMarker, getTitle(),
+                    null);
+            if (!FileSystemUtils.isEmpty(desc))
+                pointPlacemark.setDescription(desc);
+            altitudeMode = KMLUtil.convertAltitudeMode(centerMarker.getAltitudeMode());
+        }
+
+        Coordinate coord = KMLUtil.convertKmlCoord(getCenter(), false);
+        if (coord == null) {
+            Log.w(TAG, "No marker location set");
+            return null;
+        }
+
+        Point centerPoint = new Point();
+        centerPoint.setCoordinates(coord);
+        centerPoint.setAltitudeMode(altitudeMode);
+
+        List<Geometry> geometryList = new ArrayList<>();
+        geometryList.add(centerPoint);
+        pointPlacemark.setGeometryList(geometryList);
+        folderFeatures.add(pointPlacemark);
+
+        return folder;
+    }
+
+    @Override
+    protected OGRFeatureExportWrapper toOgrGeometry()
+            throws FormatNotSupportedException {
+        org.gdal.ogr.Geometry outlineGeom = new org.gdal.ogr.Geometry(
+                org.gdal.ogr.ogrConstants.wkbLineString);
+
+        // Get the outline
+        List<PointF> outline = getOutline();
+
+        if (FileSystemUtils.isEmpty(outline))
+            throw new FormatNotSupportedException(
+                    "Vehicle outline missing points");
+
+        double unwrap = 0;
+        MapView mv = MapView.getMapView();
+        if (mv != null && mv.isContinuousScrollEnabled()
+                && GeoCalculations.crossesIDL(getPoints()))
+            unwrap = 360;
+
+        // Convert to geopoints
+        GeoPoint center = getCenterPoint();
+        double angle = getHeading();
+        GeoPoint first = null;
+        for (PointF p : outline) {
+            PointF np = new PointF(p.x, p.y);
+            GeoPoint gp = DistanceCalculations.computeDestinationPoint(center,
+                    angle, np.y);
+            gp = DistanceCalculations.computeDestinationPoint(gp,
+                    angle + 90, np.x);
+            OGRFeatureExportWrapper.addPoint(outlineGeom, gp, unwrap);
+            if (first == null)
+                first = gp;
+        }
+
+        // Include the first point to close the shape
+        if (first != null)
+            OGRFeatureExportWrapper.addPoint(outlineGeom, first, unwrap);
+
+        // Center point
+        org.gdal.ogr.Geometry centerGeom = new org.gdal.ogr.Geometry(
+                org.gdal.ogr.ogrConstants.wkbPoint);
+        centerGeom.SetPoint(0, center.getLongitude(), center.getLatitude());
+
+        String name = getTitle();
+        String groupName = name;
+        if (getGroup() != null)
+            groupName = getGroup().getFriendlyName();
+
+        // Create the export wrapper
+        OGRFeatureExportWrapper ret = new OGRFeatureExportWrapper(groupName);
+
+        // Add vehicle outline
+        ret.addGeometries(ogr.wkbLineString, Collections.singletonList(
+                new OGRFeatureExportWrapper.NamedGeometry(outlineGeom, name)));
+
+        // Add center point
+        ret.addGeometries(ogr.wkbPoint, Collections.singletonList(
+                new OGRFeatureExportWrapper.NamedGeometry(centerGeom, name)));
+
+        return ret;
     }
 }

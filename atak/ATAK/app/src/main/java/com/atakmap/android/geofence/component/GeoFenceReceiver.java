@@ -21,12 +21,12 @@ import android.widget.TextView;
 import android.graphics.Color;
 import android.widget.AdapterView;
 
+import com.atakmap.android.data.ClearContentRegistry;
 import com.atakmap.android.drawing.mapItems.DrawingCircle;
 import com.atakmap.android.geofence.data.GeoFenceConstants;
 import com.atakmap.android.util.SimpleItemSelectedListener;
 
 import com.atakmap.android.contact.ContactPresenceDropdown;
-import com.atakmap.android.data.DataMgmtReceiver;
 import com.atakmap.android.drawing.mapItems.DrawingShape;
 import com.atakmap.android.editableShapes.Rectangle;
 import com.atakmap.android.geofence.alert.GeoFenceAlerting;
@@ -41,6 +41,7 @@ import com.atakmap.android.maps.MapGroup;
 import com.atakmap.android.maps.MapItem;
 import com.atakmap.android.maps.MapView;
 import com.atakmap.android.util.NotificationUtil;
+import com.atakmap.annotations.DeprecatedApi;
 import com.atakmap.app.R;
 import com.atakmap.coremap.conversions.Span;
 import com.atakmap.coremap.conversions.SpanUtilities;
@@ -73,6 +74,7 @@ public class GeoFenceReceiver extends BroadcastReceiver implements
     public static final String ITEMS_SELECTED = "com.atakmap.android.geofence.ITEMS_SELECTED";
 
     @Deprecated
+    @DeprecatedApi(since = "4.1", forRemoval = false)
     public static final String ADD = "com.atakmap.android.geofence.ADD";
     public static final String GEO_FENCE = "Geo Fence";
     private final SharedPreferences _prefs;
@@ -257,11 +259,15 @@ public class GeoFenceReceiver extends BroadcastReceiver implements
                             message, message,
                             ShapeUtils.getZoomShapeIntent(item));
             }
-        } else if (DataMgmtReceiver.ZEROIZE_CONFIRMED_ACTION.equals(intent
-                .getAction())) {
-            _database.clearAll();
         }
     }
+
+    ClearContentRegistry.ClearContentListener ccl = new ClearContentRegistry.ClearContentListener() {
+        @Override
+        public void onClearContent(boolean clearmaps) {
+            _database.clearAll();
+        }
+    };
 
     private void displayGeofence(final Context context, final MapItem item) {
         //see if this is a new GeoFence, or an edit

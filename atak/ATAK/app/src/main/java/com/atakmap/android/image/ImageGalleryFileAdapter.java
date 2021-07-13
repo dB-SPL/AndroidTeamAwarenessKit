@@ -2,6 +2,8 @@
 package com.atakmap.android.image;
 
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -16,6 +18,8 @@ import com.atakmap.android.attachment.AttachmentMapOverlay;
 import com.atakmap.android.attachment.export.AttachmentExportMarshal;
 import com.atakmap.android.attachment.export.AttachmentExportMarshal.FileExportable;
 import com.atakmap.android.contact.ContactPresenceDropdown;
+import com.atakmap.android.data.URIContentHandler;
+import com.atakmap.android.data.URIContentManager;
 import com.atakmap.android.dropdown.DropDown;
 import com.atakmap.android.filesystem.MIMETypeMapper;
 import com.atakmap.android.filesystem.ResourceFile;
@@ -42,6 +46,7 @@ import com.atakmap.android.video.ConnectionEntry;
 import com.atakmap.android.video.VideoDropDownReceiver;
 import com.atakmap.app.R;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.map.AtakMapView;
 
@@ -221,8 +226,8 @@ public class ImageGalleryFileAdapter extends ImageGalleryBaseAdapter
         return selection.toArray(new String[0]);
     }
 
-    public void removeImages(String[] imagePaths) {
-        if (imagePaths != null && imagePaths.length > 0) {
+    public void removeImages(String... imagePaths) {
+        if (!FileSystemUtils.isEmpty(imagePaths)) {
             List<GalleryFileItem> files = new ArrayList<>();
             synchronized (allItems) {
                 for (String path : imagePaths) {
@@ -246,9 +251,7 @@ public class ImageGalleryFileAdapter extends ImageGalleryBaseAdapter
     }
 
     public void removeFile(File f) {
-        removeImages(new String[] {
-                f.getAbsolutePath()
-        });
+        removeImages(f.getAbsolutePath());
     }
 
     /**
@@ -267,12 +270,15 @@ public class ImageGalleryFileAdapter extends ImageGalleryBaseAdapter
             if (metadata != null)
                 FileSystemUtils.deleteFile(f);
             FileSystemUtils.deleteFile(f);
+            URIContentHandler h = URIContentManager.getInstance().getHandler(f);
+            if (h != null)
+                h.deleteContent();
         }
     }
 
     public void addFile(File file, String uid) {
-        if (file.isDirectory()) {
-            File[] files = file.listFiles();
+        if (IOProviderFactory.isDirectory(file)) {
+            File[] files = IOProviderFactory.listFiles(file);
             if (FileSystemUtils.isEmpty(files))
                 return;
             for (File f : files)
@@ -743,7 +749,11 @@ public class ImageGalleryFileAdapter extends ImageGalleryBaseAdapter
 
                 opts.inPreferredConfig = Bitmap.Config.RGB_565;
                 opts.inJustDecodeBounds = true;
-                BitmapFactory.decodeFile(path, opts);
+                try (FileInputStream fis = IOProviderFactory
+                        .getInputStream(new File(path))) {
+                    BitmapFactory.decodeStream(fis, null, opts);
+                } catch (IOException ignored) {
+                }
                 opts.inJustDecodeBounds = false;
                 if (opts.outWidth > THUMB_SIZE && opts.outHeight > THUMB_SIZE) {
                     opts.inSampleSize = 1 << (int) (MathUtils.log2(Math.min(
@@ -751,7 +761,12 @@ public class ImageGalleryFileAdapter extends ImageGalleryBaseAdapter
                             opts.outHeight))
                             - MathUtils.log2(THUMB_SIZE));
                 }
-                bitmap = BitmapFactory.decodeFile(path, opts);
+                try (FileInputStream fis = IOProviderFactory
+                        .getInputStream(new File(path))) {
+                    bitmap = BitmapFactory.decodeStream(fis, null, opts);
+                } catch (IOException e) {
+                    bitmap = null;
+                }
             }
 
             TiffImageMetadata exif = ExifHelper
@@ -860,7 +875,7 @@ public class ImageGalleryFileAdapter extends ImageGalleryBaseAdapter
         int fileCount = 0;
         for (String p : files) {
             File f = new File(p);
-            if (f.exists() && f.isFile()) {
+            if (IOProviderFactory.exists(f) && IOProviderFactory.isFile(f)) {
                 File metadata = getMetadataFile(f);
                 if (metadata != null)
                     exports.add(new FileExportable(metadata));
@@ -1030,7 +1045,7 @@ public class ImageGalleryFileAdapter extends ImageGalleryBaseAdapter
                 f.getName())) {
             // Clean-up metadata files
             File xml = new File(f.getAbsolutePath() + METADATA_EXT);
-            if (xml.exists())
+            if (IOProviderFactory.exists(xml))
                 return xml;
         }
         return null;

@@ -1,5 +1,7 @@
 package com.atakmap.map.layer.feature.geometry;
 
+import com.atakmap.math.MathUtils;
+
 public final class Envelope {
 
     public double minX;
@@ -33,6 +35,20 @@ public final class Envelope {
     }
 
     @Override
+    public boolean equals(Object o) {
+        if(!(o instanceof Envelope))
+            return false;
+        final Envelope other = (Envelope)o;
+        return MathUtils.equals(this.minX, other.minX) &&
+               MathUtils.equals(this.minY, other.minY) &&
+               MathUtils.equals(this.minZ, other.minZ) &&
+               MathUtils.equals(this.maxX, other.maxX) &&
+               MathUtils.equals(this.maxY, other.maxY) &&
+               MathUtils.equals(this.maxZ, other.maxZ);
+
+    }
+
+    @Override
     public String toString() {
         return "Envelope {minX=" + minX + ",minY=" + minY + ",minZ=" + minZ + ",maxX=" + maxX + ",maxY=" + maxY + ",maxZ=" + maxZ + "}";         
     }
@@ -45,6 +61,11 @@ public final class Envelope {
         // For IDL calculations
         private double eastMinX = Double.MAX_VALUE;
         private double westMaxX = -Double.MAX_VALUE;
+        private boolean handleIdlCross = true;
+
+        public void setHandleIdlCross(boolean b) {
+            handleIdlCross = b;
+        }
 
         public void add(double x, double y, double z) {
             if (e == null) {
@@ -79,10 +100,12 @@ public final class Envelope {
                 return null;
 
             // IDL bounds correction
-            if (e.minX < -180 && westMaxX > e.minX)
-                e.maxX = westMaxX;
-            else if (e.maxX > 180 && eastMinX < e.maxX)
-                e.minX = eastMinX;
+            if(handleIdlCross) {
+                if (e.minX < -180 && westMaxX > e.minX)
+                    e.maxX = westMaxX;
+                else if (e.maxX > 180 && eastMinX < e.maxX)
+                    e.minX = eastMinX;
+            }
             return e;
         }
     }

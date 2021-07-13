@@ -6,6 +6,7 @@ import android.graphics.Point;
 
 import com.atakmap.android.maps.MapDataRef;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
 
 import org.w3c.dom.Document;
@@ -23,7 +24,7 @@ import com.atakmap.coremap.locale.LocaleUtil;
 import com.atakmap.coremap.xml.XMLUtils;
 
 import java.util.Map;
-import javax.xml.XMLConstants;
+
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.parsers.ParserConfigurationException;
@@ -42,12 +43,11 @@ public class WidgetItemListParser {
 
     public WidgetItemList parse(String filePath) throws IOException,
             SAXException {
-        FileInputStream fis = new FileInputStream(_currentDirectory + filePath);
         WidgetItemList list = null;
-        try {
+        try (FileInputStream fis = IOProviderFactory
+                .getInputStream(
+                        new File(_currentDirectory + filePath))) {
             list = parse(fis);
-        } finally {
-            fis.close();
         }
         return list;
     }
@@ -188,8 +188,9 @@ public class WidgetItemListParser {
         WidgetItem.Builder b = _itemCache.get(path);
         if (b == null) {
 
-            FileInputStream fis = new FileInputStream(_currentDirectory + path);
-            try {
+            try (FileInputStream fis = IOProviderFactory
+                    .getInputStream(
+                            new File(_currentDirectory + path))) {
                 DocumentBuilderFactory dbf = XMLUtils
                         .getDocumenBuilderFactory();
 
@@ -227,8 +228,6 @@ public class WidgetItemListParser {
                 }
             } catch (ParserConfigurationException e) {
                 Log.e(TAG, "error: ", e);
-            } finally {
-                fis.close();
             }
 
             _itemCache.put(path, b);

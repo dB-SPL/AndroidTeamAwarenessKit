@@ -3,7 +3,6 @@ package com.atakmap.map.gpkg;
 import java.io.BufferedInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
@@ -14,22 +13,22 @@ import java.util.List;
 import java.util.Map;
 
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.DatabaseInformation;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.database.CursorIface;
 import com.atakmap.database.DatabaseIface;
 import com.atakmap.database.Databases;
 import com.atakmap.database.QueryIface;
 import com.atakmap.database.StatementIface;
-import com.atakmap.database.android.AndroidDatabaseAdapter;
 import com.atakmap.map.gdal.GdalLibrary;
 import com.atakmap.map.gpkg.TileTable.TileMatrixSet;
 import com.atakmap.map.gpkg.TileTable.ZoomLevelRow;
 import com.atakmap.spatial.SpatiaLiteDB;
 
-import android.database.DatabaseErrorHandler;
-import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteException;
 import android.graphics.Bitmap;
+import com.atakmap.util.zip.IoUtils;
 
 /**
  * Format reader class for parsing and accessing data from the OGC GeoPackage
@@ -115,9 +114,9 @@ public class GeoPackage {
 
     public GeoPackage(File database, boolean readOnly){
         this.file = database;
-        this.database = Databases.openDatabase
-                            (database.getPath (),
-                             readOnly);
+        this.database = IOProviderFactory.createDatabase
+                (new File(database.getPath ()),
+                        readOnly ? DatabaseInformation.OPTION_READONLY : 0);
         checkGeoPackageSupport (this.database);
     }
     
@@ -259,7 +258,7 @@ public class GeoPackage {
     // Methods related to reading data from the gpkg_contents table
     
     public static enum TableType{
-        TILES,FEATURES;
+        TILES,FEATURES
     }
     
     public static class ContentsRow {
@@ -535,13 +534,13 @@ public class GeoPackage {
      * otherwise.
      */
     public static boolean isGeoPackage(File file){
-        if(!file.exists() || file.isDirectory()){
+        if(!IOProviderFactory.exists(file) || IOProviderFactory.isDirectory(file)){
             return false;
         }
         
         InputStream is = null;
         try{
-            is = new BufferedInputStream(new FileInputStream(file));
+            is = new BufferedInputStream(IOProviderFactory.getInputStream(file));
             
             byte[] headerData = new byte[72];
             int r = is.read(headerData);
@@ -571,17 +570,7 @@ public class GeoPackage {
             
             DatabaseIface database = null;
             try {
-                database = new AndroidDatabaseAdapter(
-                        SQLiteDatabase.openDatabase(
-                                file.getAbsolutePath(), 
-                                null, 
-                                SQLiteDatabase.OPEN_READONLY,
-                                new DatabaseErrorHandler() {
-                                    @Override
-                                    public void onCorruption(SQLiteDatabase dbObj) {
-                                        dbObj.close();
-                                    }
-                                }));
+                database = IOProviderFactory.createDatabase(file, DatabaseInformation.OPTION_READONLY);
                 return tableExists (database, "gpkg_contents");
             }catch(Exception e){
                 return false;
@@ -597,13 +586,7 @@ public class GeoPackage {
                             + " to see if it is a GeoPackage File!", e);
             return false;
         }finally{
-            if(is != null){
-                try{
-                    is.close();
-                }catch(IOException e){
-                    // Ignore
-                }
-            }
+            IoUtils.close(is);
         }
     }
 
@@ -847,8 +830,8 @@ public class GeoPackage {
     public static void createNewGeoPackage(String path) {
         DatabaseIface db = null;
         try {
-            db = Databases.openOrCreateDatabase(path);
-            
+            db = IOProviderFactory.createDatabase(new File(path));
+
             // Annex C  Table Definition SQL
             db.execute("CREATE TABLE gpkg_spatial_ref_sys (" +
                        "srs_name TEXT NOT NULL, " +

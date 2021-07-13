@@ -14,14 +14,18 @@ import com.atakmap.android.maps.MapItem;
 import com.atakmap.android.maps.MapView;
 import com.atakmap.android.overlay.MapOverlay;
 import com.atakmap.android.overlay.MapOverlayParent;
-import com.atakmap.android.tilecapture.imagery.MapItemCapturePP;
+import com.atakmap.android.tilecapture.TileCapture;
+import com.atakmap.android.tilecapture.imagery.ImageryCaptureTask;
+import com.atakmap.annotations.DeprecatedApi;
 import com.atakmap.app.R;
 import com.atakmap.coremap.cot.event.CotEvent;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.coremap.maps.coords.GeoBounds;
 import com.atakmap.coremap.maps.time.CoordinatedTime;
 import com.atakmap.lang.Unsafe;
+import com.atakmap.map.gdal.VSIFileFileSystemHandler;
 import com.atakmap.map.layer.AbstractLayer;
 import com.atakmap.map.layer.Layer;
 import com.atakmap.map.layer.MultiLayer;
@@ -33,7 +37,10 @@ import org.gdal.gdal.Driver;
 import org.gdal.gdalconst.gdalconstConstants;
 
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.OutputStream;
+import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
@@ -47,10 +54,11 @@ import java.util.Set;
 
 /**
  * Image capture tool class
- * @deprecated Use {@link MapItemCapturePP} instead for much better
- * performance and results
+ * @deprecated Use a {@link TileCapture} instance w/ {@link ImageryCaptureTask}
+ * for much better performance and results
  */
 @Deprecated
+@DeprecatedApi(since = "4.1", forRemoval = true, removeAt = "4.4")
 public class ImageCapture extends AbstractLayer {
 
     private static final String TAG = "ImageCapture";
@@ -232,7 +240,11 @@ public class ImageCapture extends AbstractLayer {
      * @return Newly created data set (null if failed)
      */
     public Dataset createDataset(Driver driver, File file, int w, int h) {
-        return driver.Create(file.getAbsolutePath(), w, h, 3,
+        String path = file.getAbsolutePath();
+        if (!IOProviderFactory.isDefault()) {
+            path = VSIFileFileSystemHandler.PREFIX + path;
+        }
+        return driver.Create(path, w, h, 3,
                 getTIFFOptions());
     }
 
@@ -396,7 +408,8 @@ public class ImageCapture extends AbstractLayer {
 
     protected void saveKMZ(File outImage, File tmpDir,
             ImageCapturePP postDraw) {
-        if (tmpDir.exists() || tmpDir.mkdir()) {
+        if (IOProviderFactory.exists(tmpDir)
+                || IOProviderFactory.mkdir(tmpDir)) {
             String name = outImage.getName();
             String path = outImage.getAbsolutePath();
             path = path.substring(0, path.lastIndexOf("."));
@@ -465,11 +478,12 @@ public class ImageCapture extends AbstractLayer {
                 + "</gx:LatLonQuad>"
                 + "</GroundOverlay>"
                 + "</kml>";
-        try {
-            PrintWriter out = new PrintWriter(new File(dir, "doc.kml"),
-                    FileSystemUtils.UTF8_CHARSET.name());
+        try (OutputStream os = IOProviderFactory
+                .getOutputStream(new File(dir, "doc.kml"));
+                OutputStreamWriter osw = new OutputStreamWriter(os,
+                        FileSystemUtils.UTF8_CHARSET.name());
+                PrintWriter out = new PrintWriter(osw)) {
             out.println(docSkel);
-            out.close();
         } catch (IOException ioe) {
             Log.d(TAG, "error occurred writing the doc.xml file", ioe);
         }

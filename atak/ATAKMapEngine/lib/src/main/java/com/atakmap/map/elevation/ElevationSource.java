@@ -1,10 +1,7 @@
 package com.atakmap.map.elevation;
 
-import android.app.DownloadManager;
-
 import com.atakmap.database.RowIterator;
 import com.atakmap.lang.Objects;
-import com.atakmap.map.layer.feature.AbstractFeatureDataStore;
 import com.atakmap.map.layer.feature.AbstractFeatureDataStore2;
 import com.atakmap.map.layer.feature.geometry.Envelope;
 import com.atakmap.map.layer.feature.geometry.Geometry;
@@ -100,7 +97,7 @@ public abstract class ElevationSource {
         }
     };
 
-    ElevationSource() {}
+    protected ElevationSource() {}
 
     public abstract String getName();
     public abstract Cursor query(QueryParameters params);
@@ -239,6 +236,12 @@ public abstract class ElevationSource {
                   MathUtils.equals(minLE, other.minLE) &&
                   Collections2.equals(order, other.order) &&
                   Objects.equals(flags, other.flags);
+        }
+
+        @Override
+        public int hashCode() {
+            return java.util.Objects.hash(spatialFilter, maxResolution, minResolution, targetResolution,
+                    types, authoritative, minCE, minLE, order, flags);
         }
     }
 }

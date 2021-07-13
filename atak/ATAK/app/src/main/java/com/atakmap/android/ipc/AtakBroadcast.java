@@ -11,8 +11,11 @@ import com.atakmap.android.maps.MapView;
 import com.atakmap.android.metrics.MetricsApi;
 
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
+import com.atakmap.util.zip.IoUtils;
 
+import java.io.Writer;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -34,7 +37,7 @@ public final class AtakBroadcast {
      * documentation supplied by the developer.
      */
     static public class DocumentedIntentFilter extends IntentFilter {
-        private Map<String, DocumentedAction> doc = new HashMap<>();
+        private final Map<String, DocumentedAction> doc = new HashMap<>();
 
         /**
          * Build an intent filter without any associated actions.
@@ -112,8 +115,8 @@ public final class AtakBroadcast {
     private final LocalBroadcastManager lbm;
     private final Context context;
 
-    private static Map<String, DocumentedIntentFilter> localFilters = new ConcurrentHashMap<>();
-    private static Map<String, DocumentedIntentFilter> systemFilters = new ConcurrentHashMap<>();
+    private static final Map<String, DocumentedIntentFilter> localFilters = new ConcurrentHashMap<>();
+    private static final Map<String, DocumentedIntentFilter> systemFilters = new ConcurrentHashMap<>();
 
     private static AtakBroadcast _instance;
 
@@ -126,10 +129,11 @@ public final class AtakBroadcast {
 
         if (DOC_INTENTS) {
             try {
-                bw = new java.io.BufferedWriter(new java.io.FileWriter(
+                bw = new java.io.BufferedWriter(IOProviderFactory.getFileWriter(
                         FileSystemUtils.getItem("intents.txt")));
             } catch (java.io.IOException ioe) {
-                Log.e(TAG, "error occured writing out the intents.");
+                Log.e(TAG, "error occurred writing out the intents.");
+                bw = null;
             }
         }
     }
@@ -141,18 +145,22 @@ public final class AtakBroadcast {
     }
 
     public static synchronized AtakBroadcast getInstance() {
-        if (_instance == null)
-            _instance = new AtakBroadcast(MapView.getMapView().getContext());
+        if (_instance == null) {
+            final MapView mv = MapView.getMapView();
+            if (mv == null)
+                throw new IllegalStateException("application not running");
+
+            final Context context = mv.getContext();
+            if (context == null)
+                throw new IllegalStateException("application not running");
+
+            _instance = new AtakBroadcast(context);
+        }
         return _instance;
     }
 
     public void dispose() {
-        if (bw != null) {
-            try {
-                bw.close();
-            } catch (Exception ignore) {
-            }
-        }
+        IoUtils.close(bw);
     }
 
     /**

@@ -4,13 +4,12 @@ package com.atakmap.android.update;
 import android.content.Context;
 
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
+import com.atakmap.util.zip.IoUtils;
 
 import java.io.BufferedReader;
 import java.io.File;
-import java.io.FileNotFoundException;
-import java.io.FileOutputStream;
-import java.io.FileReader;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -28,9 +27,9 @@ public class ProductRepository {
     /**
      * A file path for product.inf cache of the repo
      */
-    private String _localIndexCache;
+    private final String _localIndexCache;
 
-    private String _repoType;
+    private final String _repoType;
 
     private List<ProductInformation> _products;
 
@@ -78,7 +77,7 @@ public class ProductRepository {
      * @return
      */
     public List<ProductInformation> getProducts() {
-        List ret = new ArrayList<ProductInformation>();
+        List<ProductInformation> ret = new ArrayList<>();
         if (!FileSystemUtils.isEmpty(_products))
             ret.addAll(_products);
         return ret;
@@ -132,7 +131,7 @@ public class ProductRepository {
      * @return
      */
     public List<ProductInformation> getPlugins() {
-        List ret = new ArrayList<ProductInformation>();
+        List<ProductInformation> ret = new ArrayList<>();
         if (!FileSystemUtils.isEmpty(_products)) {
             for (ProductInformation p : _products) {
                 if (p.isPlugin()) {
@@ -154,7 +153,7 @@ public class ProductRepository {
      * @return
      */
     public List<ProductInformation> getStale(Context context) {
-        List ret = new ArrayList<ProductInformation>();
+        List<ProductInformation> ret = new ArrayList<>();
         if (!FileSystemUtils.isEmpty(_products)) {
             for (ProductInformation product : _products) {
                 if (AppMgmtUtils.isInstalled(context,
@@ -343,14 +342,7 @@ public class ProductRepository {
         } catch (Exception ioe) {
             Log.d(TAG, "error occurred handling updates", ioe);
         } finally {
-
-            if (in != null) {
-                try {
-                    in.close();
-                } catch (IOException e) {
-                    Log.d(TAG, "error closing the input stream", e);
-                }
-            }
+            IoUtils.close(in, TAG, "error closing the input stream");
         }
 
         if (FileSystemUtils.isEmpty(products)) {
@@ -377,10 +369,12 @@ public class ProductRepository {
         }
 
         try {
-            return parseRepo(context, in.getAbsolutePath(), repoType,
-                    new BufferedReader(new FileReader(in)));
-        } catch (FileNotFoundException e) {
-            Log.w(TAG, "Failed parse: " + in.getAbsolutePath(), e);
+            // Closed in passed-to method
+            BufferedReader reader = new BufferedReader(
+                    IOProviderFactory.getFileReader(in));
+            return parseRepo(context, in.getAbsolutePath(), repoType, reader);
+        } catch (IOException ex) {
+            Log.w(TAG, "Failed parse: " + in.getAbsolutePath(), ex);
         }
 
         return null;
@@ -413,10 +407,12 @@ public class ProductRepository {
 
         try {
             final File parent = index.getParentFile();
-            if (!parent.exists() && !parent.mkdirs()) {
+            if (!IOProviderFactory.exists(parent)
+                    && !IOProviderFactory.mkdirs(parent)) {
                 Log.w(TAG, "unable to create directory: " + parent);
             }
-            FileSystemUtils.write(new FileOutputStream(index), sb.toString());
+            FileSystemUtils.write(IOProviderFactory.getOutputStream(index),
+                    sb.toString());
             return true;
         } catch (IOException e) {
             Log.w(TAG, "Failed to save to: " + index.getAbsolutePath(), e);

@@ -1,7 +1,6 @@
 
 package com.atakmap.android.video.legacy;
 
-import android.app.Activity;
 import android.app.AlertDialog;
 
 import android.content.DialogInterface;
@@ -24,6 +23,7 @@ import com.atakmap.android.video.ConnectionEntry;
 import com.atakmap.app.R;
 import com.atakmap.comms.NetworkDeviceManager;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
 import com.partech.pgscmedia.MediaException;
 import com.partech.pgscmedia.MediaFormat;
@@ -110,20 +110,6 @@ public class Gv2FMobilePlayer extends MetricActivity
     /** Temp directory in use - not used for file opens */
     private File tmpDir;
 
-    /* Static block to do native library loading and Gv2F Initialization */
-    static {
-        try {
-            /* Loading gnustl_shared is required BEFORE Gv2F init */
-            com.atakmap.coremap.loader.NativeLoader
-                    .loadLibrary("gnustl_shared");
-
-            /* Initialize Gv2F - License parameters are not needed for Android */
-            MediaProcessor.PGSCMediaInit(new byte[0], 0, 0);
-        } catch (MediaException e) {
-            throw new RuntimeException(e);
-        }
-    }
-
     /************************************************************/
     /*
      * Activity /***********************************************************
@@ -171,7 +157,7 @@ public class Gv2FMobilePlayer extends MetricActivity
                                     File f = new File(
                                             FileSystemUtils.validityScan(
                                                     ce.getPath()));
-                                    if (f.exists()) {
+                                    if (IOProviderFactory.exists(f)) {
                                         processor = new MediaProcessor(f);
                                     } else {
                                         throw new MediaException("");
@@ -232,7 +218,8 @@ public class Gv2FMobilePlayer extends MetricActivity
                             case RTSP: {
 
                                 setupTmpDir();
-                                String rtspaddr = ConnectionEntry.getURL(ce, false);
+                                String rtspaddr = ConnectionEntry.getURL(ce,
+                                        false);
                                 processor = new MediaProcessor(rtspaddr,
                                         ce.getNetworkTimeout(),
                                         ce.getBufferTime(), 0, tmpDir);
@@ -705,12 +692,12 @@ public class Gv2FMobilePlayer extends MetricActivity
     private void setupTmpDir() throws IOException {
         File base = getFilesDir();
         base = new File(base, TEMP_DIR);
-        if (!base.mkdirs()) {
+        if (!IOProviderFactory.mkdirs(base)) {
             Log.d(TAG, "could not make the directory: " + base);
         }
-        tmpDir = File.createTempFile("stream", null, base);
+        tmpDir = IOProviderFactory.createTempFile("stream", null, base);
         FileSystemUtils.delete(tmpDir);
-        if (tmpDir.mkdirs()) {
+        if (IOProviderFactory.mkdirs(tmpDir)) {
             Log.d(TAG, "could not make the directory: " + tmpDir);
         }
     }
@@ -719,7 +706,7 @@ public class Gv2FMobilePlayer extends MetricActivity
     private void cleanTmpDirs() {
         File base = getFilesDir();
         base = new File(base, TEMP_DIR);
-        if (!base.exists())
+        if (!IOProviderFactory.exists(base))
             return;
         FileSystemUtils.deleteDirectory(base, true);
     }

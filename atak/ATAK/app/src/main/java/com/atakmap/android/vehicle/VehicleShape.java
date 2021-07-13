@@ -2,6 +2,7 @@
 package com.atakmap.android.vehicle;
 
 import android.graphics.Color;
+import android.os.SystemClock;
 
 import com.atakmap.android.cot.detail.CotDetailManager;
 import com.atakmap.android.cot.detail.PrecisionLocationHandler;
@@ -44,7 +45,7 @@ public class VehicleShape extends EditablePolyline implements VehicleMapItem {
 
     public static final String COT_TYPE = "u-d-v";
 
-    private MapGroup _mapGroup;
+    private final MapGroup _mapGroup;
     private boolean _setup = false;
     private int _strokeColor = DEFAULT_STROKE;
     private int _fillColor = DEFAULT_FILL;
@@ -62,6 +63,7 @@ public class VehicleShape extends EditablePolyline implements VehicleMapItem {
         setMetaString("iconUri", ATAKUtilities.getResourceUri(
                 R.drawable.pointtype_aircraft));
         setType(COT_TYPE);
+        setHeightStyle(HEIGHT_STYLE_NONE);
     }
 
     public void setup(String model, String title, GeoPointMetaData loc,
@@ -82,7 +84,7 @@ public class VehicleShape extends EditablePolyline implements VehicleMapItem {
         setMetaString("vehicle_model", model);
         setMetaDouble("length", dimen[0]);
         setMetaDouble("width", dimen[1]);
-        setMetaDouble("height", dimen[2]);
+        setHeight(dimen[2]);
         setMetaInteger("height_unit", Span.FOOT.getValue());
         setMetaDouble("azimuth", trueDeg);
         if (fromUser)
@@ -110,6 +112,7 @@ public class VehicleShape extends EditablePolyline implements VehicleMapItem {
                 "parent_type",
                 MapView._mapView.getMapData()
                         .getString("deviceType", "a-f-G"));
+        m.setMetaString("offscreen_icon_uri", getMetaString("iconUri", null));
         m.setMetaString("production_time",
                 new CoordinatedTime().toString());
         _mapGroup.addItem(m);
@@ -139,11 +142,6 @@ public class VehicleShape extends EditablePolyline implements VehicleMapItem {
     @Override
     public double getLength() {
         return getMetaDouble("length", 0);
-    }
-
-    @Override
-    public double getHeight() {
-        return getMetaDouble("height", 0);
     }
 
     @Override
@@ -181,7 +179,7 @@ public class VehicleShape extends EditablePolyline implements VehicleMapItem {
             setMetaString("vehicle_model", model);
             setMetaDouble("length", dimen[0]);
             setMetaDouble("width", dimen[1]);
-            setMetaDouble("height", dimen[2]);
+            setHeight(dimen[2]);
             moveClosedSet(getCenter(), loc);
         }
     }
@@ -260,6 +258,13 @@ public class VehicleShape extends EditablePolyline implements VehicleMapItem {
         }
     }
 
+    public void updateOffscreenInterest() {
+        Marker center = getMarker();
+        if (center != null)
+            center.setMetaLong("offscreen_interest",
+                    SystemClock.elapsedRealtime());
+    }
+
     @Override
     public void setColor(int color) {
         int color_solid = Color.rgb(
@@ -271,6 +276,7 @@ public class VehicleShape extends EditablePolyline implements VehicleMapItem {
         final Marker center = getShapeMarker();
         if (center != null) {
             center.setMetaInteger("color", color_solid);
+            center.setMetaInteger("offscreen_icon_color", color_solid);
             center.refresh(mapView.getMapEventDispatcher(), null,
                     this.getClass());
         }

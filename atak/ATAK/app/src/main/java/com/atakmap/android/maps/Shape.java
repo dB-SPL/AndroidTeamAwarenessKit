@@ -34,11 +34,27 @@ public abstract class Shape extends MapItem implements Capturable {
     private final ConcurrentLinkedQueue<OnFillColorChangedListener> _onFillColorChanged = new ConcurrentLinkedQueue<>();
     private final ConcurrentLinkedQueue<OnStrokeWeightChangedListener> _onStrokeWeightChanged = new ConcurrentLinkedQueue<>();
     private final ConcurrentLinkedQueue<OnPointsChangedListener> _onPointsChanged = new ConcurrentLinkedQueue<>();
+    private final ConcurrentLinkedQueue<Polyline.OnBasicLineStyleChangedListener> _onBasicLineStyleChanged = new ConcurrentLinkedQueue<>();
 
+
+    private int basicLineStyle = Polyline.BASIC_LINE_STYLE_SOLID;
     private int _style = STYLE_STROKE_MASK;
     private int _strokeColor = Color.BLACK;
     private int _fillColor = Color.WHITE;
     private double _strokeWeight = 1d;
+
+
+    /**
+     * Basic line styles.
+     */
+    public static final int BASIC_LINE_STYLE_SOLID = 0;
+    public static final int BASIC_LINE_STYLE_DASHED = 1;
+    public static final int BASIC_LINE_STYLE_DOTTED = 2;
+    public static final int BASIC_LINE_STYLE_OUTLINED = 3;
+
+    public interface OnBasicLineStyleChangedListener {
+        void onBasicLineStyleChanged(Shape p);
+    }
 
     /**
      * Shape style property listener
@@ -154,7 +170,7 @@ public abstract class Shape extends MapItem implements Capturable {
     }
 
     /**
-     * Add a strokeWeight property listener
+     * Remove a strokeWeight property listener
      * 
      * @param listener the listener
      */
@@ -163,10 +179,20 @@ public abstract class Shape extends MapItem implements Capturable {
         _onStrokeWeightChanged.remove(listener);
     }
 
+    /**
+     * Add a point changed property listener
+     *
+     * @param listener the listener
+     */
     public void addOnPointsChangedListener(OnPointsChangedListener listener) {
         _onPointsChanged.add(listener);
     }
 
+    /**
+     * Remove a point changed property listener
+     *
+     * @param listener the listener
+     */
     public void removeOnPointsChangedListener(
             OnPointsChangedListener listener) {
         _onPointsChanged.remove(listener);
@@ -319,6 +345,7 @@ public abstract class Shape extends MapItem implements Capturable {
      * Usually this is the stroke color or the "iconColor" meta int
      * @return Icon color
      */
+    @Override
     public int getIconColor() {
         if (hasMetaValue("iconColor")) {
             try {
@@ -366,13 +393,55 @@ public abstract class Shape extends MapItem implements Capturable {
         }
     }
 
+    /**
+     * Change the basic line style for the shape from either  SOLID, DASHED or DOTTED
+     * @param basicLineStyle one of Shape.SOLID, Shape.DASHED or Shape.DOTTED
+     */
+    public void setBasicLineStyle(int basicLineStyle) {
+        this.basicLineStyle = basicLineStyle;
+        onBasicLineStyleChanged();
+    }
+
+    /**
+     * Returns the current state of the Basic Line Style.
+     * @return the basic line style for the shape (SOLID, DASHED or DOTTED).
+     */
+    public int getBasicLineStyle() {
+        return basicLineStyle;
+    }
+
+    /**
+     * Listen for when the style is changed for the basic line style.
+     * @param listener the listener to be called when the basic style is changed.
+     */
+    public void addOnBasicLineStyleChangedListener(
+            OnBasicLineStyleChangedListener listener) {
+        if (!_onBasicLineStyleChanged.contains(listener))
+            _onBasicLineStyleChanged.add(listener);
+    }
+
+    /**
+     * Remove the listener for the basic line style change
+     * @param listener the listener to be removed.
+     */
+    public void removeOnBasicLineStyleChangedListener(
+            OnBasicLineStyleChangedListener listener) {
+        _onBasicLineStyleChanged.remove(listener);
+    }
+
+    protected void onBasicLineStyleChanged() {
+        for (Polyline.OnBasicLineStyleChangedListener l : _onBasicLineStyleChanged) {
+            l.onBasicLineStyleChanged(this);
+        }
+    }
+
     protected void onPointsChanged() {
         for (OnPointsChangedListener l : _onPointsChanged)
             l.onPointsChanged(this);
     }
 
     /**
-     * Provides the center point for the Shape, or null if an error has occured.
+     * Provides the center point for the Shape, or null if an error has occurred.
      */
     public GeoPointMetaData getCenter() {
         final GeoPoint[] points = this.getPoints();
@@ -488,6 +557,14 @@ public abstract class Shape extends MapItem implements Capturable {
      * @return the points
      */
     public abstract GeoPoint[] getPoints();
+
+    /**
+     * Returns the Area of the shape in meters
+     * @return the area in meters or double NaN is area is not implemented or in the case of an unclosed shape.
+     */
+    public double getArea() {
+        return Double.NaN;
+    }
 
     /**
      * The array of points that make up the shape with the corresponding metadata.

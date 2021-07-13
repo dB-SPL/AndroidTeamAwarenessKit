@@ -99,6 +99,11 @@ public class ContactLocationView extends ContactDetailView implements
         _coordButton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
+
+                final PointMapItem m = _marker;
+                if (m == null)
+                    return;
+
                 AlertDialog.Builder b = new AlertDialog.Builder(_mapView
                         .getContext());
                 LayoutInflater inflater = LayoutInflater.from(_mapView
@@ -110,8 +115,8 @@ public class ContactLocationView extends ContactDetailView implements
                         .setView(coordView)
                         .setPositiveButton(R.string.ok, null);
                 //display read only view
-                coordView.setParameters(_marker.getGeoPointMetaData(),
-                        _mapView.getPoint(), _cFormat, !_marker.getMovable());
+                coordView.setParameters(m.getGeoPointMetaData(),
+                        _mapView.getPoint(), _cFormat, !m.getMovable());
 
                 // Overrides setPositive button onClick to keep the window open when the input is invalid.
                 final AlertDialog locDialog = b.create();
@@ -137,21 +142,21 @@ public class ContactLocationView extends ContactDetailView implements
                                 if (result == CoordDialogView.Result.VALID_UNCHANGED
                                         && changedFormat) {
                                     // The coordinate format was changed but not the point itself
-                                    onPointChanged(_marker);
+                                    onPointChanged(m);
                                 } else if (result == CoordDialogView.Result.VALID_CHANGED) {
                                     com.atakmap.android.drawing.details.GenericPointDetailsView
-                                            .setAddress(coordView, _marker,
+                                            .setAddress(coordView, m,
                                                     null);
-                                    onPointChanged(_marker);
+                                    onPointChanged(m);
 
                                 }
 
-                                if (_marker != null && _marker.getMovable()) {
+                                if (m != null && m.getMovable()) {
                                     // if the point is null, do not set it
                                     // should check for VALID_CHANGED but this
                                     // will work as well.
                                     if (p != null) {
-                                        _marker.setPoint(p);
+                                        m.setPoint(p);
                                         _mapView.getMapController().panTo(
                                                 p.get(),
                                                 false);
@@ -173,7 +178,7 @@ public class ContactLocationView extends ContactDetailView implements
         return v;
     }
 
-    private static ConcurrentLinkedQueue<ExtendedSelfInfoFactory> extendedInfoFactories = new ConcurrentLinkedQueue<>();
+    private static final ConcurrentLinkedQueue<ExtendedSelfInfoFactory> extendedInfoFactories = new ConcurrentLinkedQueue<>();
 
     public interface ExtendedSelfInfoFactory {
         ExtendedInfoView createView();
@@ -320,7 +325,7 @@ public class ContactLocationView extends ContactDetailView implements
                     try {
                         ((ExtendedInfoView) nextChild).setMarker(_marker);
                     } catch (Exception e) {
-                        Log.e(TAG, "error occured setting the marker on: "
+                        Log.e(TAG, "error occurred setting the marker on: "
                                 + nextChild);
                     }
                 }

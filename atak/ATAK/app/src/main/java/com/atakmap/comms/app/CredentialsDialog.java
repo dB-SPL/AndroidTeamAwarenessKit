@@ -5,8 +5,12 @@ import android.app.AlertDialog;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
+import android.text.method.HideReturnsTransformationMethod;
+import android.text.method.PasswordTransformationMethod;
 import android.view.LayoutInflater;
 import android.view.View;
+import android.widget.CheckBox;
+import android.widget.CompoundButton;
 import android.widget.EditText;
 import android.widget.TextView;
 
@@ -30,7 +34,7 @@ public class CredentialsDialog {
     public interface Callback {
         void onCredentialsEntered(String connectString, String cacheCreds,
                 String description,
-                String username, String password);
+                String username, String password, Long expiration);
 
         void onCredentialsCancelled(String connectString);
     }
@@ -51,6 +55,7 @@ public class CredentialsDialog {
             final String connectString, final String usernameString,
             final String passwordString,
             final String cacheCreds,
+            final Long expiration,
             final Context context,
             final CredentialsDialog.Callback callback) {
 
@@ -80,6 +85,27 @@ public class CredentialsDialog {
                 .findViewById(R.id.credentials_password);
         if (passwordString != null && !passwordString.isEmpty())
             passwordET.setText(passwordString);
+
+
+        final CheckBox checkBox = credentialsView
+                .findViewById(R.id.password_checkbox);
+        checkBox.setOnCheckedChangeListener(
+                new CompoundButton.OnCheckedChangeListener() {
+                    @Override
+                    public void onCheckedChanged(CompoundButton compoundButton,
+                                                 boolean isChecked) {
+                        if (isChecked) {
+                            passwordET.setTransformationMethod(
+                                    HideReturnsTransformationMethod
+                                            .getInstance());
+                        } else {
+                            passwordET.setTransformationMethod(
+                                    PasswordTransformationMethod.getInstance());
+                        }
+                        passwordET.setSelection(passwordET.getText().length());
+                    }
+                });
+
 
         credentialsBuilder
                 .setTitle(R.string.enter_credentials)
@@ -122,13 +148,13 @@ public class CredentialsDialog {
                                                     AtakAuthenticationCredentials.TYPE_COT_SERVICE,
                                                     host,
                                                     cacheUsername,
-                                                    cachePassword, true);
+                                                    cachePassword, expiration);
                                 }
 
                                 if (callback != null) {
                                     callback.onCredentialsEntered(
                                             connectString, cacheCreds, desc,
-                                            username, password);
+                                            username, password, expiration);
                                 } else {
                                     AtakBroadcast
                                             .getInstance()
@@ -160,7 +186,12 @@ public class CredentialsDialog {
                             }
                         })
 
-                .setCancelable(false)
-                .show();
+                .setCancelable(false);
+
+        try {
+            credentialsBuilder.show();
+        } catch (Exception bte) {
+            // ATAK-13893
+        }
     }
 }

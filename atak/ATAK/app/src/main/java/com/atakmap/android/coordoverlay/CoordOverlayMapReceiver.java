@@ -6,11 +6,13 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.PointF;
-import android.os.Handler;
 import android.preference.PreferenceManager;
 import android.view.MotionEvent;
 import android.graphics.Typeface;
 
+import com.atakmap.android.drawing.mapItems.DrawingCircle;
+import com.atakmap.android.drawing.mapItems.DrawingRectangle;
+import com.atakmap.android.drawing.mapItems.DrawingShape;
 import com.atakmap.android.ipc.AtakBroadcast;
 import com.atakmap.android.maps.MapMode;
 import com.atakmap.android.maps.MapTextFormat;
@@ -39,6 +41,8 @@ import com.atakmap.android.widgets.TextWidget;
 import com.atakmap.app.R;
 import com.atakmap.coremap.conversions.Angle;
 import com.atakmap.coremap.conversions.AngleUtilities;
+import com.atakmap.coremap.conversions.Area;
+import com.atakmap.coremap.conversions.AreaUtilities;
 import com.atakmap.coremap.conversions.CoordinateFormat;
 import com.atakmap.coremap.conversions.CoordinateFormatUtilities;
 import com.atakmap.coremap.conversions.Span;
@@ -67,7 +71,7 @@ public class CoordOverlayMapReceiver extends BroadcastReceiver implements
 
     MenuLayoutWidget mw = MapMenuReceiver.getMenuWidget();
 
-    private final static int MAX_LINE_COUNT = 11;
+    private final static int MAX_LINE_COUNT = 12;
 
     private final static ElevationManager.QueryParameters DSM_FILTER = new ElevationManager.QueryParameters();
     static {
@@ -82,25 +86,27 @@ public class CoordOverlayMapReceiver extends BroadcastReceiver implements
     public static final String TAG = "CoordOverlayMapReceiver";
 
     public static final String SHOW_DETAILS = "com.atakmap.android.maps.SHOW_DETAILS";
-    public static final String COORD_COPY = "com.atakmap.android.maps.COORD_COPY";
-    public static final String COORD_ENLARGE = "com.atakmap.android.maps.COORD_ENLARGE";
+    protected static final String COORD_COPY = "com.atakmap.android.maps.COORD_COPY";
+    protected static final String COORD_ENLARGE = "com.atakmap.android.maps.COORD_ENLARGE";
 
     //TODO why does this class have _pointItem and _activeMarker?
     private PointMapItem _pointItem;
-    private final PointMapItem self;
+    protected PointMapItem self;
 
     private final MapView _mapView;
-    private final TextWidget _positionText;
+    protected TextWidget _positionText;
     private String _savedText;
-    private boolean _marker;
-    private String _activeMarkerUID;
-    private Marker _activeMarker;
+    protected boolean _marker;
+    protected String _activeMarkerUID;
+    protected Marker _activeMarker;
     private GeoPointMetaData _activePoint;
-    private final SharedPreferences _prefs;
+    protected SharedPreferences _prefs;
 
-    private Angle bearingUnits;
-    private int rangeSystem;
-    private NorthReference northRef;
+    protected Angle bearingUnits;
+    protected int rangeSystem;
+    protected NorthReference northRef;
+    protected Area areaRef;
+    protected Span altUnits;
 
     private SpeedFormatter speedFormatter;
     private String[] speedUnits;
@@ -191,7 +197,7 @@ public class CoordOverlayMapReceiver extends BroadcastReceiver implements
 
     }
 
-    private void initUnits() {
+    protected void initUnits() {
 
         // see the values in Span.java
         rangeSystem = Integer.parseInt(_prefs.getString(
@@ -204,6 +210,22 @@ public class CoordOverlayMapReceiver extends BroadcastReceiver implements
         northRef = NorthReference.findFromValue(
                 Integer.parseInt(_prefs.getString("rab_north_ref_pref",
                         String.valueOf(NorthReference.MAGNETIC.getValue()))));
+
+        areaRef = Area.findFromValue(_prefs.getInt("area_display_pref",
+                Area.METRIC));
+
+        switch (Integer
+                .parseInt(_prefs.getString("alt_unit_pref", "0"))) {
+            case 0:
+                altUnits = Span.FOOT;
+                break;
+            case 1:
+                altUnits = Span.METER;
+                break;
+            default: // default to feet
+                altUnits = Span.FOOT;
+                break;
+        }
 
     }
 
@@ -260,11 +282,13 @@ public class CoordOverlayMapReceiver extends BroadcastReceiver implements
     @Override
     public void onSharedPreferenceChanged(
             SharedPreferences sharedPreferences, String key) {
+
         if (key.equals("rab_rng_units_pref")
                 || key.equals("rab_brg_units_pref") ||
                 key.equals("alt_unit_pref")
                 || key.equals("alt_display_pref")
-                || key.equals("rab_north_ref_pref")) {
+                || key.equals("rab_north_ref_pref")
+                || key.equals("area_display_pref")) {
             initUnits();
             if (_activeMarker != null)
                 handlePointChange(_activeMarker);
@@ -305,11 +329,16 @@ public class CoordOverlayMapReceiver extends BroadcastReceiver implements
             double speed = -1, heading = -1;
             boolean estimate = false;
             boolean teamMate = false;
+            double area = Double.NaN;
+            double height = Double.NaN;
+
             ElevationDisplayInfo el = new ElevationDisplayInfo();
             if (intent.hasExtra("uid")) {
                 String pointUID = intent.getStringExtra("uid");
                 if (pointUID != null) {
                     MapItem item = _mapView.getMapItem(pointUID);
+                    if (item != null)
+                        height = item.getHeight();
                     if (_activeMarker != null) {
                         _activeMarker.removeOnPointChangedListener(this);
                         _activeMarker.removeOnTrackChangedListener(this);
@@ -345,9 +374,16 @@ public class CoordOverlayMapReceiver extends BroadcastReceiver implements
                             _setPointMapItem(pmi);
                             point = pmi.getGeoPointMetaData();
                         }
+
+                        MapItem s = ATAKUtilities.findAssocShape(pmi);
+                        if (s instanceof Shape) {
+                            area = ((Shape) s).getArea();
+                        }
                     } else if (item instanceof Shape) {
                         point = GeoPointMetaData
                                 .wrap(((Shape) item).findTouchPoint());
+
+                        area = ((Shape) item).getArea();
                     } else if (item != null) {
                         try {
                             String p = item.getMetaString("menu_point",
@@ -420,11 +456,13 @@ public class CoordOverlayMapReceiver extends BroadcastReceiver implements
                     _updatePoint(point, title, null,
                             pmi.getMetaDouble("distance", 0.0d),
                             pmi.getMetaDouble("bearing", 0.0d), displayRB,
-                            speed, heading, estimate, teamMate, el);
-                } else {
-                    _updatePoint(point, title, speed, heading, estimate,
-                            teamMate,
+                            speed, heading, estimate, height, area, teamMate,
                             el);
+                } else {
+                    _updatePoint(point, title, null, -1, 0, false,
+                            speed, heading, estimate, height, area, teamMate,
+                            el);
+
                 }
             }
         } else if (action.equals("com.atakmap.android.maps.HIDE_DETAILS")) {
@@ -464,7 +502,7 @@ public class CoordOverlayMapReceiver extends BroadcastReceiver implements
         }
     }
 
-    private void _adjustOverlay(final boolean displayRB) {
+    protected void _adjustOverlay(final boolean displayRB) {
         if (_activeMarker != null) {
             _activeMarker.removeOnPointChangedListener(this);
             _activeMarker.removeOnTrackChangedListener(this);
@@ -522,19 +560,20 @@ public class CoordOverlayMapReceiver extends BroadcastReceiver implements
                     _activeMarker.getMetaDouble("distance", 0.0d),
                     _activeMarker.getMetaDouble("bearing", 0.0d),
                     displayRB,
-                    speed, heading,
-                    false,
+                    speed, heading, false, _activeMarker.getHeight(),
+                    Double.NaN,
                     _activeMarker.hasMetaValue("team"),
                     el);
         }
     }
 
-    private String constructCoordText(final String label,
+    protected String constructCoordText(final String label,
             final String sublabel,
             final GeoPointMetaData pointWithMetadata, final double distance,
             final double bearing,
             final boolean displayRB, final double speed, final double heading,
-            final boolean estimate, final boolean teamMate,
+            final boolean estimate, final double height, final double area,
+            final boolean teamMate,
             final ElevationDisplayInfo el,
             int[] lineColors) {
 
@@ -568,20 +607,6 @@ public class CoordOverlayMapReceiver extends BroadcastReceiver implements
         if (point.isAltitudeValid()) {
             if (el.doNotDisplayAgl) {
                 //force/skip AGL display
-                Span altUnits;
-                switch (Integer
-                        .parseInt(_prefs.getString("alt_unit_pref", "0"))) {
-                    case 0:
-                        altUnits = Span.FOOT;
-                        break;
-                    case 1:
-                        altUnits = Span.METER;
-                        break;
-                    default: // default to feet
-                        altUnits = Span.FOOT;
-                        break;
-                }
-
                 String altRef = _prefs
                         .getString("alt_display_pref", "MSL");
                 //just use fixed MSL or HAE based on prefs
@@ -632,19 +657,6 @@ public class CoordOverlayMapReceiver extends BroadcastReceiver implements
 
         if (el.surface.get().isAltitudeValid()
                 && el.terrain.get().isAltitudeValid()) {
-            Span altUnits;
-            switch (Integer
-                    .parseInt(_prefs.getString("alt_unit_pref", "0"))) {
-                case 0:
-                    altUnits = Span.FOOT;
-                    break;
-                case 1:
-                    altUnits = Span.METER;
-                    break;
-                default: // default to feet
-                    altUnits = Span.FOOT;
-                    break;
-            }
 
             final double surfaceHeight = EGM96.getHAE(el.surface.get())
                     - EGM96.getHAE(
@@ -674,9 +686,7 @@ public class CoordOverlayMapReceiver extends BroadcastReceiver implements
             retval.append(TLECategory.getCEString(point.getLE()));
         }
 
-        if (pointWithMetadata.getGeopointSource().equals(GeoPointMetaData.PFI)
-                || pointWithMetadata.getGeopointSource()
-                        .equals(GeoPointMetaData.PRI)) {
+        if (GeoPointMetaData.isPrecisionImageryDerived(pointWithMetadata)) {
             final TLECategory cat = TLECategory.getCategory(point.getCE());
             lineColors[lineNum++] = cat.getColor();
 
@@ -684,6 +694,36 @@ public class CoordOverlayMapReceiver extends BroadcastReceiver implements
             retval.append(pointWithMetadata.getGeopointSource());
             retval.append(" ");
             retval.append(ErrorCategory.getCategory(point.getCE()));
+        }
+
+        // based on WinTAK's decision to show area and height 0.5 km2, 50.00 m Hgt
+        String heightStr = "";
+        String areaStr = "";
+        if (!Double.isNaN(area))
+            areaStr = AreaUtilities.formatArea(areaRef.getValue(), area,
+                    Area.METER2);
+
+        if (!Double.isNaN(height) && Double.compare(height, 0.0) != 0.0)
+            heightStr = SpanUtilities.format(height, Span.METER,
+                    altUnits);
+
+        if (areaStr.length() > 0 || heightStr.length() > 0) {
+            String haline = "";
+            if (areaStr.length() > 0)
+                haline = areaStr;
+
+            if (heightStr.length() > 0) {
+                if (haline.length() > 0)
+                    haline += "  ";
+                haline += heightStr + " Hgt";
+            }
+
+            if (haline.length() > 0) {
+                retval.append("\n");
+                lineColors[lineNum++] = -1;
+                retval.append(haline);
+
+            }
         }
 
         // XXX: if the distance is 0, you are on top of the item.
@@ -785,6 +825,14 @@ public class CoordOverlayMapReceiver extends BroadcastReceiver implements
         double speed = -1, heading = -1;
         boolean estimate = false;
         boolean teamMate = false;
+        double height = item.getHeight();
+        double area = Double.NaN;
+
+        MapItem shp = ATAKUtilities.findAssocShape(item);
+        if (shp instanceof Shape) {
+            area = ((Shape) shp).getArea();
+        }
+
         ElevationDisplayInfo el = new ElevationDisplayInfo();
         if (item instanceof Marker) {
             if (item.getType().equals("self"))
@@ -831,7 +879,7 @@ public class CoordOverlayMapReceiver extends BroadcastReceiver implements
         _updatePoint(point, label, null,
                 item.getMetaDouble("distance", 0.0d),
                 item.getMetaDouble("bearing", 0.0d),
-                display, speed, heading, estimate, teamMate, el);
+                display, speed, heading, estimate, height, area, teamMate, el);
 
     }
 
@@ -852,18 +900,28 @@ public class CoordOverlayMapReceiver extends BroadcastReceiver implements
         findDistanceAndBearing(spi, spi.getPoint());
     }
 
-    private void _updatePoint(final GeoPointMetaData point, final String label,
-            final double speed,
-            final double heading, boolean estimate, final boolean teamMate,
-            ElevationDisplayInfo el) {
-        _updatePoint(point, label, null, -1, 0, false, speed, heading, estimate,
-                teamMate, el);
-    }
-
-    private void _updatePoint(final GeoPointMetaData point, final String label,
+    /**
+     * This is the uber formatting function from ATAK 2.0+
+     * @param point the point to use
+     * @param label the label
+     * @param sublabel a sublabel if it exists
+     * @param distance the distance to the red X
+     * @param bearing the bearing to the red X
+     * @param displayRB true if the distance and bearing are to be shown
+     * @param speed the speed
+     * @param heading heading
+     * @param estimate if the speed and heading are estimated
+     * @param height the height of the item
+     * @param area the area
+     * @param teamMate if the item is a team mate
+     * @param el the elevation model for the case where a surface model is shown.
+     */
+    protected void _updatePoint(final GeoPointMetaData point,
+            final String label,
             final String sublabel, final double distance, final double bearing,
             boolean displayRB, final double speed, final double heading,
-            final boolean estimate, final boolean teamMate,
+            final boolean estimate, final double height, final double area,
+            final boolean teamMate,
             final ElevationDisplayInfo el) {
 
         // either the user has a range and bearing arrow displayed or the label is a Red X or a Local SPI
@@ -875,8 +933,9 @@ public class CoordOverlayMapReceiver extends BroadcastReceiver implements
         Arrays.fill(lineColors, -1);
         String coordText = constructCoordText(label, sublabel, point, distance,
                 bearing, displayRB,
-                speed, heading, estimate, teamMate, el,
-                lineColors);
+                speed, heading, estimate,
+                height, area,
+                teamMate, el, lineColors);
 
         if (_marker && !label.equals("Red X") && !label.startsWith("Local SPI"))
             _savedText = _positionText.getText();
@@ -913,7 +972,7 @@ public class CoordOverlayMapReceiver extends BroadcastReceiver implements
         }
     }
 
-    private static class ElevationDisplayInfo {
+    protected static class ElevationDisplayInfo {
         public boolean doNotDisplayAgl;
         final public GeoPointMetaData terrain = new GeoPointMetaData();
         final public GeoPointMetaData surface = new GeoPointMetaData();
@@ -939,7 +998,7 @@ public class CoordOverlayMapReceiver extends BroadcastReceiver implements
         return curCoordString;
     }
 
-    private final BroadcastReceiver coordReceiver = new BroadcastReceiver() {
+    protected final BroadcastReceiver coordReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
             String action = intent.getAction();

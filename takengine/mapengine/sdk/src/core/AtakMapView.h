@@ -117,14 +117,9 @@ namespace atakmap {
         protected : // member functions
             //Deprecated now, use the version that includes the tilt
             void updateView(const GeoPoint *center, const double scale, const double rotation, const bool animate);
-#ifdef __ANDROID__
         public :
-#endif
             void updateView(const GeoPoint &c, const double mapScale, const double rot, const double ptilt, const double focusAlt, const double focusAltTerminalSlant, const bool anim);
-#ifdef __ANDROID__
         protected :
-#endif
-
             void dispatchMapResized();
 
             void dispatchMapMoved();
@@ -180,13 +175,13 @@ namespace atakmap {
             static float DENSITY;
         }; // end class AtakMapView
 
-        double AtakMapView_getFullEquitorialExtentPixels(const double dpi) NOTHROWS;
-        double AtakMapView_getMapResolution(const double dpi, const double scale) NOTHROWS;
-        double AtakMapView_getMapScale(const double dpi, const double resolution) NOTHROWS;
+        ENGINE_API double AtakMapView_getFullEquitorialExtentPixels(const double dpi) NOTHROWS;
+        ENGINE_API double AtakMapView_getMapResolution(const double dpi, const double scale) NOTHROWS;
+        ENGINE_API double AtakMapView_getMapScale(const double dpi, const double resolution) NOTHROWS;
 
         struct ENGINE_API AtakMapView::MapLayersChangedListener
         {
-            virtual ~MapLayersChangedListener () throw () = 0;
+            virtual ~MapLayersChangedListener () NOTHROWS = 0;
             virtual void mapLayerAdded(AtakMapView *view, Layer *layer) = 0;
             virtual void mapLayerRemoved(AtakMapView *view, Layer *layer) = 0;
             virtual void mapLayerPositionChanged(AtakMapView *view, Layer *layer, const int oldPos, const int newPos) = 0;
@@ -194,31 +189,31 @@ namespace atakmap {
 
         struct ENGINE_API AtakMapView::MapMovedListener
         {
-            virtual ~MapMovedListener () throw () = 0;
+            virtual ~MapMovedListener () NOTHROWS = 0;
             virtual void mapMoved(AtakMapView *view, const bool animate) = 0;
         }; // end class MapMovedListener
 
         struct ENGINE_API AtakMapView::MapProjectionChangedListener
         {
-            virtual ~MapProjectionChangedListener () throw () = 0;
+            virtual ~MapProjectionChangedListener () NOTHROWS = 0;
             virtual void mapProjectionChanged(AtakMapView *view) = 0;
         };
 
         struct ENGINE_API AtakMapView::MapResizedListener
         {
-            virtual ~MapResizedListener () throw () = 0;
+            virtual ~MapResizedListener () NOTHROWS = 0;
             virtual void mapResized(AtakMapView *view) = 0;
         }; // end class MapResizedListener
 
         struct ENGINE_API AtakMapView::MapElevationExaggerationFactorListener
         {
-            virtual ~MapElevationExaggerationFactorListener() throw () = 0;
+            virtual ~MapElevationExaggerationFactorListener() NOTHROWS = 0;
             virtual void mapElevationExaggerationFactorChanged(AtakMapView *view, const double factor) = 0;
         }; // end class MapResizedListener
 
         struct ENGINE_API AtakMapView::MapContinuousScrollListener
         {
-            virtual ~MapContinuousScrollListener() throw () = 0;
+            virtual ~MapContinuousScrollListener() NOTHROWS = 0;
             virtual void mapContinuousScrollEnabledChanged(AtakMapView *view, const bool enabled) = 0;
         }; // end class MapResizedListener
 

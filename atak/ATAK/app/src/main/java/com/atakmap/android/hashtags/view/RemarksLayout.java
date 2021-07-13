@@ -28,7 +28,7 @@ public class RemarksLayout extends LinearLayout {
 
     private final HashtagEditText _remarks;
     private final ImageButton _editBtn;
-    private String _rawText;
+    private String _rawText = "";
 
     public RemarksLayout(Context context) {
         this(context, null);
@@ -73,6 +73,10 @@ public class RemarksLayout extends LinearLayout {
 
     public String getText() {
         return _rawText;
+    }
+
+    public void setHint(String hint) {
+        _remarks.setHint(hint);
     }
 
     public void addTextChangedListener(TextWatcher watcher) {

@@ -10,7 +10,6 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 
-import android.database.sqlite.SQLiteDatabase;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
@@ -18,13 +17,13 @@ import android.graphics.Rect;
 import android.net.Uri;
 
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.DatabaseInformation;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.database.CursorIface;
 import com.atakmap.database.DatabaseIface;
 import com.atakmap.database.Databases;
-import com.atakmap.database.android.AndroidDatabaseAdapter;
 import com.atakmap.map.gdal.GdalLibrary;
-import com.atakmap.map.layer.raster.gdal.GdalGraphicUtils;
 import com.atakmap.map.layer.raster.tilereader.TileReader;
 import com.atakmap.map.layer.raster.tilereader.TileReaderSpi;
 import com.atakmap.map.layer.raster.tilereader.TileReaderFactory.Options;
@@ -402,7 +401,7 @@ public class SQLiteSingleTileReader extends TileReader {
                     // immediately.
                     db = sharedDbs.get(dbPath);
                     if(db == null) {
-                        sharedDbs.put(dbPath, db=new SharedDb(dbPath, Databases.openDatabase(dbPath, true), true));
+                        sharedDbs.put(dbPath, db= new SharedDb(dbPath, IOProviderFactory.createDatabase(new File(dbPath), DatabaseInformation.OPTION_READONLY), true));
                         Log.d("SQLiteTileReader", "Creating shared DB ref " + dbPath);
                     } else {
                         db.reference();

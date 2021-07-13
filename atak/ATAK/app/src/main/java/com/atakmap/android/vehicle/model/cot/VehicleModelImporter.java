@@ -98,8 +98,8 @@ public class VehicleModelImporter extends MapItemImporter {
                     null, gpmd);
 
             // Remove invalid precision location detail
-            CotDetail pl = cot.findDetail(PrecisionLocationHandler
-                    .PRECISIONLOCATION);
+            CotDetail pl = cot
+                    .findDetail(PrecisionLocationHandler.PRECISIONLOCATION);
             cot.getDetail().removeChild(pl);
         }
 
@@ -115,7 +115,12 @@ public class VehicleModelImporter extends MapItemImporter {
 
         CotDetailManager.getInstance().processDetails(veh, cot);
         addToGroup(veh);
-        veh.setVisible(extras.getBoolean("visible", veh.getVisible()));
+        veh.setVisible(extras.getBoolean("visible",
+                veh.getVisible(true)), false);
+
+        // Update offscreen indicator timeout if this is a newly received item
+        if (existing == null && !isStateSaverImport(extras))
+            veh.updateOffscreenInterest();
 
         // Persist to the statesaver if needed
         persist(veh, extras);

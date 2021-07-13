@@ -10,6 +10,8 @@ import android.util.Pair;
 import android.widget.BaseAdapter;
 
 import com.atakmap.android.contentservices.ServiceFactory;
+import com.atakmap.android.contentservices.ServiceQuery;
+import com.atakmap.android.data.ClearContentRegistry;
 import com.atakmap.android.data.URIContentManager;
 import com.atakmap.android.features.FeatureDataStoreDeepMapItemQuery;
 import com.atakmap.android.hierarchy.HierarchyListFilter;
@@ -17,9 +19,11 @@ import com.atakmap.android.hierarchy.HierarchyListItem;
 // XXX - post 3.10
 //import com.atakmap.android.image.GalleryItemFactory;
 import com.atakmap.android.importexport.ImportExportMapComponent;
+import com.atakmap.android.importexport.Importer;
 import com.atakmap.android.importexport.ImporterManager;
 import com.atakmap.android.importexport.MarshalManager;
 import com.atakmap.android.importfiles.sort.ImportInPlaceResolver;
+import com.atakmap.android.importfiles.sort.ImportResolver;
 import com.atakmap.android.importfiles.task.ImportFilesTask;
 import com.atakmap.android.ipc.AtakBroadcast;
 import com.atakmap.android.ipc.AtakBroadcast.DocumentedIntentFilter;
@@ -36,6 +40,7 @@ import com.atakmap.android.model.viewer.DetailedModelViewerDropdownReceiver;
 import com.atakmap.android.overlay.AbstractMapOverlay2;
 import com.atakmap.app.R;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.maps.coords.GeoPoint;
 import com.atakmap.lang.Unsafe;
 import com.atakmap.map.MapRenderer;
@@ -68,13 +73,15 @@ import com.atakmap.map.layer.opengl.GLLayerSpi2;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 import java.util.SortedSet;
 import java.util.TreeSet;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import android.content.BroadcastReceiver;
-import com.atakmap.android.data.DataMgmtReceiver;
 
 import com.atakmap.coremap.log.Log;
 import com.atakmap.util.ConfigOptions;
@@ -82,6 +89,9 @@ import com.atakmap.util.Visitor;
 
 import jassimp.AiBufferAllocator;
 import jassimp.Jassimp;
+
+// XXX - post 3.10
+//import com.atakmap.android.image.GalleryItemFactory;
 
 public class ModelMapComponent extends AbstractMapComponent {
 
@@ -100,21 +110,108 @@ public class ModelMapComponent extends AbstractMapComponent {
     private ModelContentResolver contentResolver;
     private ModelImporter importer;
     private OverlayImpl overlay;
+    private AtomicBoolean modelScanCancelToken;
+    private Thread scanThread;
+    private final ServiceQuery cesiumServiceQuery = new Cesium3DTilesServiceQuery();
+    private ImportResolver streamingMeshImportResolver;
+    private ImportResolver modelImportResolver;
+    private GLLayerSpi2 gllayerSpi;
+
+    public ModelMapComponent() {
+        super(true);
+    }
 
     @Override
     protected void onDestroyImpl(Context context, MapView view) {
-        view.getMapOverlayManager().removeOverlay(this.overlay);
-        URIContentManager.getInstance().unregisterResolver(
-                this.contentResolver);
-        this.contentResolver.dispose();
-
-        view.removeLayer(MapView.RenderStack.VECTOR_OVERLAYS, modelLayer);
-        modelDataStore.dispose();
-
-        if (dataMgmtReceiver != null) {
-            AtakBroadcast.getInstance().unregisterReceiver(dataMgmtReceiver);
-            dataMgmtReceiver = null;
+        // remove the layer
+        if (modelLayer != null) {
+            view.removeLayer(MapView.RenderStack.VECTOR_OVERLAYS, modelLayer);
+            modelLayer = null;
         }
+
+        // cancel any current scan
+        modelScanCancelToken.set(true);
+        if (scanThread != null) {
+            try {
+                scanThread.join();
+            } catch (InterruptedException ignored) {
+            }
+            scanThread = null;
+        }
+
+        ClearContentRegistry.getInstance().unregisterListener(dataMgmtReceiver);
+        ServiceFactory.unregisterServiceQuery(cesiumServiceQuery);
+
+        // XXX - note that we're skipping importer extension deregistration
+
+        // importer management
+        ImporterManager
+                .unregisterImporter(StreamingMeshServiceImportUtil.importer);
+        MarshalManager
+                .unregisterMarshal(StreamingMeshServiceImportUtil.marshal);
+        if (streamingMeshImportResolver != null) {
+            ImportExportMapComponent.getInstance().removeImporterClass(
+                    streamingMeshImportResolver);
+            streamingMeshImportResolver = null;
+        }
+
+        // Cesium 3D Tiles importer
+        ModelInfoFactory.unregisterSpi(Cesium3DTilesModelInfoSpi.INSTANCE);
+
+        // importer
+        if (importer != null) {
+            ImporterManager.unregisterImporter(importer);
+            importer = null;
+        }
+        MarshalManager.unregisterMarshal(ModelMarshal.INSTANCE);
+        if (modelImportResolver != null) {
+            ImportExportMapComponent.getInstance().removeImporterClass(
+                    modelImportResolver);
+            modelImportResolver = null;
+        }
+
+        // details dropdown
+        if (this.detailsReceiver != null) {
+            this.detailsReceiver.dispose();
+            this.detailsReceiver = null;
+        }
+
+        if (this.overlay != null) {
+            view.getMapOverlayManager().removeOverlay(this.overlay);
+            this.overlay = null;
+        }
+
+        if (this.gllayerSpi != null) {
+            GLLayerFactory.unregister(this.gllayerSpi);
+            this.gllayerSpi = null;
+        }
+
+        // Used to map model files to associated metadata
+        if (this.contentResolver != null) {
+            URIContentManager.getInstance()
+                    .unregisterResolver(this.contentResolver);
+            this.contentResolver.dispose();
+            this.contentResolver = null;
+        }
+
+        if (modelDataStore != null) {
+            modelDataStore.dispose();
+            modelDataStore = null;
+        }
+
+        ModelInfoFactory.unregisterGeoreferencer(Pix4dGeoreferencer.INSTANCE);
+        ModelInfoFactory
+                .unregisterGeoreferencer(LocalToGpsJsonGeoreferencer.INSTANCE);
+        ModelInfoFactory.unregisterSpi(ObjModelInfoSpi.INSTANCE);
+        ModelInfoFactory.unregisterSpi(DaeModelInfoSpi.INSTANCE);
+        ModelInfoFactory.unregisterSpi(PlyModelInfoSpi.INSTANCE);
+        ModelInfoFactory.unregisterSpi(ContextCaptureModelInfoSpi.INSTANCE);
+
+        ModelFactory.unregisterSpi(AssimpModelSpi.INSTANCE);
+        ModelFactory.unregisterSpi(ObjModelSpi.INSTANCE);
+        ModelFactory.unregisterSpi(MemoryMappedModel.SPI);
+
+        GLSceneFactory.unregisterSpi(GLContextCaptureScene.SPI);
     }
 
     @Override
@@ -150,8 +247,8 @@ public class ModelMapComponent extends AbstractMapComponent {
         //GalleryItemFactory.registerSpi(ModelGalleryItem.SPI);
         File dbFile = FileSystemUtils
                 .getItem("Databases/models.db/catalog.sqlite");
-        if (!dbFile.getParentFile().exists()) {
-            if (!dbFile.getParentFile().mkdirs()) {
+        if (!IOProviderFactory.exists(dbFile.getParentFile())) {
+            if (!IOProviderFactory.mkdirs(dbFile.getParentFile())) {
                 Log.d(TAG, "could not make the directory: "
                         + dbFile.getParentFile());
             }
@@ -161,24 +258,22 @@ public class ModelMapComponent extends AbstractMapComponent {
         File versionFile = FileSystemUtils
                 .getItem("Databases/models.db/catalog.version");
         boolean reimport = true;
-        try {
-            try (RandomAccessFile ver = new RandomAccessFile(versionFile,
-                    "rw")) {
-                do {
-                    // if there's at least 4 bytes, compare the version
-                    if (ver.length() >= 4) {
-                        final int localVersion = ver.readInt();
-                        // if up to date, no reimport; leave alone
-                        if (localVersion >= SYNC_VERSION) {
-                            reimport = false;
-                            break;
-                        }
+        try (RandomAccessFile ver = IOProviderFactory
+                .getRandomAccessFile(versionFile, "rw")) {
+            do {
+                // if there's at least 4 bytes, compare the version
+                if (ver.length() >= 4) {
+                    final int localVersion = ver.readInt();
+                    // if up to date, no reimport; leave alone
+                    if (localVersion >= SYNC_VERSION) {
+                        reimport = false;
+                        break;
                     }
-                    // seek to start, write out the version
-                    ver.seek(0);
-                    ver.writeInt(SYNC_VERSION);
-                } while (false);
-            }
+                }
+                // seek to start, write out the version
+                ver.seek(0);
+                ver.writeInt(SYNC_VERSION);
+            } while (false);
         } catch (Throwable ignored) {
         }
 
@@ -186,7 +281,7 @@ public class ModelMapComponent extends AbstractMapComponent {
         this.contentResolver = new ModelContentResolver(view, modelDataStore);
         URIContentManager.getInstance().registerResolver(this.contentResolver);
 
-        GLLayerFactory.register(new GLLayerSpi2() {
+        this.gllayerSpi = new GLLayerSpi2() {
             @Override
             public int getPriority() {
                 return 3;
@@ -200,7 +295,8 @@ public class ModelMapComponent extends AbstractMapComponent {
                 return new GLModelLayer(object.first,
                         (FeatureLayer3) object.second);
             }
-        });
+        };
+        GLLayerFactory.register(this.gllayerSpi);
 
         this.overlay = new OverlayImpl();
         view.getMapOverlayManager().addOverlay(this.overlay);
@@ -228,9 +324,11 @@ public class ModelMapComponent extends AbstractMapComponent {
         importer = new ModelImporter(context, modelDataStore, contentResolver);
         ImporterManager.registerImporter(importer);
         MarshalManager.registerMarshal(ModelMarshal.INSTANCE);
+        modelImportResolver = ImportInPlaceResolver.fromMarshal(
+                ModelMarshal.INSTANCE,
+                context.getDrawable(R.drawable.ic_model_building));
         ImportExportMapComponent.getInstance().addImporterClass(
-                ImportInPlaceResolver.fromMarshal(ModelMarshal.INSTANCE,
-                        context.getDrawable(R.drawable.ic_model_building)));
+                modelImportResolver);
 
         // Cesium 3D Tiles importer
         ModelInfoFactory.registerSpi(Cesium3DTilesModelInfoSpi.INSTANCE);
@@ -240,20 +338,20 @@ public class ModelMapComponent extends AbstractMapComponent {
         ImporterManager
                 .registerImporter(StreamingMeshServiceImportUtil.importer);
         MarshalManager.registerMarshal(StreamingMeshServiceImportUtil.marshal);
+        streamingMeshImportResolver = ImportInPlaceResolver
+                .fromMarshal(StreamingMeshServiceImportUtil.marshal);
         ImportExportMapComponent.getInstance().addImporterClass(
-                ImportInPlaceResolver
-                        .fromMarshal(StreamingMeshServiceImportUtil.marshal));
+                streamingMeshImportResolver);
 
         ImportFilesTask.registerExtension(".dae");
         ImportFilesTask.registerExtension(".obj");
         ImportFilesTask.registerExtension(".zip");
         ImportFilesTask.registerExtension(".json");
+        ImportFilesTask.registerExtension(".3tz");
 
         ServiceFactory.registerServiceQuery(new Cesium3DTilesServiceQuery());
 
-        DocumentedIntentFilter intentFilter = new DocumentedIntentFilter();
-        intentFilter.addAction(DataMgmtReceiver.ZEROIZE_CONFIRMED_ACTION);
-        this.registerReceiver(context, dataMgmtReceiver, intentFilter);
+        ClearContentRegistry.getInstance().registerListener(dataMgmtReceiver);
 
         DocumentedIntentFilter refreshRendererFilter = new DocumentedIntentFilter();
         refreshRendererFilter.addAction(ACTION_SCENE_RENDERER_REFRESH,
@@ -273,12 +371,19 @@ public class ModelMapComponent extends AbstractMapComponent {
             }
         }, refreshRendererFilter);
 
-        this.scanForModels(reimport);
+        modelScanCancelToken = new AtomicBoolean(false);
+        this.scanForModels(modelDataStore, importer, contentResolver, reimport,
+                modelScanCancelToken);
 
         view.addLayer(MapView.RenderStack.VECTOR_OVERLAYS, modelLayer);
+
     }
 
-    private void scanForModels(final boolean reimport) {
+    private static void scanForModels(final FeatureDataStore2 dataStore,
+            final Importer importer,
+            final ModelContentResolver contentResolver,
+            final boolean reimport,
+            final AtomicBoolean cancelToken) {
         Thread t = new Thread(new Runnable() {
             @Override
             public void run() {
@@ -289,18 +394,20 @@ public class ModelMapComponent extends AbstractMapComponent {
                 try {
                     FeatureSetCursor result = null;
                     try {
-                        result = modelDataStore.queryFeatureSets(null);
+                        result = dataStore.queryFeatureSets(null);
                         while (result.moveToNext()) {
+                            if (cancelToken.get())
+                                return;
                             FeatureSet fs = result.get();
                             File f = new File(fs.getName());
                             if (!fs.getName().startsWith("http:")
                                     && !fs.getName().startsWith("https:")
-                                    && !f.exists()) {
-                                modelDataStore.deleteFeatureSet(fs.getId());
+                                    && !IOProviderFactory.exists(f)) {
+                                dataStore.deleteFeatureSet(fs.getId());
                             } else if (reimport) {
                                 try {
                                     final Uri uri;
-                                    if (f.exists())
+                                    if (IOProviderFactory.exists(f))
                                         uri = Uri.fromFile(f);
                                     else
                                         uri = Uri.parse(fs.getName());
@@ -331,11 +438,11 @@ public class ModelMapComponent extends AbstractMapComponent {
             }
 
             private void loadFiles(File dir, Bundle b) {
-                File[] listing = dir.listFiles();
+                File[] listing = IOProviderFactory.listFiles(dir);
                 if (listing == null)
                     return;
                 for (final File f : listing) {
-                    if (f.isDirectory())
+                    if (IOProviderFactory.isDirectory(f))
                         loadFiles(f, b);
                     else
                         importImpl(Uri.fromFile(f), b);
@@ -346,7 +453,7 @@ public class ModelMapComponent extends AbstractMapComponent {
                 try {
                     importer.importData(uri, null, b);
                 } catch (IOException e) {
-                    Log.e(TAG, "error occured", e);
+                    Log.e(TAG, "error occurred", e);
                 }
             }
         }, TAG + "-ScanForModels");
@@ -357,15 +464,15 @@ public class ModelMapComponent extends AbstractMapComponent {
     @SuppressLint("ResourceType")
     static String getPointIconUri(Context ctx) {
         File f = new File(ctx.getCacheDir(), "icon_3d_map.png");
-        if (!f.exists()) {
-            try {
-                FileSystemUtils.copyStream(
-                        ctx.getResources()
-                                .openRawResource(R.drawable.icon_3d_map),
-                        true, new FileOutputStream(f), true);
+        if (!IOProviderFactory.exists(f)) {
+            try (InputStream is = ctx.getResources()
+                    .openRawResource(R.drawable.icon_3d_map);
+                    OutputStream os = IOProviderFactory.getOutputStream(f)) {
+                FileSystemUtils.copy(is, os);
             } catch (Throwable t) {
                 return "resource://" + R.drawable.icon_3d_map;
             }
+
         }
         return "file://" + f.getAbsolutePath();
     }
@@ -432,10 +539,9 @@ public class ModelMapComponent extends AbstractMapComponent {
         }
     }
 
-    private BroadcastReceiver dataMgmtReceiver = new BroadcastReceiver() {
-
+    final ClearContentRegistry.ClearContentListener dataMgmtReceiver = new ClearContentRegistry.ClearContentListener() {
         @Override
-        public void onReceive(final Context context, final Intent intent) {
+        public void onClearContent(boolean clearmaps) {
             Log.d(TAG, "Deleting models");
             try {
                 modelDataStore.clearCache();
@@ -444,7 +550,8 @@ public class ModelMapComponent extends AbstractMapComponent {
             }
 
             final File scanDir = FileSystemUtils.getItem("Databases/models.db");
-            if (scanDir.exists() && scanDir.isDirectory())
+            if (IOProviderFactory.exists(scanDir)
+                    && IOProviderFactory.isDirectory(scanDir))
                 FileSystemUtils.deleteDirectory(scanDir, true);
         }
     };

@@ -2,9 +2,12 @@ package com.atakmap.map.formats.c3dt;
 
 import android.net.Uri;
 
+import android.util.Log;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.maps.coords.GeoPoint;
 import com.atakmap.io.UriFactory;
+import com.atakmap.io.ZipVirtualFile;
 import com.atakmap.map.layer.model.ModelInfo;
 import com.atakmap.map.layer.model.ModelInfoSpi;
 import com.atakmap.map.layer.model.opengl.GLSceneFactory;
@@ -12,16 +15,19 @@ import com.atakmap.map.projection.ECEFProjection;
 import com.atakmap.math.Matrix;
 import com.atakmap.math.PointD;
 
+import com.atakmap.util.zip.IoUtils;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
 import java.net.URI;
 import java.util.Collections;
 import java.util.Set;
 
 public final class Cesium3DTilesModelInfoSpi implements ModelInfoSpi {
+    private static final String TAG = "Cesium3DTilesModelInfoSpi";
     public final static ModelInfoSpi INSTANCE = new Cesium3DTilesModelInfoSpi();
     static {
         GLSceneFactory.registerSpi(GLTileset.SPI);
@@ -52,47 +58,84 @@ public final class Cesium3DTilesModelInfoSpi implements ModelInfoSpi {
 
         // fallback on File test
         File f = new File(s);
-        if(f.isDirectory())
-            f = new File(f, "tileset.json");
-        else
+        if(FileSystemUtils.checkExtension(f, "zip") ||
+                FileSystemUtils.checkExtension(f, "3tz")) {
+            try {
+                f = new ZipVirtualFile(f);
+            } catch(Throwable ignored) {}
+        }
+        if(!IOProviderFactory.isDirectory(f))
             return false; // XXX - workaround for ATAK-12324
-        return f.exists() && f.getName().equals("tileset.json");
+        else if(f instanceof ZipVirtualFile)
+            f = new ZipVirtualFile(f, "tileset.json");
+        else
+            f = new File(f, "tileset.json");
+        return IOProviderFactory.exists(f) && f.getName().equals("tileset.json");
     }
 
     @Override
     public Set<ModelInfo> create(String s) {
         File f = new File(s);
-        if(!f.exists()) {
-            UriFactory.OpenResult uriOpenResult = UriFactory.open(s);
-            if (uriOpenResult != null) {
-                try {
-                    byte[] buffer = null;
-                    if (uriOpenResult.contentLength > 0 && uriOpenResult.contentLength <= Integer.MAX_VALUE)
-                        buffer = FileSystemUtils.read(uriOpenResult.inputStream, (int) uriOpenResult.contentLength, true);
-                    else
-                        buffer = FileSystemUtils.read(uriOpenResult.inputStream);
-                    String name = s;
+        if(FileSystemUtils.checkExtension(f, "zip") ||
+                FileSystemUtils.checkExtension(f, "3tz")) {
+            try {
+                f = new ZipVirtualFile(f);
+            } catch(Throwable ignored) {}
+        }
+        // remote URL load
+        if(!IOProviderFactory.exists(f)) {
+            try(UriFactory.OpenResult uriOpenResult = UriFactory.open(s)) {
+                if (uriOpenResult != null) {
                     try {
-                        name = Uri.parse(s).getPath();
-                    } catch (Throwable ignored) {}
-                    return createFromString(new String(buffer, FileSystemUtils.UTF8_CHARSET), name, s);
-                } catch (Throwable e) {
-                    return null;
+                        byte[] buffer = null;
+                        if (uriOpenResult.contentLength > 0 && uriOpenResult.contentLength <= Integer.MAX_VALUE)
+                            buffer = FileSystemUtils.read(uriOpenResult.inputStream, (int) uriOpenResult.contentLength, true);
+                        else
+                            buffer = FileSystemUtils.read(uriOpenResult.inputStream);
+                        String name = s;
+                        try {
+                            name = Uri.parse(s).getPath();
+                        } catch (Throwable ignored) {
+                        }
+                        return createFromString(new String(buffer, FileSystemUtils.UTF8_CHARSET), name, s);
+                    } catch (Throwable e) {
+                        return null;
+                    }
                 }
+            } catch (IOException e) {
+                Log.e("Cesium3DTiles", "create: ", e);
             }
         }
 
-        if (f.isDirectory())
-            f = new File(f, "tileset.json");
-        if (!f.exists() || !f.getName().equals("tileset.json"))
+        if (IOProviderFactory.isDirectory(f)) {
+            if(f instanceof ZipVirtualFile) {
+                try {
+                    f = new ZipVirtualFile(f, "tileset.json");
+                } catch(Throwable t) {
+                    return null;
+                }
+            } else {
+                f = new File(f, "tileset.json");
+            }
+        }
+        if (!IOProviderFactory.exists(f) || !f.getName().equals("tileset.json"))
             return null;
 
+        InputStream is = null;
         try {
-            return createFromString(FileSystemUtils.copyStreamToString(f),
+            if(f instanceof ZipVirtualFile)
+                is = ((ZipVirtualFile)f).openStream();
+            else
+                is = IOProviderFactory.getInputStream(f);
+            return createFromString(
+                    FileSystemUtils.copyStreamToString(
+                            is, true, FileSystemUtils.UTF8_CHARSET),
                     f.getParentFile().getName(),
                     f.getAbsolutePath());
         } catch (Throwable t) {
             return null;
+        } finally {
+            IoUtils.close(is, TAG);
         }
     }
 
@@ -116,7 +159,7 @@ public final class Cesium3DTilesModelInfoSpi implements ModelInfoSpi {
         if (ts.root.boundingVolume instanceof Volume.Sphere) {
             Volume.Sphere sphere = (Volume.Sphere) ts.root.boundingVolume;
 
-            PointD center = new PointD(sphere.centerX, sphere.centerX, sphere.centerZ);
+            PointD center = new PointD(sphere.centerX, sphere.centerY, sphere.centerZ);
             // transform the center
             if (ts.root.transform != null) {
                 Matrix transform = new Matrix(
@@ -132,7 +175,7 @@ public final class Cesium3DTilesModelInfoSpi implements ModelInfoSpi {
         } else if (ts.root.boundingVolume instanceof Volume.Box) {
             Volume.Box box = (Volume.Box) ts.root.boundingVolume;
 
-            PointD center = new PointD(box.centerX, box.centerX, box.centerZ);
+            PointD center = new PointD(box.centerX, box.centerY, box.centerZ);
             // transform the center
             if (ts.root.transform != null) {
                 Matrix transform = new Matrix(

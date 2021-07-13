@@ -1,6 +1,7 @@
 
 package com.atakmap.android.dropdown;
 
+import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -149,6 +150,7 @@ public class DropDownManager extends BroadcastReceiver {
             sendHideToolbarHandleIntent();
             sidePane.setLeftDropDown(dd);
             sidePane.adjustMargin();
+            sidePane.open();
         } else {
 
             Log.d(TAG, "calling show on (right side): " + ddr);
@@ -172,9 +174,15 @@ public class DropDownManager extends BroadcastReceiver {
                     closeRightDropDown(false, true);
                     return true;
                 } else if (rightSideStack.contains(ddr)) {
-                    //Log.d(TAG, "drop down show called already on the stack, moving to the front: " +  ddr);
-                    //rightSideStack.remove(ddr);
                     Log.d(TAG,
+                            "drop down show called already on the stack, moving to the front: "
+                                    + ddr);
+                    closeDropDown(ddr.getDropDown());
+
+                    // XXX - This behavior doesn't aid the user in any way
+                    // Much more helpful to automatically close the old
+                    // drop-down and re-open it on top
+                    /*Log.d(TAG,
                             "drop down show called already on the stack, ignoring"
                                     + ddr);
                     try {
@@ -182,7 +190,7 @@ public class DropDownManager extends BroadcastReceiver {
                     } catch (Exception e) {
                         Log.d(TAG, "error in implementatio of: " + ddr);
                     }
-                    return true;
+                    return true;*/
                 }
                 Log.d(TAG, "rightSided retained: " + rightSide.isRetained() +
                         " or ignoreBackButton: "
@@ -327,7 +335,9 @@ public class DropDownManager extends BroadcastReceiver {
 
     public void closeAllDropDowns() {
 
-        MapView.getMapView().post(new Runnable() {
+        MapView mv = MapView.getMapView();
+
+        mv.post(new Runnable() {
             @Override
             public void run() {
                 if (leftSide != null)

@@ -9,12 +9,16 @@ import com.atakmap.app.preferences.AppMgmtPreferenceFragment;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
 import com.atakmap.coremap.log.Log;
 
+import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileReader;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
  * Provides custom filesystem based repo
+ * Does not use the IO Abstraction for plugin installation
  * Repo index stored at: atak/support/apks/custom/product.inf
  * Based on settings, can load APKs from any directory but product.inf still lives here
  *
@@ -42,7 +46,7 @@ public class FileSystemProductProvider extends BaseProductProvider {
         super(context);
         _prefs = prefs;
         File dir = FileSystemUtils.getItem(LOCAL_REPO_PATH);
-        if (dir != null && !dir.exists())
+        if (!dir.exists())
             if (!dir.mkdirs())
                 Log.d(TAG, "could not wrap: " + dir);
     }
@@ -54,6 +58,34 @@ public class FileSystemProductProvider extends BaseProductProvider {
                 FileSystemUtils.getItem(LOCAL_REPO_INDEX));
     }
 
+    /**
+     * Override to convert to use java.io.FileReader outside of IO Abstraction
+     *
+     * @param repoType The type of repo; such as filesystem in this case
+     * @param repoIndex The file for the repo index
+     * @return The product repository
+     */
+    @Override
+    public ProductRepository parseRepo(String repoType, File repoIndex) {
+        ProductRepository repo = null;
+        try {
+            repo = ProductRepository.parseRepo(_context,
+                    repoIndex.getAbsolutePath(),
+                    repoType, new BufferedReader(new FileReader(repoIndex)));
+        } catch (IOException e) {
+            Log.w(TAG, "Failed parse: " + repoIndex.getAbsolutePath(), e);
+        }
+
+        if (repo != null && repo.isValid()) {
+            Log.d(TAG, "Updating local repo: " + repo.toString());
+        } else {
+            Log.d(TAG, "Clearing local repo: " + repoIndex);
+            repo = null;
+        }
+
+        return repo;
+    }
+
     @Override
     public ProductRepository rebuild(
             final ProductProviderManager.ProgressDialogListener l) {
@@ -62,13 +94,13 @@ public class FileSystemProductProvider extends BaseProductProvider {
         File customInf = FileSystemUtils.getItem(LOCAL_REPO_INDEX);
         Log.d(TAG, "Rebuilding from: " + customInf.getAbsolutePath());
 
-        if (FileSystemUtils.isFile(customInf)) {
+        if (customInf.isFile()) {
             Log.d(TAG, "rebuild, delete INF: " + customInf.getAbsolutePath());
-            FileSystemUtils.delete(customInf);
+            customInf.delete();
         }
 
         File customInfz = FileSystemUtils.getItem(LOCAL_REPOZ_INDEX);
-        if (FileSystemUtils.isFile(customInfz)) {
+        if (customInfz.isFile()) {
             //extract product.infz, if it exists
             Log.d(TAG, "Loading INFZ: " + customInfz.getAbsolutePath());
             ProductRepository c = processInfz(customInfz);
@@ -178,7 +210,7 @@ public class FileSystemProductProvider extends BaseProductProvider {
     }
 
     private File[] getAPKs(File dir) {
-        if (!FileSystemUtils.isFile(dir) || !dir.isDirectory()) {
+        if (!dir.exists() || !dir.isDirectory()) {
             Log.w(TAG, "getAPKs no dir: " + dir.getAbsolutePath());
             return null;
         }
@@ -187,7 +219,7 @@ public class FileSystemProductProvider extends BaseProductProvider {
     }
 
     private ProductRepository processInfz(File customInfz) {
-        if (!FileSystemUtils.isFile(customInfz)) {
+        if (!customInfz.isFile()) {
             return null;
         }
 
@@ -202,7 +234,7 @@ public class FileSystemProductProvider extends BaseProductProvider {
 
         Log.d(TAG, "Extracted infz: " + customInfz.getAbsolutePath()
                 + ", now parsing product.inf");
-        FileSystemUtils.delete(customInfz);
+        customInfz.delete();
 
         return processInf();
     }

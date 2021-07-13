@@ -23,7 +23,6 @@ import com.atakmap.android.overlay.AbstractMapOverlay2;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.map.layer.feature.Adapters;
-import com.atakmap.map.layer.feature.DataSourceFeatureDataStore;
 import com.atakmap.map.layer.feature.DataStoreException;
 import com.atakmap.map.layer.feature.FeatureDataStore;
 import com.atakmap.map.layer.feature.FeatureDataStore2;
@@ -153,7 +152,7 @@ public class FeatureDataStoreMapOverlay extends AbstractMapOverlay2 {
             }
 
         } catch (DataStoreException dse) {
-            Log.e(TAG, "datastore exception occured", dse);
+            Log.e(TAG, "datastore exception occurred", dse);
         } finally {
             if (result != null)
                 result.close();
@@ -204,12 +203,12 @@ public class FeatureDataStoreMapOverlay extends AbstractMapOverlay2 {
         }
 
         @Override
-        public boolean isSupported(Class target) {
+        public boolean isSupported(Class<?> target) {
             return MissionPackageExportWrapper.class.equals(target);
         }
 
         @Override
-        public Object toObjectOf(Class target, ExportFilters filters)
+        public Object toObjectOf(Class<?> target, ExportFilters filters)
                 throws FormatNotSupportedException {
 
             if (MissionPackageExportWrapper.class.equals(target)) {

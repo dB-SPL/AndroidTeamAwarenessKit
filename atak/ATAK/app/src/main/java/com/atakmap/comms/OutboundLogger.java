@@ -6,15 +6,16 @@ import android.content.SharedPreferences;
 import android.preference.PreferenceManager;
 
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.coremap.maps.time.CoordinatedTime;
 import com.atakmap.coremap.cot.event.CotEvent;
+import com.atakmap.util.zip.IoUtils;
 
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.OutputStreamWriter;
 import java.io.Writer;
-import java.nio.charset.Charset;
 import java.util.Arrays;
 
 class OutboundLogger implements CommsLogger,
@@ -29,7 +30,7 @@ class OutboundLogger implements CommsLogger,
     private boolean shuttingDown = false;
     private Writer writer = null;
 
-    private SharedPreferences prefs;
+    private final SharedPreferences prefs;
 
     OutboundLogger(final Context context) {
 
@@ -40,8 +41,8 @@ class OutboundLogger implements CommsLogger,
         prefs.registerOnSharedPreferenceChangeListener(this);
         File f = FileSystemUtils.getItem(FileSystemUtils.SUPPORT_DIRECTORY
                 + File.separatorChar + "logs");
-        if (!f.exists())
-            if (!f.mkdir())
+        if (!IOProviderFactory.exists(f))
+            if (!IOProviderFactory.mkdir(f))
                 Log.d(TAG, "could not create the support/logs directory");
 
         if (log)
@@ -102,16 +103,11 @@ class OutboundLogger implements CommsLogger,
         FileOutputStream fos = null;
         try {
             fw = new OutputStreamWriter(
-                    fos = new FileOutputStream(f),
+                    fos = IOProviderFactory.getOutputStream(f),
                     FileSystemUtils.UTF8_CHARSET.newEncoder());
         } catch (Exception e) {
             Log.w(TAG, "Could not open log file: " + f, e);
-            if (fos != null) {
-                try {
-                    fos.close();
-                } catch (Exception ignore) {
-                }
-            }
+            IoUtils.close(fos);
         }
         return fw;
     }

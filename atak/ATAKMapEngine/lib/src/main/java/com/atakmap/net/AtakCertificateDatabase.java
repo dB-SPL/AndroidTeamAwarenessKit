@@ -4,10 +4,13 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.preference.PreferenceManager;
 import android.util.Base64;
-
+import com.atakmap.annotations.DeprecatedApi;
 import com.atakmap.R;
+import com.atakmap.annotations.ModifierApi;
 import com.atakmap.comms.NetConnectString;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProvider;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.coremap.maps.time.CoordinatedTime;
 import com.atakmap.filesystem.HashingUtils;
@@ -16,7 +19,6 @@ import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.UnsupportedEncodingException;
 import java.security.KeyStore;
 import java.security.cert.CertificateEncodingException;
 import java.security.cert.CertificateExpiredException;
@@ -40,7 +42,18 @@ public class AtakCertificateDatabase {
     private static File databaseFile;
     private static boolean initialized = false;
     private static AtakCertificateDatabaseAdapter atakCertificateDatabaseAdapter;
+    private static Context ctx;
 
+    /**
+     * Gets the adapter which is used to access the underlying database
+     * @deprecated
+     * use the AtakCredentialDatabase directly.
+     */
+    @Deprecated
+    @DeprecatedApi(since = "4.3", forRemoval = false)
+    @ModifierApi(since = "4.3", target = "4.6", modifiers = {
+            "final"
+    })
     public static synchronized AtakCertificateDatabaseAdapter getAdapter() {
         if (atakCertificateDatabaseAdapter == null) {
             atakCertificateDatabaseAdapter = new AtakCertificateDatabaseAdapter();
@@ -48,10 +61,22 @@ public class AtakCertificateDatabase {
         return atakCertificateDatabaseAdapter;
     }
 
+    /**
+     * Sets the device uid which is used as part of the password generation
+     * @param id the device identifier to be used
+     */
     public static synchronized void setDeviceId(String id) {
         deviceId = id;
     }
 
+    /**
+     * Gets the password which is used to initialize the sqlcipher database. The password
+     * is derived from the sha256 checksum of 1) a random uuid stored in shared preferences
+     * and 2) the device uid
+     * @param context the context to be used when creating the shared preference
+     * @param key the key to be used
+     * @param deviceId the device identifier
+     */
     public static synchronized String getPwd(Context context, String key, String deviceId) {
         String databaseId;
         File token = new File(context.getFilesDir(), key);
@@ -75,25 +100,36 @@ public class AtakCertificateDatabase {
         return HashingUtils.sha256sum(databaseId + deviceId);
     }
 
+    /**
+     * Initializes the certificate database by opening or creating the underlying sqlcipher
+     * database. If the initialization fails, the database will be deleted and recreated
+     * @param context the context to use when initializing the Certificate database
+     */
     public static void initialize(Context context) {
         synchronized (getAdapter().lock) {
             try {
                 if (!initialized) {
                     databaseFile = context.getDatabasePath("certificates.sqlite");
 
-                    String pwd = getPwd(
+                    String pwd = null;
+                    // if the default provider is in effect, use the legacy
+                    // password to unlock, otherwise defer to the provider's
+                    // mechanism
+                    if(IOProviderFactory.isDefault()) {
+                        pwd = getPwd(
                             context,
                             Base64.encodeToString(
                                     databaseFile.getAbsolutePath().getBytes(FileSystemUtils.UTF8_CHARSET), Base64.NO_WRAP),
                             deviceId);
-                    if (pwd == null) {
-                        return;
+                        if (pwd == null) {
+                            return;
+                        }
                     }
 
                     File parent = databaseFile.getParentFile();
-                    if(parent != null && !parent.exists()){
+                    if(parent != null && !IOProviderFactory.exists(parent)){
                         Log.d(TAG, "Creating private database directory: " + parent.getAbsolutePath());
-                        if(!parent.mkdirs()){
+                        if(!IOProviderFactory.mkdirs(parent)){
                             Log.w(TAG, "Failed to create private database directory: " + parent.getAbsolutePath());
                         }
                     }
@@ -120,10 +156,14 @@ public class AtakCertificateDatabase {
         }
     }
 
+    /**
+     * Calls dispose on the database adapter, which closes the underlyign sqlcipher database
+     * connection
+     */
     public static void dispose() {
         synchronized (getAdapter().lock) {
             if (!initialized) {
-                Log.e(TAG, "Calling dispose prior to initialization!");
+                Log.e(TAG, "calling dispose prior to initialization or after a clear content");
             }
 
             getAdapter().dispose();
@@ -131,29 +171,52 @@ public class AtakCertificateDatabase {
         }
     }
 
+    /**
+     * Deletes the underlying database file from the filesystem
+     */
     public static void clear() {
         synchronized (getAdapter().lock) {
             getAdapter().clear(databaseFile);
+            initialized = false;
         }
     }
 
+    /**
+     * Gets the default certificate for the requested type. Default certificates are not associated
+     * with any particular server.
+     *
+     * @param type the type of certificate being requested, ATAK core defines a set of TYPE constants
+     *            in AtakCertificateDatabaseIFace for the certificate types used in core. Plugins
+     *             may specify any unique type
+     *
+     * @return p12 file for the requested certificate
+     */
     public static byte[] getCertificate(
             String type) {
         synchronized (getAdapter().lock) {
             if (!initialized) {
-                Log.e(TAG, "Calling getCertificate prior to initialization!");
+                Log.e(TAG, "calling getCertificate prior to initialization or after a clear content");
                 return null;
             }
 
-            return getAdapter().getCertificate(type);
+            return getAdapter().getCertificateForType(type, false);
         }
     }
 
+    /**
+     * Sets the default certificate for the requested type. Default certificates are not associated
+     * with any particular server.
+     *
+     * @param type the type of certificate being requested, ATAK core defines a set of TYPE constants
+     *            in AtakCertificateDatabaseIFace for the certificate types used in core. Plugins
+     *             may specify any unique type
+     * @param certificate containing hte p12 file for the requested certificate
+     */
     public static void saveCertificate(
             String type, byte[] certificate) {
         synchronized (getAdapter().lock) {
             if (!initialized) {
-                Log.e(TAG, "Calling saveCertificate prior to initialization!");
+                Log.e(TAG, "calling saveCertificate prior to initialization or after a clear content");
                 return;
             }
 
@@ -167,23 +230,42 @@ public class AtakCertificateDatabase {
         }
     }
 
+    /**
+     * Gets the certificate for the requested type and server
+     *
+     * @param type the type of certificate being requested, ATAK core defines a set of TYPE constants
+     *            in AtakCertificateDatabaseIFace for the certificate types used in core. Plugins
+     *             may specify any unique type
+     * @param server host of certificate being requested
+     *
+     * @return byte[] containing hte p12 file for the requested certificate
+     */
     public static byte[] getCertificateForServer(
             String type, String server) {
         synchronized (getAdapter().lock) {
             if (!initialized) {
-                Log.e(TAG, "Calling getCertificate prior to initialization!");
+                Log.e(TAG, "calling getCertificate prior to initialization or after a clear content");
                 return null;
             }
 
-            return getAdapter().getCertificateForServer(type, server);
+            return getAdapter().getCertificateForTypeAndServer(type, server);
         }
     }
 
+    /**
+     * Sets the certificate for the requested type and server
+     *
+     * @param type the type of certificate being requested, ATAK core defines a set of TYPE constants
+     *            in AtakCertificateDatabaseIFace for the certificate types used in core. Plugins
+     *             may specify any unique type
+     * @param server host of certificate being saved
+     * @param certificate containing hte p12 file for the requested certificate
+     */
     public static void saveCertificateForServer(
             String type, String server, byte[] certificate) {
         synchronized (getAdapter().lock) {
             if (!initialized) {
-                Log.e(TAG, "Calling saveCertificate prior to initialization!");
+                Log.e(TAG, "calling saveCertificate prior to initialization  or after a clear content");
                 return;
             }
 
@@ -196,16 +278,23 @@ public class AtakCertificateDatabase {
         }
     }
 
+    /**
+     * deletes the default certificate of the requested type
+     *
+     * @param type the type of certificate being requested, ATAK core defines a set of TYPE constants
+     *            in AtakCertificateDatabaseIFace for the certificate types used in core. Plugins
+     *             may specify any unique type
+     */
     public static void deleteCertificate(
             String type) {
         synchronized (getAdapter().lock) {
             if (!initialized) {
-                Log.e(TAG, "Calling deleteCertificate prior to initialization!");
+                Log.e(TAG, "calling deleteCertificate prior to initialization  or after a clear content");
                 return;
             }
 
-            int rc = getAdapter().deleteCertificate(type);
-            if (rc != 0) {
+            boolean rc = getAdapter().deleteCertificateForType(type);
+            if (!rc) {
                 Log.e(TAG, "deleteCertificate returned " + rc);
                 return;
             }
@@ -217,16 +306,24 @@ public class AtakCertificateDatabase {
         }
      }
 
+    /**
+     * deletes the certificate for the requested type and server
+     *
+     * @param type the type of certificate being requested, ATAK core defines a set of TYPE constants
+     *            in AtakCertificateDatabaseIFace for the certificate types used in core. Plugins
+     *             may specify any unique type
+     * @param server host of certificate being saved
+     */
     public static void deleteCertificateForServer(
             String type, String server) {
         synchronized (getAdapter().lock) {
             if (!initialized) {
-                Log.e(TAG, "Calling deleteCertificateForServer prior to initialization!");
+                Log.e(TAG, "calling deleteCertificateForServer prior to initialization or after a clear content");
                 return;
             }
 
-            int rc = getAdapter().deleteCertificateForServer(type, server);
-            if (rc != 0) {
+            boolean rc = getAdapter().deleteCertificateForTypeAndServer(type, server);
+            if (!rc) {
                 Log.e(TAG, "deleteCertificateForServer returned " + rc);
                 return;
             }
@@ -238,14 +335,26 @@ public class AtakCertificateDatabase {
         }
     }
 
-    public static byte[] importCertificateFromPreferences(
-            SharedPreferences defaultPrefs,
-            String prefLocation,
+    /**
+     * Imports certificates being imported from mission packages into the certificate database
+     *
+     * @param loaction location on disk to load certificate from
+     * @param connectString if present, the certificate will associated with the host from the
+     *                      connectString
+     * @param type the type of certificate being import
+     * @param delete boolean indicating if the certificate should be deleted after import
+     */
+    public static byte[] importCertificate(
+            String location,
             String connectString,
             String type, boolean delete) {
         synchronized (getAdapter().lock) {
-            String location = defaultPrefs.getString(
-                    prefLocation, "(built-in)");
+
+            if (location == null) {
+                Log.e(TAG, "null location in importCertificate!");
+                return null;
+            }
+
             if (location.equals("(built-in)")) {
                 return null;
             }
@@ -269,9 +378,6 @@ public class AtakCertificateDatabase {
 
             if (delete) {
                 FileSystemUtils.deleteFile(file);
-
-                SharedPreferences.Editor editor = defaultPrefs.edit();
-                editor.remove(prefLocation).apply();
             }
 
             if (connectString == null || connectString.length() == 0) {
@@ -285,12 +391,19 @@ public class AtakCertificateDatabase {
         }
     }
 
+    /**
+     * Saves the certificate password within the AtakAuthenticationDatabase
+     *
+     * @param password password for the certificate
+     * @param type certificate type
+     * @param connectString if present, the password will be associated with the host within
+     *                      the connectString
+     */
     public static AtakAuthenticationCredentials
-        importCertificatePasswordFromPreferences(
-            SharedPreferences preferences, String prefLocation, String prefDefault,
-            String type, String connectString, boolean delete) {
+        saveCertificatePassword(
+            String password,
+            String type, String connectString) {
         synchronized (getAdapter().lock) {
-            String password = preferences.getString(prefLocation, prefDefault);
 
             String site = null;
             if (connectString == null) {
@@ -302,53 +415,57 @@ public class AtakCertificateDatabase {
 
             AtakAuthenticationDatabase.saveCredentials(type, site, "", password, false);
 
-            if (delete) {
-                SharedPreferences.Editor editor = preferences.edit();
-                editor.remove(prefLocation).apply();
-            }
-
             return AtakAuthenticationDatabase.getCredentials(type, site);
         }
     }
 
+    /**
+     * Migrates legacy certificates to sqlcipher
+     *
+     * @param context
+     */
     public static void migrateCertificatesToSqlcipher(Context context) {
 
         SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
         String defaultPassword = context.getString(R.string.defaultTrustStorePassword);
 
-        if (importCertificateFromPreferences(
-                prefs,
-                "caLocation",
+        if (importCertificate(
+                prefs.getString("caLocation", "(built-in)"),
                 null,
                 AtakCertificateDatabaseIFace.TYPE_TRUST_STORE_CA,
                 true) != null) {
 
-            importCertificatePasswordFromPreferences(
-                    prefs,
-                    "caPassword",
-                    defaultPassword,
+            AtakCertificateDatabase.saveCertificatePassword(
+                    prefs.getString("caPassword", defaultPassword),
                     AtakAuthenticationCredentials.TYPE_caPassword,
-                    null,
-                    true);
+                    null);
+
+            SharedPreferences.Editor editor = prefs.edit();
+            editor.remove("caPassword").apply();
         }
 
-        if (importCertificateFromPreferences(
-                prefs,
-                "certificateLocation",
+        if (importCertificate(
+                prefs.getString("certificateLocation", "(built-in)"),
                 null,
                 AtakCertificateDatabaseIFace.TYPE_CLIENT_CERTIFICATE,
                 true) != null) {
 
-            importCertificatePasswordFromPreferences(
-                    prefs,
-                    "clientPassword",
-                    defaultPassword,
+            AtakCertificateDatabase.saveCertificatePassword(
+                    prefs.getString("clientPassword", defaultPassword),
                     AtakAuthenticationCredentials.TYPE_clientPassword,
-                    null,
-                    true);
+                    null);
+
+            SharedPreferences.Editor editor = prefs.edit();
+            editor.remove("clientPassword").apply();
         }
     }
 
+    /**
+     * Helper method that extracts a list of x509 certificates from the encrypted container
+     *
+     * @param p12 encrypted certificate container
+     * @param password certificate container password
+     */
     public static List<X509Certificate> loadCertificate(byte[] p12, String password) {
         try {
             List<X509Certificate> results = new LinkedList<X509Certificate>();
@@ -372,14 +489,14 @@ public class AtakCertificateDatabase {
     }
 
 
-    public static class CeritficateValidity{
+    public static class CertificateValidity{
 
         final public X509Certificate certificate;
         final private boolean valid;
         final public String error;
         final public Date certNotAfter;
 
-        public CeritficateValidity(X509Certificate certificate, boolean valid, String error, Date certNotAfter) {
+        public CertificateValidity(X509Certificate certificate, boolean valid, String error, Date certNotAfter) {
             this.certificate = certificate;
             this.valid = valid;
             this.error = error;
@@ -448,7 +565,7 @@ public class AtakCertificateDatabase {
      * @param password
      * @return
      */
-    public static CeritficateValidity checkValidity(byte[] keystore, String password) {
+    public static CertificateValidity checkValidity(byte[] keystore, String password) {
 
         List<X509Certificate> certificates = loadCertificate(keystore, password);
         if (FileSystemUtils.isEmpty(certificates)) {
@@ -463,21 +580,26 @@ public class AtakCertificateDatabase {
                 certificate.checkValidity();
             } catch (CertificateExpiredException cee) {
                 Log.e(TAG, "Found an expired certificate!", cee);
-                return new CeritficateValidity(certificate, false, cee.getMessage(), certificate.getNotAfter());
+                return new CertificateValidity(certificate, false, cee.getMessage(), certificate.getNotAfter());
             } catch (CertificateNotYetValidException cnyve) {
                 Log.e(TAG, "Found a not yet valid certificate!", cnyve);
-                return new CeritficateValidity(certificate, false, cnyve.getMessage(), certificate.getNotAfter());
+                return new CertificateValidity(certificate, false, cnyve.getMessage(), certificate.getNotAfter());
             }
 
             //TODO dont break loop. check other certs? return first one to expire?
-            return new CeritficateValidity(certificate, true, null, certificate.getNotAfter());
+            return new CertificateValidity(certificate, true, null, certificate.getNotAfter());
         }
 
         Log.w(TAG, "loadCertificate failed within checkValidity");
         return null;
     }
 
-
+    /**
+     * Helper method that concerts the given x509 certificate to a PEM formatted String
+     *
+     * @param cert X509Certificate
+     * @return PEM formatted String
+     */
     protected static String convertToPem(X509Certificate cert)
             throws CertificateEncodingException {
         String cert_begin = "-----BEGIN CERTIFICATE-----\n";

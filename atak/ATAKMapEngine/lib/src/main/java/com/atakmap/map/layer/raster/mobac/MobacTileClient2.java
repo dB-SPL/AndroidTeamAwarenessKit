@@ -10,6 +10,7 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.coremap.maps.coords.GeoBounds;
 import com.atakmap.coremap.maps.coords.GeoPoint;
@@ -19,7 +20,6 @@ import com.atakmap.map.layer.feature.geometry.Envelope;
 import com.atakmap.map.layer.raster.controls.TileClientControl;
 import com.atakmap.map.layer.raster.mobileimagery.MobileImageryRasterLayer2;
 import com.atakmap.map.layer.raster.osm.OSMDroidTileContainer;
-import com.atakmap.map.layer.raster.osm.OSMTilesetSupport;
 import com.atakmap.map.layer.raster.osm.OSMUtils;
 import com.atakmap.map.layer.raster.tilematrix.TileClient;
 import com.atakmap.map.layer.raster.tilematrix.TileClientSpi;
@@ -27,11 +27,11 @@ import com.atakmap.map.layer.raster.tilematrix.TileContainer;
 import com.atakmap.map.layer.raster.tilematrix.TileContainerFactory;
 import com.atakmap.map.layer.raster.tilematrix.TileEncodeException;
 import com.atakmap.map.layer.raster.tilematrix.TileMatrix;
+import com.atakmap.map.layer.raster.tilematrix.TileProxy;
 import com.atakmap.map.layer.raster.tilematrix.TileScraper;
 import com.atakmap.map.projection.Projection;
 import com.atakmap.math.MathUtils;
 import com.atakmap.math.PointD;
-import com.atakmap.util.ConfigOptions;
 import com.atakmap.util.ReferenceCount;
 
 public class MobacTileClient2 implements TileClient, TileClientControl {
@@ -47,6 +47,7 @@ public class MobacTileClient2 implements TileClient, TileClientControl {
         public TileClient create(String path, String offlineCachePath, TileClientSpi.Options opts) {
             try {
                 MobacMapSource.Config c = new MobacMapSource.Config();
+                boolean proxy = (opts != null && opts.proxy);
                 if(opts != null) {
                     c.dnsLookupTimeout = opts.dnsLookupTimeout;
                     c.connectTimeout = (int)opts.connectTimeout;
@@ -54,7 +55,32 @@ public class MobacTileClient2 implements TileClient, TileClientControl {
                 MobacMapSource src = MobacMapSourceFactory.create(new File(path), c);
                 if(src == null)
                     return null;
-                return new MobacTileClient2(src, offlineCachePath);
+                TileClient client = (proxy) ?
+                        new MobacTileClient2(src, null) :
+                        new MobacTileClient2(src, offlineCachePath);
+                if(proxy && offlineCachePath != null) {
+                    do {
+                        TileContainer cache = null;
+                        if(offlineCachePath != null) {
+                            // prefer an OSMDroid container, if possible
+                            String hint = OSMDroidTileContainer.SPI.getName();
+
+                            // try to open/create the cache from the path
+                            cache = openOrCreateCache(offlineCachePath, client, hint);
+
+                            // if no cache could be opened from the file then attempt to delete
+                            // the file and create a new cache
+                            if(cache == null && IOProviderFactory.exists(new File(offlineCachePath))) {
+                                FileSystemUtils.delete(offlineCachePath);
+                                cache = openOrCreateCache(offlineCachePath, client, hint);
+                            }
+                        }
+                        if(cache == null)
+                            break;
+                        client = new TileProxy(client, cache);
+                    } while(false);
+                }
+                return client;
             } catch(IOException e) {
                 return null;
             }
@@ -86,6 +112,7 @@ public class MobacTileClient2 implements TileClient, TileClientControl {
     private PointD origin;
     private ZoomLevel[] levels;
     private int srid;
+    private long refreshInterval;
 
     public MobacTileClient2(MobacMapSource src, String offlineCachePath) {
         this.source = src;
@@ -139,7 +166,7 @@ public class MobacTileClient2 implements TileClient, TileClientControl {
 
             // if no cache could be opened from the file then attempt to delete
             // the file and create a new cache
-            if(this.offlineCache == null && (new File(offlineCachePath)).exists()) {
+            if(this.offlineCache == null && IOProviderFactory.exists(new File(offlineCachePath))) {
                 FileSystemUtils.delete(offlineCachePath);
                 this.offlineCache = openOrCreateCache(offlineCachePath, this, hint);
             }
@@ -174,7 +201,7 @@ public class MobacTileClient2 implements TileClient, TileClientControl {
                     
                     try {
                         value.dispose();
-                    } catch(Throwable t) {}
+                    } catch(Throwable ignored) {}
                     synchronized(MobacTileClient2.class) {
                         caches.remove(path);
                     }
@@ -395,14 +422,12 @@ public class MobacTileClient2 implements TileClient, TileClientControl {
 
     @Override
     public void setCacheAutoRefreshInterval(long milliseconds) {
-        // TODO Auto-generated method stub
-        
+        this.refreshInterval = milliseconds;
     }
 
     @Override
     public long getCacheAutoRefreshInterval() {
-        // TODO Auto-generated method stub
-        return 0;
+        return this.refreshInterval;
     }
 
     /**************************************************************************/

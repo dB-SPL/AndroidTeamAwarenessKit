@@ -8,15 +8,20 @@ import android.content.pm.ActivityInfo;
 import com.atakmap.android.preference.AtakPreferenceFragment;
 import com.atakmap.android.tools.ActionBarReceiver;
 import com.atakmap.android.tools.menu.AtakActionBarMenuData.Orientation;
-import com.atakmap.app.BuildConfig;
+import com.atakmap.app.system.FlavorProvider;
+import com.atakmap.app.system.SystemComponentLoader;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.coremap.locale.LocaleUtil;
 
+import com.atakmap.util.zip.IoUtils;
 import org.simpleframework.xml.Serializer;
 import org.simpleframework.xml.core.Persister;
 
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -257,13 +262,13 @@ public class AtakActionBarListData {
 
     public static boolean reset(Context context, boolean full) {
         File actionBarDir = FileSystemUtils.getItem(ACTION_BAR_DIR);
-        File[] files = actionBarDir.listFiles();
+        File[] files = IOProviderFactory.listFiles(actionBarDir);
         if (files != null) {
             for (File f : files) {
                 final String fname = f.toString();
                 if (fname.endsWith("_portrait.xml")
                         || fname.endsWith("_landscape.xml")) {
-                    if (!f.delete())
+                    if (!IOProviderFactory.delete(f))
                         Log.d(TAG, "could not remove: " + fname);
                 }
             }
@@ -282,16 +287,9 @@ public class AtakActionBarListData {
         if (full) {
             final String[] list;
 
-            if (BuildConfig.HAS_FIRES) {
-                list = new String[] {
-                        "planning", "jtac", "minimal"
-                };
-            } else {
-                // jtac is bundled but completely non-functional do not unroll it.
-                list = new String[] {
-                        "planning", "minimal"
-                };
-            }
+            list = new String[] {
+                    "planning", "minimal"
+            };
 
             for (String s : list) {
                 FileSystemUtils.copyFromAssetsToStorageFile(context,
@@ -301,8 +299,12 @@ public class AtakActionBarListData {
                         "actionbar/" + s + "_portrait.xml",
                         ACTION_BAR_DIR + "/" + s + "_portrait.xml", true);
             }
+            FlavorProvider fp = SystemComponentLoader.getFlavorProvider();
+            if (fp != null)
+                fp.rolloutActionBars();
 
         }
+
         return true;
 
     }
@@ -317,7 +319,7 @@ public class AtakActionBarListData {
         File actionBarDir = FileSystemUtils.getItem(ACTION_BAR_DIR);
         final File dl = new File(actionBarDir, "default_landscape.xml");
         final File dp = new File(actionBarDir, "default_portrait.xml");
-        if (!dl.exists() || !dp.exists()) {
+        if (!IOProviderFactory.exists(dl) || !IOProviderFactory.exists(dp)) {
             rollout(context, true);
         } else {
             rollout(context, false);
@@ -334,15 +336,17 @@ public class AtakActionBarListData {
 
         Serializer serializer = new Persister();
         try {
-            File[] files = directory.listFiles();
+            File[] files = IOProviderFactory.listFiles(directory);
             if (files != null) {
                 for (File f : files) {
+                    FileInputStream fis = null;
                     try {
                         final String fname = f.toString();
                         if (fname.endsWith("_portrait.xml")
                                 || fname.endsWith("_landscape.xml")) {
+                            fis = IOProviderFactory.getInputStream(f);
                             AtakActionBarMenuData actionBar = serializer.read(
-                                    AtakActionBarMenuData.class, f);
+                                    AtakActionBarMenuData.class, fis);
                             for (ActionMenuData amd : actionBar.getActions()) {
                                 amd.deferredLoad();
                             }
@@ -350,6 +354,8 @@ public class AtakActionBarListData {
                         }
                     } catch (Exception e) {
                         Log.e(TAG, "error loading actionbar data: " + f, e);
+                    } finally {
+                        IoUtils.close(fis);
                     }
                 }
                 return data;
@@ -366,27 +372,15 @@ public class AtakActionBarListData {
         //sends intent out to all receivers that need to catch
         // changes in custom action bar setups
         ActionBarReceiver.getInstance().updatePluginActionBars();
-        File[] files = actionBarDir.listFiles();
-        if (files != null) {
-            for (File f : files) {
-                final String fname = f.toString();
-                if (fname.endsWith("_portrait.xml")
-                        || fname.endsWith("_landscape.xml")) {
-                    if (!f.delete())
-                        Log.d(TAG, "could not remove: " + fname);
-                }
-            }
-        }
+
+        if (!IOProviderFactory.exists(actionBarDir))
+            IOProviderFactory.mkdirs(actionBarDir);
         for (AtakActionBarMenuData actionBar : actionbars) {
-            File actionBarFile = new File(actionBarDir,
-                    FileSystemUtils.sanitizeWithSpacesAndSlashes(
-                            actionBar.getLabel() + "_"
-                                    + actionBar.getOrientation()
-                                    + ".xml".toLowerCase(
-                                            LocaleUtil.getCurrent())));
-            try {
+            File actionBarFile = actionBar.getFile();
+            try (FileOutputStream fos = IOProviderFactory
+                    .getOutputStream(actionBarFile)) {
                 Serializer serializer = new Persister();
-                serializer.write(actionBar, actionBarFile);
+                serializer.write(actionBar, fos);
             } catch (Exception e) {
                 Log.e(TAG, "failed to write Action bar to: " + actionBarFile,
                         e);

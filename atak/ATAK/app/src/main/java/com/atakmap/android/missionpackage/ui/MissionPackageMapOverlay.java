@@ -79,6 +79,7 @@ import com.atakmap.android.missionpackage.file.task.MissionPackageBaseTask;
 import com.atakmap.android.overlay.AbstractMapOverlay2;
 import com.atakmap.android.routes.Route;
 import com.atakmap.android.toolbar.ToolManagerBroadcastReceiver;
+import com.atakmap.android.util.ATAKUtilities;
 import com.atakmap.android.util.AttachmentManager;
 import com.atakmap.android.util.ServerListDialog;
 import com.atakmap.app.R;
@@ -89,13 +90,13 @@ import com.atakmap.coremap.conversions.CoordinateFormatUtilities;
 import com.atakmap.coremap.cot.event.CotEvent;
 import com.atakmap.coremap.cot.event.CotPoint;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.coremap.maps.coords.GeoPoint;
 
 import java.io.File;
 import java.io.FilenameFilter;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -128,6 +129,7 @@ public class MissionPackageMapOverlay extends AbstractMapOverlay2 implements
             MIMEType mime = ResourceFile.getMIMETypeForFile(fn);
             return mime == MIMEType.KML || mime == MIMEType.KMZ
                     || mime == MIMEType.GPX || mime == MIMEType.SHP
+                    || mime == MIMEType.GML
                     || mime == MIMEType.SHPZ || mime == MIMEType.LPT
                     || mime == MIMEType.DRW || mime == MIMEType.TIF
                     || mime == MIMEType.TIFF;
@@ -136,6 +138,7 @@ public class MissionPackageMapOverlay extends AbstractMapOverlay2 implements
 
     private final MapView _view;
     private final Context _context;
+    private final SharedPreferences _prefs;
     private final MissionPackageMapComponent _component;
     private final MissionPackageReceiver _receiver;
     private final MissionPackageViewUserState _userState;
@@ -154,6 +157,7 @@ public class MissionPackageMapOverlay extends AbstractMapOverlay2 implements
             MissionPackageMapComponent component) {
         this._view = view;
         this._context = view.getContext();
+        _prefs = PreferenceManager.getDefaultSharedPreferences(_context);
         this._component = component;
         _receiver = component.getReceiver();
         _userState = _receiver.getUserState();
@@ -510,7 +514,7 @@ public class MissionPackageMapOverlay extends AbstractMapOverlay2 implements
                     .getMissionPackageFilesPath(FileSystemUtils.getRoot()
                             .getAbsolutePath());
             File dir = new File(filesDir, group.getManifest().getUID());
-            if (dir.exists())
+            if (IOProviderFactory.exists(dir))
                 FileSystemUtils.deleteDirectory(dir, false);
             if (bToast)
                 toast(R.string.deleting_mission_package);
@@ -754,8 +758,12 @@ public class MissionPackageMapOverlay extends AbstractMapOverlay2 implements
                             File f2 = new File(existing.getGroup()
                                     .getManifest()
                                     .getPath());
-                            if (!f1.exists() || (f2.exists() &&
-                                    f1.lastModified() < f2.lastModified())) {
+                            if (!IOProviderFactory.exists(f1)
+                                    || (IOProviderFactory.exists(f2) &&
+                                            IOProviderFactory.lastModified(
+                                                    f1) < IOProviderFactory
+                                                            .lastModified(
+                                                                    f2))) {
                                 // Don't replace existing package
                                 Log.d(TAG, "Skipping older package: " + f1);
                                 continue;
@@ -961,7 +969,7 @@ public class MissionPackageMapOverlay extends AbstractMapOverlay2 implements
         }
 
         @Override
-        public boolean isSupported(Class target) {
+        public boolean isSupported(Class<?> target) {
             return Folder.class.equals(target)
                     || KMZFolder.class.equals(target)
                     || GPXExportWrapper.class.equals(target)
@@ -969,7 +977,7 @@ public class MissionPackageMapOverlay extends AbstractMapOverlay2 implements
         }
 
         @Override
-        public Object toObjectOf(Class target, ExportFilters filters)
+        public Object toObjectOf(Class<?> target, ExportFilters filters)
                 throws FormatNotSupportedException {
             List<HierarchyListItem> items = getChildren();
             if (Folder.class.equals(target))
@@ -1110,22 +1118,14 @@ public class MissionPackageMapOverlay extends AbstractMapOverlay2 implements
                 }
 
                 // Content providers
-                else if (which >= 3 && which - 3 < providers.size()) {
+                else if (which - 3 < providers.size()) {
                     URIContentProvider provider = providers.get(which - 3);
                     provider.addContent("Data Package", new Bundle(),
                             new URIContentProvider.Callback() {
                                 @Override
                                 public void onAddContent(URIContentProvider p,
                                         List<String> uris) {
-                                    List<String> paths = new ArrayList<>(
-                                            uris.size());
-                                    for (String uri : uris) {
-                                        File f = URIHelper.getFile(uri);
-                                        if (f != null)
-                                            paths.add(f.getAbsolutePath());
-                                    }
-                                    addFiles(group, true,
-                                            paths.toArray(new String[0]));
+                                    addURIs(group, uris);
                                 }
                             });
                 }
@@ -1135,12 +1135,38 @@ public class MissionPackageMapOverlay extends AbstractMapOverlay2 implements
         d.show(true);
     }
 
+    private void addURIs(MissionPackageListGroup group, List<String> uris) {
+        MissionPackageExportWrapper w = new MissionPackageExportWrapper();
+        for (String uri : uris) {
+            MapItem mi = URIHelper.getMapItem(_view, uri);
+            File f = URIHelper.getFile(uri);
+            if (mi != null)
+                w.addUID(mi.getUID());
+            else if (f != null)
+                w.addFile(f);
+            else
+                Log.w(TAG, "Ignoring unsupported URI: " + uri);
+        }
+        MissionPackageExportMarshal marshal = new MissionPackageExportMarshal(
+                _context, _userState.isIncludeAttachments());
+        if (group != null)
+            marshal.setMissionPackageUID(group.getManifest().getUID());
+        try {
+            List<Exportable> exports = new ArrayList<>();
+            exports.add(w);
+            marshal.execute(exports);
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to add exportables", e);
+        }
+    }
+
     private void addFiles(final MissionPackageListGroup group) {
         final ImportManagerFileBrowser importView = ImportManagerFileBrowser
                 .inflate(_view);
 
         importView.setTitle(R.string.select_files_to_import);
-        importView.setStartDirectory(_userState.getLastImportDirectory());
+        importView.setStartDirectory(
+                ATAKUtilities.getStartDirectory(_view.getContext()));
 
         importView.setExtensionTypes(new String[] {
                 "*"
@@ -1166,10 +1192,11 @@ public class MissionPackageMapOverlay extends AbstractMapOverlay2 implements
                     Log.d(TAG, "Selected " + selectedFiles.length + " files");
                     // Add files to current MP
                     addFiles(group, true, selectedFiles);
-                    _userState.setLastImportDirectory(
-                            importView.getCurrentPath());
-                }
 
+                    _prefs.edit().putString("lastDirectory",
+                            importView.getCurrentPath())
+                            .apply();
+                }
             }
         });
         final AlertDialog alert = b.create();
@@ -1228,7 +1255,8 @@ public class MissionPackageMapOverlay extends AbstractMapOverlay2 implements
         Log.d(TAG, "Deleting " + mpm.getName() + "@" + src);
         // see if its worth the overhead of an async task
         if (onUI && FileSystemUtils.isFile(src)
-                && src.length() > SMALLMISSIONPACKAGE_SIZE_INBYTES)
+                && IOProviderFactory
+                        .length(src) > SMALLMISSIONPACKAGE_SIZE_INBYTES)
             new DeleteFileTask(mpm, _receiver, null).execute();
         else {
             if (toast)
@@ -1262,10 +1290,8 @@ public class MissionPackageMapOverlay extends AbstractMapOverlay2 implements
                     callsign = CotUtils.getCallsign(event);
                     CotPoint cp = event.getCotPoint();
                     if (cp != null) {
-                        SharedPreferences sp = PreferenceManager
-                                .getDefaultSharedPreferences(_context);
                         CoordinateFormat cf = CoordinateFormat.find(
-                                sp.getString("coord_display_pref", _context
+                                _prefs.getString("coord_display_pref", _context
                                         .getString(
                                                 R.string.coord_display_pref_default)));
                         if (cf != null)

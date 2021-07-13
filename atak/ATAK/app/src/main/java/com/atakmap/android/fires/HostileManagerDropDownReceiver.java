@@ -4,7 +4,6 @@ package com.atakmap.android.fires;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
-import android.os.Environment;
 import android.preference.PreferenceManager;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -14,6 +13,7 @@ import android.widget.ImageButton;
 import android.widget.ListView;
 import android.graphics.Color;
 
+import com.atakmap.android.data.ClearContentRegistry;
 import com.atakmap.android.dropdown.DropDown;
 import com.atakmap.android.dropdown.DropDownReceiver;
 import com.atakmap.android.hierarchy.HierarchyManagerView;
@@ -27,14 +27,12 @@ import com.atakmap.android.maps.PointMapItem;
 import com.atakmap.android.util.LimitingThread;
 import com.atakmap.app.R;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.map.AtakMapView;
 
 import java.io.ByteArrayInputStream;
 import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileNotFoundException;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -106,6 +104,8 @@ public class HostileManagerDropDownReceiver extends DropDownReceiver implements
         dispatcher.addMapEventListener(MapEvent.ITEM_REFRESH, this);
         dispatcher.addMapEventListener(MapEvent.ITEM_PERSIST, this);
 
+        ClearContentRegistry.getInstance().registerListener(dataMgmtReceiver);
+
         hostilesListBase = new ArrayList<>();
         displayList = new ArrayList<>();
 
@@ -159,6 +159,8 @@ public class HostileManagerDropDownReceiver extends DropDownReceiver implements
         dispatcher.removeMapEventListener(MapEvent.ITEM_REMOVED, this);
         dispatcher.removeMapEventListener(MapEvent.ITEM_REFRESH, this);
         dispatcher.removeMapEventListener(MapEvent.ITEM_PERSIST, this);
+        ClearContentRegistry.getInstance().unregisterListener(dataMgmtReceiver);
+
         saveContacts();
         calc.dispose();
     }
@@ -200,13 +202,9 @@ public class HostileManagerDropDownReceiver extends DropDownReceiver implements
 
     private ArrayList<MapItemHolder> readContacts() {
         ArrayList<MapItemHolder> items = new ArrayList<>();
-        File inputFile = new File(Environment.getExternalStorageDirectory()
-                .getAbsoluteFile()
-                + "/atak/Databases/" + FILENAME);
-        if (inputFile.exists()) {
-            InputStream is = null;
-            try {
-                is = new FileInputStream(inputFile);
+        File inputFile = FileSystemUtils.getItem("Databases/" + FILENAME);
+        if (IOProviderFactory.exists(inputFile)) {
+            try (InputStream is = IOProviderFactory.getInputStream(inputFile)) {
                 byte[] temp = new byte[is.available()];
                 int read = is.read(temp);
                 String menuString = new String(temp, 0, read,
@@ -236,15 +234,9 @@ public class HostileManagerDropDownReceiver extends DropDownReceiver implements
                 }
             } catch (IOException e) {
                 Log.e(TAG, "error occurred reading the list of hostiles", e);
-            } finally {
-                if (is != null)
-                    try {
-                        is.close();
-                    } catch (Exception ignore) {
-                    }
             }
         } else
-            Log.d(TAG, "No 9-line hostile file found");
+            Log.d(TAG, "File not found: " + FILENAME);
 
         return items;
     }
@@ -254,49 +246,36 @@ public class HostileManagerDropDownReceiver extends DropDownReceiver implements
      */
 
     private void saveContacts() {
-        OutputStream os = null;
-        InputStream is = null;
-
         final File outputFile = FileSystemUtils
                 .getItem("Databases/" + FILENAME);
 
-        if (outputFile.exists())
+        if (IOProviderFactory.exists(outputFile))
             FileSystemUtils.delete(outputFile);
-        try {
-            StringBuilder builder = new StringBuilder();
-            synchronized (lock) {
-                for (MapItem item : hostilesListBase) {
-                    if (item != null) {
-                        builder.append(item.getUID())
-                                .append("\t")
-                                .append(item
-                                        .getMetaInteger("textColor",
-                                                HostileListItem.WHITE))
-                                .append("\r\n");
-                    }
+
+        StringBuilder builder = new StringBuilder();
+        synchronized (lock) {
+            if (hostilesListBase.isEmpty()){
+                return;
+            }
+            for (MapItem item : hostilesListBase) {
+                if (item != null) {
+                    builder.append(item.getUID())
+                            .append("\t")
+                            .append(item
+                                    .getMetaInteger("textColor",
+                                            HostileListItem.WHITE))
+                            .append("\r\n");
                 }
             }
-            os = new FileOutputStream(outputFile);
-            is = new ByteArrayInputStream(builder.toString()
-                    .getBytes());
-            FileSystemUtils.copy(is, os);
-        } catch (FileNotFoundException e) {
-            Log.e(TAG, "error occured", e);
+        }
+
+        try (OutputStream os = IOProviderFactory.getOutputStream(outputFile)) {
+            try (InputStream is = new ByteArrayInputStream(
+                    builder.toString().getBytes())) {
+                FileSystemUtils.copy(is, os);
+            }
         } catch (IOException e) {
-            Log.e(TAG, "error occured", e);
-        } finally {
-            if (os != null) {
-                try {
-                    os.close();
-                } catch (Exception ignore) {
-                }
-            }
-            if (is != null) {
-                try {
-                    is.close();
-                } catch (Exception ignore) {
-                }
-            }
+            Log.e(TAG, "error occurred", e);
         }
     }
 
@@ -553,4 +532,14 @@ public class HostileManagerDropDownReceiver extends DropDownReceiver implements
             }
         }
     }
+
+    private final ClearContentRegistry.ClearContentListener dataMgmtReceiver = new ClearContentRegistry.ClearContentListener() {
+        @Override
+        public void onClearContent(boolean clearmaps) {
+            File inputFile = FileSystemUtils.getItem("Databases/" + FILENAME);
+            if (!IOProviderFactory.delete(inputFile)) {
+                Log.d(TAG, "could not clear: " + FILENAME);
+            }
+        }
+    };
 }

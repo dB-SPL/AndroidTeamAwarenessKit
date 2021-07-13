@@ -5,16 +5,20 @@ import android.graphics.Point;
 import android.os.Bundle;
 import android.view.View;
 
+import com.atakmap.android.editableShapes.Rectangle;
 import com.atakmap.android.mapcompass.CompassArrowMapComponent;
 import com.atakmap.android.maps.MapEvent;
 import com.atakmap.android.maps.MapGroup;
 import com.atakmap.android.maps.MapView;
+import com.atakmap.android.maps.PointMapItem;
 import com.atakmap.android.rubbersheet.maps.RubberModel;
 import com.atakmap.android.util.EditAction;
 import com.atakmap.app.R;
 import com.atakmap.coremap.locale.LocaleUtil;
 import com.atakmap.coremap.maps.coords.GeoPoint;
 import com.atakmap.coremap.maps.coords.GeoPoint.AltitudeReference;
+import com.atakmap.coremap.maps.coords.GeoPointMetaData;
+import com.atakmap.map.CameraController;
 
 /**
  * Rotation tool for models
@@ -45,6 +49,10 @@ public class RubberModelEditTool extends RubberSheetEditTool {
 
         // Enable elevation tool
         _buttons[ELEV].setVisibility(View.VISIBLE);
+    }
+
+    public PointMapItem getMarker() {
+        return _model.getCenterMarker();
     }
 
     @Override
@@ -100,6 +108,7 @@ public class RubberModelEditTool extends RubberSheetEditTool {
                 event.getExtras().putBoolean("eventNotHandled", false);
                 Point p = event.getPoint();
                 if (_startTilt == null) {
+                    _center = _sheet.getCenter();
                     _startTilt = p;
                     return;
                 }
@@ -118,6 +127,14 @@ public class RubberModelEditTool extends RubberSheetEditTool {
                 reset();
             }
         }
+    }
+
+    @Override
+    public void onMoved(Rectangle r, GeoPointMetaData[] oldPoints,
+            GeoPointMetaData[] newPoints) {
+        super.onMoved(r, oldPoints, newPoints);
+        if (getMode() == ELEV)
+            _mapView.getMapController().panTo(_sheet.getCenterPoint(), false);
     }
 
     @Override
@@ -152,13 +169,18 @@ public class RubberModelEditTool extends RubberSheetEditTool {
         // Tilt the map so the user can see what they're doing
         if (v == _buttons[ELEV] && _mapView.getMapTilt() == 0d) {
             CompassArrowMapComponent.getInstance().enable3DControls(true);
-            _mapView.getMapController().tiltTo(_mapView.getMaxMapTilt(), false);
+            _mapView.getMapController().tiltTo(_mapView.getMaxMapTilt() * 0.9d,
+                    false);
         }
 
         // Tilt the map back when switching from elevation to drag
         else if (v == _buttons[DRAG] && getMode() == ELEV) {
-            _mapView.getMapController().tiltTo(0, false);
-            _mapView.getMapController().panTo(_center.get(), false);
+            _mapView.getMapController().dispatchOnPanRequested();
+            CameraController.Programmatic.tiltTo(
+                    _mapView.getRenderer3(),
+                    0d,
+                    _center.get(),
+                    false);
         }
 
         super.onClick(v);

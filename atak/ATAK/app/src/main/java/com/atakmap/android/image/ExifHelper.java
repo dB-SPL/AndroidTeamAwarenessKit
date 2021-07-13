@@ -2,6 +2,9 @@
 package com.atakmap.android.image;
 
 import android.content.Context;
+
+import com.atakmap.annotations.DeprecatedApi;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.maps.conversion.GeomagneticField;
 import androidx.exifinterface.media.ExifInterface;
 import android.view.Display;
@@ -18,6 +21,7 @@ import com.atakmap.coremap.maps.conversion.EGM96;
 
 import com.atakmap.coremap.maps.coords.GeoPoint;
 
+import com.atakmap.util.zip.IoUtils;
 import org.apache.sanselan.ImageReadException;
 import org.apache.sanselan.ImageWriteException;
 import org.apache.sanselan.Sanselan;
@@ -42,6 +46,7 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.text.DateFormat;
@@ -179,8 +184,8 @@ public class ExifHelper {
     }
 
     public static TiffImageMetadata getExifMetadata(File jpegFile) {
-        try {
-            IImageMetadata metadata = Sanselan.getMetadata(jpegFile);
+        try (InputStream is = IOProviderFactory.getInputStream(jpegFile)) {
+            IImageMetadata metadata = Sanselan.getMetadata(is, null);
             JpegImageMetadata jpegMetadata = (JpegImageMetadata) metadata;
             if (jpegMetadata != null)
                 return jpegMetadata.getExif();
@@ -430,9 +435,9 @@ public class ExifHelper {
                     }
                 }
                 JSONObject jo = new JSONObject(json);
-                Iterator iter = jo.keys();
+                Iterator<String> iter = jo.keys();
                 while (iter.hasNext()) {
-                    String key = (String) iter.next();
+                    String key = iter.next();
                     bundle.put(key, jo.get(key));
                 }
             } catch (Exception e) {
@@ -463,8 +468,15 @@ public class ExifHelper {
         }
     }
 
+    /**
+     * @deprecated Use {@link #putExtras(Map, TiffOutputSet)} directly
+     * @param exif
+     * @param bundle - unused
+     * @param tos
+     */
     // No reason to pass TiffImageMetadata in here...
     @Deprecated
+    @DeprecatedApi(since = "4.1", forRemoval = true, removeAt = "4.4")
     public static void putExtras(TiffImageMetadata exif,
             Map<String, Object> bundle, TiffOutputSet tos) {
         putExtras(bundle, tos);
@@ -598,7 +610,8 @@ public class ExifHelper {
         // Obtain unmodified image byte array first
         try {
             byte[] imageData = FileSystemUtils.read(imageFile);
-            bos = new BufferedOutputStream(new FileOutputStream(imageFile));
+            bos = new BufferedOutputStream(
+                    IOProviderFactory.getOutputStream(imageFile));
             // Then update and save
             new ExifRewriter().updateExifMetadataLossless(imageData, bos, tos);
             bos.close();
@@ -607,11 +620,7 @@ public class ExifHelper {
             Log.e(TAG, "Failed to save EXIF output to "
                     + imageFile.getAbsolutePath(), e);
         } finally {
-            try {
-                if (bos != null)
-                    bos.close();
-            } catch (IOException ignored) {
-            }
+            IoUtils.close(bos);
         }
         return false;
     }
@@ -866,7 +875,7 @@ public class ExifHelper {
         FileInputStream fis = null;
         FileOutputStream fos = null;
         try {
-            fis = new FileInputStream(f);
+            fis = IOProviderFactory.getInputStream(f);
 
             // Make sure the file isn't empty
             int fileLen = fis.available();
@@ -965,8 +974,8 @@ public class ExifHelper {
             }
 
             // Copy and update
-            fis = new FileInputStream(f);
-            fos = new FileOutputStream(fOut);
+            fis = IOProviderFactory.getInputStream(f);
+            fos = IOProviderFactory.getOutputStream(fOut);
 
             int read;
             pos = 0;
@@ -1022,24 +1031,14 @@ public class ExifHelper {
             fis.close();
             fos.close();
             FileSystemUtils.delete(f);
-            if (!fOut.renameTo(f))
+            if (!IOProviderFactory.renameTo(fOut, f))
                 Log.e(TAG, "Failed to rename " + fOut + " to " + f);
         } catch (Exception e) {
             Log.e(TAG, "Failed to write PNG description", e);
         } finally {
-            if (fis != null) {
-                try {
-                    fis.close();
-                } catch (Exception ignore) {
-                }
-            }
-            if (fos != null) {
-                try {
-                    fos.close();
-                } catch (Exception ignore) {
-                }
-            }
-            if (fOut.exists())
+            IoUtils.close(fis);
+            IoUtils.close(fos);
+            if (IOProviderFactory.exists(fOut))
                 FileSystemUtils.delete(fOut);
         }
     }

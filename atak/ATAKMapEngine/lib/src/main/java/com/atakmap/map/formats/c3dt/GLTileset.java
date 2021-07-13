@@ -1,14 +1,9 @@
 package com.atakmap.map.formats.c3dt;
 
-import android.net.wifi.WifiConfiguration;
 import android.opengl.GLES30;
 
 import com.atakmap.coremap.filesystem.FileSystemUtils;
 import com.atakmap.coremap.maps.coords.GeoPoint;
-import com.atakmap.io.CachingProtocolHandler;
-import com.atakmap.io.ProtocolHandler;
-import com.atakmap.io.UriFactory;
-import com.atakmap.io.WebProtocolHandler;
 import com.atakmap.lang.Objects;
 import com.atakmap.map.LegacyAdapters;
 import com.atakmap.map.MapRenderer;
@@ -32,7 +27,6 @@ import com.atakmap.util.ConfigOptions;
 import org.json.JSONObject;
 
 import java.io.File;
-import java.net.URI;
 import java.util.Collection;
 import java.util.Set;
 
@@ -52,7 +46,7 @@ final class GLTileset implements GLMapRenderable2, Controls {
                 String globalCacheDir = ConfigOptions.getOption("3dtiles.cache-dir", null);
 
                 byte[] buffer;
-                ContentSource source = ContentSources.createDefault();
+                ContentSource source = ContentSources.createDefault(true);
                 ContentContainer cache = null;
                 if((info.uri.startsWith("http:") || info.uri.startsWith("https:")) && (cacheDir != null || globalCacheDir != null)) {
                     if(globalCacheDir != null)
@@ -328,29 +322,49 @@ final class GLTileset implements GLMapRenderable2, Controls {
                         float depth = depthSampler.getDepth();
                         depthSampler.end();
 
-                        if(depth >= 1.0f)
+                        if(depth == 0f || depth >= 1.0f)
                             break;
 
-                        // pull the ortho matrix
-                        queryState.scratch.matrix.set(queryState.projection);
+                        if(queryState.scene.camera.perspective) {
+                            // transform screen location at depth to NDC
+                            queryState.scratch.pointD.x = ((screenX - queryState.left) / (queryState.right-queryState.left)) * 2.0f - 1f;
+                            queryState.scratch.pointD.y = ((queryState.top - screenY) / (queryState.top-queryState.bottom)) * 2.0f - 1f;
+                            queryState.scratch.pointD.z = depth * 2.0f - 1.0f;
 
-                        queryState.scratch.pointD.x = screenX;
-                        queryState.scratch.pointD.y = queryState.top-screenY;
-                        queryState.scratch.pointD.z = 0;
+                            // compute inverse transform
+                            queryState.scratch.matrix.set(queryState.scene.camera.projection);
+                            queryState.scratch.matrix.concatenate(queryState.scene.camera.modelView);
 
-                        queryState.scratch.matrix.transform(queryState.scratch.pointD, queryState.scratch.pointD);
-                        queryState.scratch.pointD.z = depth * 2.0f - 1.0f;
+                            try {
+                                queryState.scratch.matrix.set(queryState.scratch.matrix.createInverse());
+                            } catch(NoninvertibleTransformException e) {
+                                break;
+                            }
 
-                        try {
-                            queryState.scratch.matrix.set(queryState.scratch.matrix.createInverse());
-                        } catch(NoninvertibleTransformException e) {
-                            break;
+                            // NDC -> projection
+                            queryState.scratch.matrix.transform(queryState.scratch.pointD, queryState.scratch.pointD);
+                        } else {
+                            // pull the ortho matrix
+                            queryState.scratch.matrix.set(queryState.projection);
+
+                            queryState.scratch.pointD.x = screenX;
+                            queryState.scratch.pointD.y = queryState.top-screenY;
+                            queryState.scratch.pointD.z = 0;
+
+                            queryState.scratch.matrix.transform(queryState.scratch.pointD, queryState.scratch.pointD);
+                            queryState.scratch.pointD.z = depth * 2.0f - 1.0f;
+
+                            try {
+                                queryState.scratch.matrix.set(queryState.scratch.matrix.createInverse());
+                            } catch(NoninvertibleTransformException e) {
+                                break;
+                            }
+
+                            // NDC -> ortho
+                            queryState.scratch.matrix.transform(queryState.scratch.pointD, queryState.scratch.pointD);
+                            // ortho -> projection
+                            queryState.scene.inverse.transform(queryState.scratch.pointD, queryState.scratch.pointD);
                         }
-
-                        // NDC -> ortho
-                        queryState.scratch.matrix.transform(queryState.scratch.pointD, queryState.scratch.pointD);
-                        // ortho -> projection
-                        queryState.scene.inverse.transform(queryState.scratch.pointD, queryState.scratch.pointD);
                         // projection -> LLA
                         queryState.scene.mapProjection.inverse(queryState.scratch.pointD, geoPoint);
                         retval[1] = true;
@@ -370,7 +384,7 @@ final class GLTileset implements GLMapRenderable2, Controls {
                 while(!retval[0])
                     try {
                         retval.wait();
-                    } catch(InterruptedException e) {}
+                    } catch(InterruptedException ignored) {}
             }
             return retval[1];
         }

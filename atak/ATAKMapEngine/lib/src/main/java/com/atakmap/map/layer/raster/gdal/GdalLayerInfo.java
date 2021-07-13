@@ -13,12 +13,15 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Hashtable;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.LinkedList;
 import java.util.Map;
 import java.util.Set;
+
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.locale.LocaleUtil;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -31,6 +34,8 @@ import android.os.SystemClock;
 import android.util.Pair;
 
 import com.atakmap.coremap.maps.coords.GeoPoint;
+import com.atakmap.map.gdal.GdalLibrary;
+import com.atakmap.map.gdal.VSIFileFileSystemHandler;
 import com.atakmap.map.layer.feature.geometry.Geometry;
 import com.atakmap.map.layer.raster.mosaic.ATAKMosaicDatabase3;
 import com.atakmap.map.layer.raster.mosaic.MosaicDatabase2;
@@ -59,6 +64,7 @@ import com.atakmap.spi.InteractiveServiceProvider;
 import org.gdal.gdal.Dataset;
 import org.gdal.gdal.gdal;
 import org.gdal.gdal.Driver;
+import org.gdal.gdalconst.gdalconst;
 
 public class GdalLayerInfo extends AbstractDatasetDescriptorSpi {
 
@@ -100,9 +106,8 @@ public class GdalLayerInfo extends AbstractDatasetDescriptorSpi {
 
     @Override
     public Set<DatasetDescriptor> create(File file, File workingDir, InteractiveServiceProvider.Callback callback) {
-        if (!(file instanceof ZipVirtualFile) &&
-            file.isFile() &&
-            file.getAbsolutePath().toUpperCase(LocaleUtil.getCurrent()).endsWith(".ZIP")) {
+        if (!(file instanceof ZipVirtualFile) && IOProviderFactory.isFile(file)
+                && FileSystemUtils.checkExtension(file, "zip")) {
 
             try {
                 file = new ZipVirtualFile(file);
@@ -113,7 +118,7 @@ public class GdalLayerInfo extends AbstractDatasetDescriptorSpi {
             }
         }
         
-        if (file.isFile()) {
+        if (IOProviderFactory.isFile(file)) {
             Set<Frame> frames = new HashSet<Frame>();
             createImpl(file, workingDir, false, (file instanceof ZipVirtualFile), frames);
             if(frames.isEmpty())
@@ -127,13 +132,13 @@ public class GdalLayerInfo extends AbstractDatasetDescriptorSpi {
 
                 descWorkDir = new File(workingDir, String.valueOf(num));
                 num++;
-                if (!descWorkDir.mkdirs()) { 
+                if (!IOProviderFactory.mkdirs(descWorkDir)) {
                     Log.e(TAG, "could not make the directory: " + 
                                descWorkDir);
                 }
 
                 try {
-                    File tilecacheDatabaseFile = File.createTempFile("tilecache", ".sqlite", descWorkDir);
+                    File tilecacheDatabaseFile = IOProviderFactory.createTempFile("tilecache", ".sqlite", descWorkDir);
                     extraData.put("tilecache", tilecacheDatabaseFile.getAbsolutePath());
                 } catch(IOException ignored) {}
 
@@ -164,7 +169,7 @@ public class GdalLayerInfo extends AbstractDatasetDescriptorSpi {
                                                       extraData));
             }
             return retval;
-        } else if(file.isDirectory()) {
+        } else if(IOProviderFactory.isDirectory(file)) {
             MosaicDatabase2 database = null;
             DatasetDescriptor tsInfo = null;
             try {
@@ -225,10 +230,10 @@ public class GdalLayerInfo extends AbstractDatasetDescriptorSpi {
 
                 File tilecacheDir = new File(workingDir, "tilecache");
                 FileSystemUtils.delete(tilecacheDir);
-                if (tilecacheDir.exists()) {
+                if (IOProviderFactory.exists(tilecacheDir)) {
                    Log.d(TAG, "unable to remove the tile cache dir: " + tilecacheDir);
                 }
-                if(tilecacheDir.mkdirs())
+                if(IOProviderFactory.mkdirs(tilecacheDir))
                     extraData.put("tilecacheDir", tilecacheDir.getAbsolutePath());
 
                 Map<String, MosaicDatabase2.Coverage> dbCoverages = new HashMap<String, MosaicDatabase2.Coverage>();
@@ -274,7 +279,7 @@ public class GdalLayerInfo extends AbstractDatasetDescriptorSpi {
         boolean isZip = false;
         if (file instanceof ZipVirtualFile) {
              isZip = true;
-        } else if (file.isFile() && file.getAbsolutePath().toUpperCase(LocaleUtil.getCurrent()).endsWith(".ZIP")) {
+        } else if (IOProviderFactory.isFile(file) && FileSystemUtils.checkExtension(file, "zip")) {
             try {
                 file = new ZipVirtualFile(file);
                 isZip = true;
@@ -293,12 +298,12 @@ public class GdalLayerInfo extends AbstractDatasetDescriptorSpi {
         // for files that can be opened by GDAL. If one is found, this
         // is probably a directory that could make a GDAL layer.
 
-        if(file.isDirectory()){
+        if(IOProviderFactory.isDirectory(file)){
             final String name = file.getName();
             if(name.toLowerCase(LocaleUtil.getCurrent()).equals("dted"))
                 return false;
 
-            File[] files = file.listFiles();
+            File[] files = IOProviderFactory.listFiles(file);
             if (files != null) { 
                 for(File child : files){
                     if(count.getAndIncrement() > callback.getProbeLimit()){
@@ -314,15 +319,28 @@ public class GdalLayerInfo extends AbstractDatasetDescriptorSpi {
         }else{
             Dataset dataset = null;
             try{
-                String path = file.getAbsolutePath();
-                if(isZip)
-                    path = "/vsizip" + path;
-                dataset = gdal.Open(path);
-                if (dataset == null){
+                // Make sure the dataset can be opened by GDAL
+                dataset = GdalLibrary.openDatasetFromFile(file);
+                if (dataset == null)
                     return false;
-                }else{
+
+                // Valid dataset projection
+                if (GdalDatasetProjection2.getInstance(dataset) != null)
                     return true;
+
+                // Check sub-datasets if there are any
+                Set<String> uris = getSubDatasetURIs(dataset);
+                if (!uris.isEmpty()) {
+                    // Check if any of the sub-datasets are different from the
+                    // base file
+                    String path = file.getAbsolutePath();
+                    for (String uri : uris) {
+                        if (!uri.endsWith(path))
+                            return true;
+                    }
                 }
+
+                return false;
             }finally{
                 if(dataset != null){
                     dataset.delete();
@@ -338,8 +356,8 @@ public class GdalLayerInfo extends AbstractDatasetDescriptorSpi {
             callback.progress(tmpCount);
         }
 
-        if (file.isFile() && !(file instanceof ZipVirtualFile) &&
-            file.getAbsolutePath().toUpperCase(LocaleUtil.getCurrent()).endsWith(".ZIP")) {
+        if (IOProviderFactory.isFile(file) && !(file instanceof ZipVirtualFile)
+                && FileSystemUtils.checkExtension(file, "zip")) {
             try {
                 file = new ZipVirtualFile(file);
                 isZip = true;
@@ -352,7 +370,7 @@ public class GdalLayerInfo extends AbstractDatasetDescriptorSpi {
             }
 
             createRecursive(file, isZip, retval, workingDir, count, callback);
-        } else if (file.isFile()) {
+        } else if (IOProviderFactory.isFile(file)) {
             createImpl(file, workingDir, true, isZip, retval);
         } else if(!file.getName().toLowerCase(LocaleUtil.getCurrent()).equals("dted")) {
             // NOTE: the code below appears to be pretty redundant, and the
@@ -362,7 +380,7 @@ public class GdalLayerInfo extends AbstractDatasetDescriptorSpi {
             //       when dealing with very large directories.
             boolean treatAsFile = false;
             if(isZip) {
-                File[] children = file.listFiles();
+                File[] children = IOProviderFactory.listFiles(file);
                 if(children != null) {
                     for (int i = 0; i < children.length; i++)
                         createRecursive(children[i], isZip, retval, workingDir, count, callback);
@@ -370,7 +388,7 @@ public class GdalLayerInfo extends AbstractDatasetDescriptorSpi {
                     treatAsFile = true;
                 }
             } else {
-                String[] children = file.list();
+                String[] children = IOProviderFactory.list(file);
                 if(children != null) {
                     for (int i = 0; i < children.length; i++)
                         createRecursive(new File(file, children[i]), isZip, retval, workingDir, count, callback);
@@ -390,7 +408,7 @@ public class GdalLayerInfo extends AbstractDatasetDescriptorSpi {
         int type = GDAL;
 
         // check for special types
-        if (!file.isDirectory()) {
+        if (!IOProviderFactory.isDirectory(file)) {
             boolean subtyped = false;
 
             try {
@@ -455,11 +473,7 @@ public class GdalLayerInfo extends AbstractDatasetDescriptorSpi {
                     continue;
                 }
                 case GDAL: {
-                    String uri = file.getAbsolutePath();
-                    if (isZip)
-                    //if (file instanceof ZipVirtualFile)
-                        uri = "/vsizip" + uri;
-                    createGdalLayer(file, workingDir, file.getName(), uri,
+                    createGdalLayer(file, workingDir, file.getName(), null,
                                 new HashMap<String, String>(), forMosaic, retval);
                     return;
                 }
@@ -513,25 +527,17 @@ public class GdalLayerInfo extends AbstractDatasetDescriptorSpi {
         if(TOC_FILE_FILTER.accept(baseFile))
             return;
 
-        Dataset dataset = gdal.Open(uri);
+        Dataset dataset;
+        if(uri != null)
+            dataset = gdal.Open(uri);
+        else
+            dataset = GdalLibrary.openDatasetFromFile(baseFile);
         if (dataset == null)
             return;
 
         // look for subdatasets
-        Map<String, String> subdatasets = (Map<String, String>) dataset
-                .GetMetadata_Dict("SUBDATASETS");
-        if (subdatasets.size() > 0) {
-            // build the list of subdatasets
-            Set<String> uris = new LinkedHashSet<String>();
-            Iterator<Map.Entry<String, String>> subdatasetIter = subdatasets.entrySet().iterator();
-            Map.Entry<String, String> entry;
-            while (subdatasetIter.hasNext()) {
-                entry = subdatasetIter.next();
-                if (entry.getKey().matches("SUBDATASET\\_\\d+\\_NAME")) {
-                    uris.add(entry.getValue());
-                }
-            }
-
+        Set<String> uris = getSubDatasetURIs(dataset);
+        if (!uris.isEmpty()) {
             // close parent
             dataset.delete();
 
@@ -542,7 +548,7 @@ public class GdalLayerInfo extends AbstractDatasetDescriptorSpi {
             Map<String, String> subdatasetExtraData;
             while (uriIter.hasNext()) {
                 subdatasetUri = uriIter.next();
-                subdatasetExtraData = new LinkedHashMap<String, String>(extraData);
+                subdatasetExtraData = new LinkedHashMap<>(extraData);
                 subdatasetExtraData.put("gdalSubdataset", subdatasetUri);
                 try {
                     createGdalLayer(baseFile, workingDir, name + "["
@@ -552,7 +558,7 @@ public class GdalLayerInfo extends AbstractDatasetDescriptorSpi {
                 }
             }
         } else {
-            Frame info = createGdalLayer(baseFile, workingDir, name,
+            Frame info = createGdalLayerImpl(baseFile, workingDir, name,
                     getURI(baseFile), dataset, extraData);
             if (info == null)
                 return;
@@ -562,7 +568,29 @@ public class GdalLayerInfo extends AbstractDatasetDescriptorSpi {
         }
     }
 
-    private static Frame createGdalLayer(File derivedFrom, File workingDir,
+    private static Set<String> getSubDatasetURIs(Dataset dataset) {
+        Set<String> uris = new LinkedHashSet<>();
+        Hashtable<?, ?> tbl = dataset.GetMetadata_Dict("SUBDATASETS");
+        if (tbl == null || tbl.isEmpty())
+            return uris;
+        try {
+            Map<String, String> subdatasets = (Map<String, String>) tbl;
+            // build the list of subdatasets
+            Iterator<Map.Entry<String, String>> subdatasetIter = subdatasets
+                    .entrySet().iterator();
+            Map.Entry<String, String> entry;
+            while (subdatasetIter.hasNext()) {
+                entry = subdatasetIter.next();
+                if (entry.getKey().matches("SUBDATASET\\_\\d+\\_NAME"))
+                    uris.add(entry.getValue());
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to read sub-datasets", e);
+        }
+        return uris;
+    }
+
+    private static Frame createGdalLayerImpl(File derivedFrom, File workingDir,
             String name, URI uri, Dataset dataset, Map<String, String> extraData)
             throws IOException {
         
@@ -587,7 +615,7 @@ public class GdalLayerInfo extends AbstractDatasetDescriptorSpi {
             proj.imageToGround(new PointD(0, height-1), ll);
             final int spatialReferenceID = proj.getNativeSpatialReferenceID();
 
-            File tilecacheDatabaseFile = File.createTempFile("tilecache", ".sqlite", workingDir);
+            File tilecacheDatabaseFile = IOProviderFactory.createTempFile("tilecache", ".sqlite", workingDir);
             extraData.put("tilecache", tilecacheDatabaseFile.getAbsolutePath());
 
 //            Log.d(TAG, "Create GdalLayer " + name + " " + width + "x" + height);
@@ -687,7 +715,7 @@ public class GdalLayerInfo extends AbstractDatasetDescriptorSpi {
         // check open as GDAL dataset
         Dataset dataset = null;
         try {
-            dataset = gdal.Open(file.getAbsolutePath());
+            dataset = GdalLibrary.openDatasetFromFile(file, gdalconst.GA_ReadOnly);
             if (dataset == null)
                 return null;
 /*            
@@ -839,6 +867,7 @@ public class GdalLayerInfo extends AbstractDatasetDescriptorSpi {
         String prefix = "";
         if (scheme != null && scheme.equals("zip"))
             prefix = "/vsizip";
+
         return prefix + path;
     }
     
@@ -862,7 +891,7 @@ public class GdalLayerInfo extends AbstractDatasetDescriptorSpi {
 
         @Override
         public boolean accept(File f) {
-            if (f.isDirectory() != this.isDirectory)
+            if (IOProviderFactory.isDirectory(f) != this.isDirectory)
                 return false;
             return this.names.contains(f.getName().toUpperCase(LocaleUtil.getCurrent()));
         }

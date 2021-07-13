@@ -7,7 +7,6 @@ import com.atakmap.android.maps.MapView;
 import com.atakmap.android.maps.PointMapItem;
 import com.atakmap.android.munitions.RangeRing;
 import com.atakmap.android.munitions.TargetMunitionsDetailHandler;
-import com.atakmap.android.nineline.RemarksConstants;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
 import com.atakmap.coremap.locale.LocaleUtil;
 
@@ -20,6 +19,8 @@ import java.util.Map;
  * Helper methods for managing munitions
  */
 public class MunitionsHelper {
+
+    final static public String WPN_DISPLAY = "remarks_munitionDisplayEnabled";
 
     public static final String NINELINE = "nineline";
     public static final String FIVELINE = "fiveline";
@@ -146,7 +147,7 @@ public class MunitionsHelper {
     @SuppressWarnings("unchecked")
     public int getWeaponsCount() {
         int count = 0;
-        for (Map.Entry e : _map.entrySet()) {
+        for (Map.Entry<String, Object> e : _map.entrySet()) {
             Map<String, Object> categoryData = (Map<String, Object>) e
                     .getValue();
             if (categoryData != null)
@@ -184,7 +185,7 @@ public class MunitionsHelper {
         if (hasNoLine(_fromLine))
             return TargetMunitionsDetailHandler.TARGET_MUNITIONS_VISIBLE;
         else
-            return _fromLine + RemarksConstants.WPN_DISPLAY;
+            return _fromLine + WPN_DISPLAY;
     }
 
     /**

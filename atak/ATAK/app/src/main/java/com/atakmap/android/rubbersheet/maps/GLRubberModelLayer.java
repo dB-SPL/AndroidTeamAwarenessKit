@@ -5,14 +5,24 @@ import android.util.LongSparseArray;
 
 import com.atakmap.android.maps.MapGroup;
 import com.atakmap.android.maps.MapItem;
+import com.atakmap.android.maps.MapView;
+import com.atakmap.android.maps.PointMapItem;
 import com.atakmap.android.maps.graphics.GLMapItem2;
+import com.atakmap.android.rubbersheet.tool.RubberModelEditTool;
+import com.atakmap.android.toolbar.Tool;
+import com.atakmap.android.toolbar.ToolManagerBroadcastReceiver;
 import com.atakmap.coremap.maps.coords.GeoBounds;
 import com.atakmap.coremap.maps.coords.MutableGeoBounds;
 import com.atakmap.map.MapRenderer;
+import com.atakmap.map.MapSceneModel;
+import com.atakmap.map.layer.feature.geometry.Envelope;
 import com.atakmap.map.layer.model.Model;
 import com.atakmap.map.layer.opengl.GLAsynchronousLayer2;
 import com.atakmap.map.opengl.GLMapRenderable2;
 import com.atakmap.map.opengl.GLMapView;
+import com.atakmap.map.projection.EquirectangularMapProjection;
+import com.atakmap.math.Matrix;
+import com.atakmap.spatial.GeometryTransformer;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -98,21 +108,58 @@ public class GLRubberModelLayer extends
     @Override
     protected void query(ViewState state, Collection<GLMapRenderable2> result) {
         // Determine which models to draw
+        MapView mv = MapView.getMapView();
+        Tool tool = ToolManagerBroadcastReceiver.getInstance().getActiveTool();
+        PointMapItem focus = null;
+        if (mv != null) {
+            if (tool instanceof RubberModelEditTool)
+                focus = ((RubberModelEditTool) tool).getMarker();
+            else
+                focus = mv.getMapTouchController().getFreeForm3DItem();
+        }
+
         for (int i = 0; i < _modelList.size(); i++) {
             GLRubberModel glMDL = _modelList.valueAt(i);
+            RubberModel mdl = (RubberModel) glMDL.getSubject();
 
             // Model is invisible
             if (!glMDL.isVisible())
                 continue;
 
+            boolean onScreen = false;
+
+            // Free form 3D focus
+            if (focus != null && focus == mdl.getAnchorItem())
+                onScreen = true;
+
             // Check view state bounds against model render bounds
-            glMDL.getBounds(_scratchBounds);
-            if (_scratchBounds.intersects(state.northBound, state.westBound,
-                    state.southBound, state.eastBound, true)) {
-                glMDL.setOnScreen(true);
+            if (!onScreen) {
+                glMDL.getBounds(_scratchBounds);
+
+                // perform a quick 2D test for surface intersection
+                onScreen = _scratchBounds.intersects(state.northBound,
+                        state.westBound, state.southBound, state.eastBound,
+                        state.crossesIDL);
+
+                // if the map is tilted, perform frustum culling
+                if (!onScreen && state.drawTilt > 0) {
+                    // XXX - GLMapItem2 API does not provide min/max z, use some
+                    //       reasonable values based on the maximum altitudes
+                    //       achievable by fixed wing aircraft
+                    double maxAlt = 19000d;
+                    double minAlt = -900d;
+
+                    onScreen = MapSceneModel.intersects(state.scene,
+                            _scratchBounds.getWest(),
+                            _scratchBounds.getSouth(), minAlt,
+                            _scratchBounds.getEast(),
+                            _scratchBounds.getNorth(), maxAlt);
+                }
+            }
+
+            if (onScreen)
                 result.add(glMDL);
-            } else
-                glMDL.setOnScreen(false);
+            glMDL.setOnScreen(onScreen);
         }
     }
 

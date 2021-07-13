@@ -4,6 +4,7 @@ package com.atakmap.android.update.http;
 import android.app.Notification;
 import android.app.NotificationManager;
 import android.content.Context;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.SystemClock;
 
@@ -172,7 +173,8 @@ public final class GetApkOperation extends HTTPOperation {
                             "Overwriting file: "
                                     + contentFile.getAbsolutePath()
                                     + " of size: "
-                                    + contentFile.length() + " with new size: "
+                                    + contentFile.length()
+                                    + " with new size: "
                                     + contentLength);
                 }
             }
@@ -217,7 +219,7 @@ public final class GetApkOperation extends HTTPOperation {
                     .getSystemService(Context.NOTIFICATION_SERVICE);
 
             Notification.Builder builder;
-            if (android.os.Build.VERSION.SDK_INT < 26) {
+            if (android.os.Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
                 builder = new Notification.Builder(context);
             } else {
                 builder = new Notification.Builder(context,
@@ -339,8 +341,8 @@ public final class GetApkOperation extends HTTPOperation {
             }
 
             // Now verify we got download correctly
-            if (!FileSystemUtils.isFile(contentFile)) {
-                FileSystemUtils.delete(contentFile);
+            if (contentFile == null || !contentFile.exists()) {
+                contentFile.delete();
                 throw new ConnectionException("Failed to download data");
             }
 

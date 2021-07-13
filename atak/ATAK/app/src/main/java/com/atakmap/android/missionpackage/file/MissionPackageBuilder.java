@@ -6,6 +6,7 @@ import com.atakmap.android.maps.MapGroup;
 import com.atakmap.android.maps.MapItem;
 import com.atakmap.coremap.cot.event.CotEvent;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
 
 import java.io.BufferedInputStream;
@@ -17,8 +18,9 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipFile;
+
+import com.atakmap.util.zip.IoUtils;
+import com.atakmap.util.zip.ZipFile;
 import java.util.zip.ZipOutputStream;
 
 /**
@@ -89,7 +91,7 @@ public class MissionPackageBuilder {
             _wroteManifest = false;
 
             File f = new File(_contents.getPath());
-            if (f.exists()) {
+            if (IOProviderFactory.exists(f)) {
                 // MP already exists - copy it to a temp file in case we need to
                 // extract and pull its contents into the new package
                 tmpCopy = new File(f.getAbsolutePath() + ".tmp");
@@ -103,7 +105,8 @@ public class MissionPackageBuilder {
                 }
             }
 
-            FileOutputStream fos = new FileOutputStream(_contents.getPath());
+            FileOutputStream fos = IOProviderFactory
+                    .getOutputStream(new File(_contents.getPath()));
             _zos = new ZipOutputStream(new BufferedOutputStream(fos));
 
             Log.d(TAG, "Building package: " + _contents.getPath());
@@ -129,20 +132,9 @@ public class MissionPackageBuilder {
             if (_progress != null)
                 _progress.cancel(e.getMessage());
         } finally {
-            if (_zos != null) {
-                try {
-                    _zos.close();
-                } catch (Exception e) {
-                    Log.w(TAG, "Failed to close Mission Package zip: "
-                            + (_contents == null ? "" : _contents.getPath()));
-                }
-            }
-            if (_existing != null) {
-                try {
-                    _existing.close();
-                } catch (Exception ignore) {
-                }
-            }
+            IoUtils.close(_zos, TAG, "Failed to close Mission Package zip: "
+                    + (_contents == null ? "" : _contents.getPath()));
+            IoUtils.close(_existing);
             if (tmpCopy != null)
                 FileSystemUtils.delete(tmpCopy);
         }
@@ -196,7 +188,7 @@ public class MissionPackageBuilder {
         }
 
         // create new zip entry
-        ZipEntry entry = new ZipEntry(MANIFEST_XML);
+        java.util.zip.ZipEntry entry = new java.util.zip.ZipEntry(MANIFEST_XML);
         zos.putNextEntry(entry);
         Log.d(TAG, "Adding manifest: " + entry.getName() + " with size: "
                 + contentData.length);
@@ -258,32 +250,35 @@ public class MissionPackageBuilder {
             // this is to avoid any cases of recursive archival
             boolean tmpCopy = false;
             File f = new File(p.getValue());
-            if (f.exists() && FileSystemUtils.isZip(f)) {
+            if (IOProviderFactory.exists(f) && FileSystemUtils.isZip(f)) {
                 File tmpDir = FileSystemUtils.getItemOnSameRoot(f, "tmp");
-                if (!tmpDir.exists() && !tmpDir.mkdirs())
+                if (!IOProviderFactory.exists(tmpDir)
+                        && !IOProviderFactory.mkdirs(tmpDir))
                     Log.e(TAG, "Failed to create tmp dir: " + tmpDir);
                 else {
                     File tmpFile = new File(tmpDir, f.getName());
                     if (!tmpFile.equals(f)) {
                         FileSystemUtils.copyFile(f, tmpFile);
-                        if (tmpFile.exists()) {
+                        if (IOProviderFactory.exists(tmpFile)) {
                             f = tmpFile;
                             tmpCopy = true;
                         }
                     }
                 }
             }
-            long fileSize = f.length();
+            long fileSize = IOProviderFactory.length(f);
 
             // create new zip entry
-            ZipEntry entry = new ZipEntry(content.getManifestUid());
+            java.util.zip.ZipEntry entry = new java.util.zip.ZipEntry(
+                    content.getManifestUid());
             _zos.putNextEntry(entry);
 
             // stream file into zipstream
-            FileInputStream fi = new FileInputStream(f);
-            BufferedInputStream origin = new BufferedInputStream(fi,
-                    FileSystemUtils.BUF_SIZE);
-            write(origin, true);
+            try (FileInputStream fi = IOProviderFactory.getInputStream(f);
+                    BufferedInputStream origin = new BufferedInputStream(fi,
+                            FileSystemUtils.BUF_SIZE)) {
+                write(origin, true);
+            }
 
             // close current file & corresponding zip entry
             _zos.closeEntry();
@@ -331,12 +326,13 @@ public class MissionPackageBuilder {
         if (item == null) {
             // Item isn't found on the map, but it might be in the existing package
             if (_existing != null) {
-                ZipEntry entry = _existing.getEntry(uid + "/" + uid + ".cot");
+                com.atakmap.util.zip.ZipEntry entry = _existing
+                        .getEntry(uid + "/" + uid + ".cot");
                 if (entry != null) {
                     InputStream is = null;
                     try {
                         is = _existing.getInputStream(entry);
-                        _zos.putNextEntry(entry);
+                        _zos.putNextEntry(entry.toJavaZipEntry());
                         write(is, false);
                         _zos.closeEntry();
                     } catch (Exception e) {
@@ -381,7 +377,8 @@ public class MissionPackageBuilder {
         }
 
         // create new zip entry
-        ZipEntry entry = new ZipEntry(content.getManifestUid());
+        java.util.zip.ZipEntry entry = new java.util.zip.ZipEntry(
+                content.getManifestUid());
 
         try {
             byte[] eventData = eventXML.getBytes(FileSystemUtils.UTF8_CHARSET);

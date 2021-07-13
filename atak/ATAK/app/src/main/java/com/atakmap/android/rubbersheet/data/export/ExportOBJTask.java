@@ -14,6 +14,7 @@ import com.atakmap.android.util.ATAKConstants;
 import com.atakmap.android.util.ATAKUtilities;
 import com.atakmap.app.R;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.coremap.maps.conversion.EGM96;
 import com.atakmap.coremap.maps.coords.DistanceCalculations;
@@ -30,6 +31,7 @@ import com.atakmap.math.MathUtils;
 import com.atakmap.math.Matrix;
 import com.atakmap.math.PointD;
 
+import com.atakmap.util.zip.IoUtils;
 import org.gdal.osr.SpatialReference;
 
 import java.io.File;
@@ -93,9 +95,9 @@ public class ExportOBJTask extends ExportFileTask implements
         // Create temporary zip directory
         File tmpDir = new File(RubberSheetManager.DIR, ".tmp_"
                 + _baseName + "_objzip");
-        if (tmpDir.exists())
+        if (IOProviderFactory.exists(tmpDir))
             FileSystemUtils.delete(tmpDir);
-        if (!tmpDir.mkdirs()) {
+        if (!IOProviderFactory.mkdirs(tmpDir)) {
             Log.d(TAG, "Failed to create temp dir: " + tmpDir);
             return null;
         }
@@ -242,7 +244,7 @@ public class ExportOBJTask extends ExportFileTask implements
             return null;
 
         // Cleanup
-        if (tmpDir.exists())
+        if (IOProviderFactory.exists(tmpDir))
             FileSystemUtils.delete(tmpDir);
 
         return zipFile;
@@ -266,13 +268,17 @@ public class ExportOBJTask extends ExportFileTask implements
         File tFile = new File(path + ".vt");
         File nFile = new File(path + ".vn");
         File fFile = new File(path + ".f");
-        PrintWriter ow = null, vw = null, tw = null, nw = null, fw = null;
         FileOutputStream fos = null;
-        try {
-            vw = new PrintWriter(vFile);
-            tw = new PrintWriter(tFile);
-            nw = new PrintWriter(nFile);
-            fw = new PrintWriter(fFile);
+        try (PrintWriter ow = new PrintWriter(
+                IOProviderFactory.getOutputStream(new File(path)));
+                PrintWriter vw = new PrintWriter(
+                        IOProviderFactory.getFileWriter(vFile));
+                PrintWriter tw = new PrintWriter(
+                        IOProviderFactory.getFileWriter(tFile));
+                PrintWriter nw = new PrintWriter(
+                        IOProviderFactory.getFileWriter(nFile));
+                PrintWriter fw = new PrintWriter(
+                        IOProviderFactory.getFileWriter(fFile))) {
 
             LinkedHashMap<ColorVertex, Integer> vMap = new LinkedHashMap<>();
             LinkedHashMap<TexCoord, Integer> tMap = new LinkedHashMap<>();
@@ -431,7 +437,6 @@ public class ExportOBJTask extends ExportFileTask implements
             tMap.clear();
 
             // Now write out the header for the OBJ file
-            ow = new PrintWriter(path);
 
             // Version info
             ow.println("# "
@@ -447,7 +452,7 @@ public class ExportOBJTask extends ExportFileTask implements
             ow.println("mtllib " + mtlName + "\n");
             ow.close();
 
-            fos = new FileOutputStream(path, true);
+            fos = IOProviderFactory.getOutputStream(new File(path), true);
 
             // Copy vertex file into the OBJ file
             byte[] buf = new byte[FileSystemUtils.BUF_SIZE];
@@ -468,21 +473,7 @@ public class ExportOBJTask extends ExportFileTask implements
         } catch (Exception e) {
             Log.e(TAG, "Failed to write OBJ: " + obj, e);
         } finally {
-            if (ow != null)
-                ow.close();
-            if (vw != null)
-                vw.close();
-            if (tw != null)
-                tw.close();
-            if (nw != null)
-                nw.close();
-            if (fw != null)
-                fw.close();
-            try {
-                if (fos != null)
-                    fos.close();
-            } catch (Exception ignore) {
-            }
+            IoUtils.close(fos);
             FileSystemUtils.delete(vFile);
             FileSystemUtils.delete(tFile);
             FileSystemUtils.delete(nFile);

@@ -5,9 +5,12 @@ import android.app.Activity;
 import android.content.Context;
 import android.os.Bundle;
 
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.net.AtakAuthenticationHandlerHTTP;
 import javax.net.ssl.TrustManager;
 import com.atakmap.net.CertificateManager;
+
+import java.io.FileInputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.net.URLConnection;
@@ -20,8 +23,6 @@ import com.atakmap.android.http.rest.operation.NetworkOperation;
 import com.atakmap.android.http.rest.request.GetFileRequest;
 import com.atakmap.android.importfiles.resource.RemoteResource;
 import com.atakmap.android.importfiles.task.ImportNetworkLinksTask;
-import com.atakmap.android.importfiles.task.KMLNetworkLinkRefresh;
-import com.atakmap.android.util.NotificationUtil;
 import com.atakmap.app.R;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
 import com.atakmap.coremap.locale.LocaleUtil;
@@ -30,21 +31,20 @@ import com.atakmap.spatial.file.SpatialDbContentSource;
 import com.atakmap.spatial.kml.FeatureHandler;
 import com.atakmap.spatial.kml.KMLMatcher;
 import com.atakmap.spatial.kml.KMLUtil;
-import com.ekito.simpleKML.model.Kml;
+import com.atakmap.util.zip.IoUtils;
+import com.ekito.simpleKML.model.Link;
 import com.ekito.simpleKML.model.NetworkLink;
 import com.foxykeep.datadroid.requestmanager.Request;
 import com.foxykeep.datadroid.requestmanager.RequestManager;
-import com.foxykeep.datadroid.requestmanager.RequestManager.RequestListener;
 
 import org.simpleframework.xml.Serializer;
 import org.simpleframework.xml.core.Persister;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -52,20 +52,9 @@ import java.util.UUID;
  * Service to offload async HTTP requests
  *
  */
-public class KMLNetworkLinkDownloader implements RequestListener {
+public class KMLNetworkLinkDownloader extends NetworkLinkDownloader {
 
     protected static final String TAG = "KMLNetworkLinkDownloader";
-
-    private final Set<String> downloading = new HashSet<>();
-
-    private int curNotificationId = 84000;
-
-    /**
-     * Core class members
-     */
-    private Context _context;
-
-    private KMLNetworkLinkRefresh _linkRefresh;
 
     /**
      * Cache for performance
@@ -79,30 +68,14 @@ public class KMLNetworkLinkDownloader implements RequestListener {
      *                activity context.
      */
     public KMLNetworkLinkDownloader(Context context) {
+        super(context, 84000);
         if (!(context instanceof Activity)) {
             throw new IllegalArgumentException(
                     "KMLNetworkLinkRefresh requires Activity context");
         }
 
-        _context = context;
+        // XXX - unused due to SimpleKML unreliability (ATAK-7343)
         _serializer = new Persister(new KMLMatcher());
-    }
-
-    public Context getContext() {
-        return _context;
-    }
-
-    /**
-     * Keep for legacy behavior.
-     */
-    public synchronized KMLNetworkLinkRefresh getLinkRefresh() {
-        if (_linkRefresh == null)
-            _linkRefresh = new KMLNetworkLinkRefresh((Activity) _context);
-        return _linkRefresh;
-    }
-
-    public int getNotificationId() {
-        return curNotificationId;
     }
 
     /**
@@ -110,59 +83,52 @@ public class KMLNetworkLinkDownloader implements RequestListener {
      * 
      * @param resource the remote resource to download.
      */
-    public void download(RemoteResource resource) {
+    @Override
+    public void download(RemoteResource resource, boolean showNotifications) {
 
         if (FileSystemUtils.isEmpty(resource.getUrl())) {
             Log.e(TAG, "Unable to determine URL");
-            NotificationUtil
-                    .getInstance()
-                    .postNotification(
-                            SpatialDbContentSource.getNotificationId(),
-                            R.drawable.ic_network_error_notification_icon,
-                            NotificationUtil.RED,
-                            _context.getString(
-                                    R.string.importmgr_remote_kml_download_failed),
-                            _context.getString(
-                                    R.string.importmgr_unable_to_determine_url),
-                            _context.getString(
-                                    R.string.importmgr_unable_to_determine_url));
+            if (showNotifications)
+                postNotification(SpatialDbContentSource.getNotificationId(),
+                        R.drawable.ic_network_error_notification_icon,
+                        R.string.importmgr_remote_kml_download_failed,
+                        R.string.importmgr_unable_to_determine_url);
             return;
         }
 
         if (FileSystemUtils.isEmpty(resource.getName())) {
             Log.e(TAG, "Unable to determine KML filename label");
-            NotificationUtil
-                    .getInstance()
-                    .postNotification(
-                            SpatialDbContentSource.getNotificationId(),
-                            R.drawable.ic_network_error_notification_icon,
-                            NotificationUtil.RED,
-                            _context.getString(
-                                    R.string.importmgr_remote_kml_download_failed),
-                            _context.getString(
-                                    R.string.importmgr_unable_to_determine_kml_filename),
-                            _context.getString(
-                                    R.string.importmgr_unable_to_determine_kml_filename));
+            if (showNotifications)
+                postNotification(SpatialDbContentSource.getNotificationId(),
+                        R.drawable.ic_network_error_notification_icon,
+                        R.string.importmgr_remote_kml_download_failed,
+                        R.string.importmgr_unable_to_determine_kml_filename);
             return;
         }
 
         // all files (this and child Network Links) are stored in temp dir named based on UID
-        String uid = UUID.randomUUID().toString();
+        // The UID should be based on the name + URL instead of randomly generated
+        // or else this will create tons of duplicate directories when auto-refresh is on
+        String uid = UUID.nameUUIDFromBytes((resource.getName()
+                + resource.getUrl()).getBytes(StandardCharsets.UTF_8))
+                .toString();
         File tmpDir = new File(
                 FileSystemUtils.getItem(FileSystemUtils.TMP_DIRECTORY), uid);
-        if (!tmpDir.mkdirs()) {
+        if (IOProviderFactory.exists(tmpDir))
+            FileSystemUtils.deleteDirectory(tmpDir, true);
+        else if (!IOProviderFactory.mkdirs(tmpDir)) {
             Log.w(TAG,
                     "Failed to create directories: "
                             + tmpDir.getAbsolutePath());
         }
-        GetFileRequest request = new GetFileRequest(resource.getUrl(),
+        RemoteResourceRequest request = new RemoteResourceRequest(resource,
                 resource.getName(), tmpDir.getAbsolutePath(),
-                curNotificationId++);
+                getNotificationId(), showNotifications);
 
         List<GetFileRequest> requests = new ArrayList<>();
         requests.add(request);
         download(new RemoteResourcesRequest(resource, uid, requests,
-                request.getNotificationId()));
+                request.getNotificationId(), showNotifications));
     }
 
     /**
@@ -184,29 +150,15 @@ public class KMLNetworkLinkDownloader implements RequestListener {
         Log.d(TAG, "Import KML Network Link download request created for: "
                 + request.toString());
 
-        NotificationUtil
-                .getInstance()
-                .postNotification(
-                        request.getNotificationId(),
-                        R.drawable.ic_kml_file_notification_icon,
-                        NotificationUtil.BLUE,
-                        _context.getString(
-                                R.string.importmgr_remote_kml_download_started),
-                        String.format(
-                                _context.getString(
-                                        R.string.importmgr_downloading_count_files),
-                                request.getCount()),
-                        String.format(
-                                _context.getString(
-                                        R.string.importmgr_downloading_count_files),
-                                request.getCount()));
+        if (request.showNotifications())
+            postNotification(request.getNotificationId(),
+                    R.drawable.ic_kml_file_notification_icon,
+                    getString(R.string.importmgr_remote_kml_download_started),
+                    getString(R.string.importmgr_downloading_count_files,
+                            request.getCount()));
 
         // Kick off async HTTP request to get file
         ndl(request);
-    }
-
-    public boolean isDownloading(String url) {
-        return downloading.contains(url);
     }
 
     private void ndl(final RemoteResourcesRequest requests) {
@@ -214,11 +166,14 @@ public class KMLNetworkLinkDownloader implements RequestListener {
             @Override
             public void run() {
                 final String resourceUrl = requests.getResource().getUrl();
-                downloading.add(resourceUrl);
+                _downloading.add(resourceUrl);
                 Log.d(TAG, "start download: " + resourceUrl);
                 try {
                     for (GetFileRequest r : requests.getRequests()) {
-                        GetFileRequest request = r;
+                        if (!(r instanceof RemoteResourceRequest))
+                            continue;
+
+                        RemoteResourceRequest request = (RemoteResourceRequest) r;
 
                         URL url = new URL(request.getUrl());
                         URLConnection conn = url.openConnection();
@@ -246,9 +201,9 @@ public class KMLNetworkLinkDownloader implements RequestListener {
 
                         File fout = new File(request.getDir(),
                                 request.getFileName());
-                        FileOutputStream fos = new FileOutputStream(fout);
 
-                        try {
+                        try (FileOutputStream fos = IOProviderFactory
+                                .getOutputStream(fout)) {
                             FileSystemUtils.copy(input, fos);
                             Log.d(TAG, "success: " + request.getDir() + "/"
                                     + request.getFileName());
@@ -258,6 +213,8 @@ public class KMLNetworkLinkDownloader implements RequestListener {
                                     NetworkOperationManager.REQUEST_TYPE_GET_FILES),
                                     new RequestManager.ConnectionError(900,
                                             "unable to write download"));
+                        } finally {
+                            IoUtils.close(input);
                         }
 
                     }
@@ -267,7 +224,7 @@ public class KMLNetworkLinkDownloader implements RequestListener {
                             NetworkOperationManager.REQUEST_TYPE_GET_FILES), b);
 
                 } catch (Exception e) {
-                    Log.e(TAG, "error occured", e);
+                    Log.e(TAG, "error occurred", e);
                     onRequestConnectionError(new Request(
                             NetworkOperationManager.REQUEST_TYPE_GET_FILES),
                             new RequestManager.ConnectionError(-1,
@@ -275,7 +232,7 @@ public class KMLNetworkLinkDownloader implements RequestListener {
 
                 } finally {
                     Log.d(TAG, "end download: " + resourceUrl);
-                    downloading.remove(resourceUrl);
+                    _downloading.remove(resourceUrl);
                 }
             }
         };
@@ -317,8 +274,8 @@ public class KMLNetworkLinkDownloader implements RequestListener {
                 //String cookies = conn
                 //        .getHeaderField("Set-Cookie");
 
-                // open the new connnection again
 
+                // open the new connnection again
                 if (newUrl != null &&
                         (newUrl.startsWith("http://")
                                 || newUrl.startsWith("https://"))) {
@@ -326,6 +283,13 @@ public class KMLNetworkLinkDownloader implements RequestListener {
                     String userAgent = conn.getRequestProperty("User-Agent");
                     int connectionTimeout = conn.getConnectTimeout();
                     int readTimeout = conn.getReadTimeout();
+
+                    /**
+                     * Fortify flags this as a Server-Side Request Forgery
+                     * but the URL containing the KML file has rediected us to a new site.
+                     * This protection should be part of the network management / firewall and 
+                     * is too broad scoped for the application.
+                     */
                     retval = new URL(newUrl)
                             .openConnection();
                     retval.setRequestProperty("User-Agent", userAgent);
@@ -365,6 +329,12 @@ public class KMLNetworkLinkDownloader implements RequestListener {
         HttpURLConnection retval = (HttpURLConnection) conn.getURL()
                 .openConnection();
         retval.setRequestProperty("User-Agent", "TAK");
+
+        final String xcommonsitename = conn
+                .getRequestProperty("x-common-site-name");
+        if (xcommonsitename != null) {
+            retval.setRequestProperty("x-common-site-name", xcommonsitename);
+        }
         retval.setUseCaches(conn.getUseCaches());
         retval.setConnectTimeout(conn.getConnectTimeout());
         retval.setReadTimeout(conn.getReadTimeout());
@@ -381,18 +351,10 @@ public class KMLNetworkLinkDownloader implements RequestListener {
             if (resultData == null) {
                 Log.e(TAG,
                         "Remote KML Download Failed - Unable to obtain results");
-                NotificationUtil
-                        .getInstance()
-                        .postNotification(
-                                SpatialDbContentSource.getNotificationId(),
-                                R.drawable.ic_network_error_notification_icon,
-                                NotificationUtil.RED,
-                                _context.getString(
-                                        R.string.importmgr_remote_kml_download_failed),
-                                _context.getString(
-                                        R.string.importmgr_unable_to_obtain_results),
-                                _context.getString(
-                                        R.string.importmgr_unable_to_obtain_results));
+                postNotification(SpatialDbContentSource.getNotificationId(),
+                        R.drawable.ic_network_error_notification_icon,
+                        R.string.importmgr_remote_kml_download_failed,
+                        R.string.importmgr_unable_to_obtain_results);
                 return;
             }
 
@@ -402,18 +364,10 @@ public class KMLNetworkLinkDownloader implements RequestListener {
             if (initialRequest == null || !initialRequest.isValid()) {
                 Log.e(TAG,
                         "Remote KML Download Failed - Unable to parse request");
-                NotificationUtil
-                        .getInstance()
-                        .postNotification(
-                                SpatialDbContentSource.getNotificationId(),
-                                R.drawable.ic_network_error_notification_icon,
-                                NotificationUtil.RED,
-                                _context.getString(
-                                        R.string.importmgr_remote_kml_download_failed),
-                                _context.getString(
-                                        R.string.importmgr_unable_to_parse_request),
-                                _context.getString(
-                                        R.string.importmgr_unable_to_parse_request));
+                postNotification(SpatialDbContentSource.getNotificationId(),
+                        R.drawable.ic_network_error_notification_icon,
+                        R.string.importmgr_remote_kml_download_failed,
+                        R.string.importmgr_unable_to_parse_request);
                 return;
             }
 
@@ -422,7 +376,8 @@ public class KMLNetworkLinkDownloader implements RequestListener {
                     initialRequest.getResource(),
                     initialRequest.getUID(),
                     new ArrayList<GetFileRequest>(),
-                    initialRequest.getNotificationId());
+                    initialRequest.getNotificationId(),
+                    initialRequest.showNotifications());
             Log.d(TAG, "Parsing child requests size: "
                     + initialRequest.getRequests().size());
             for (final GetFileRequest curRequest : initialRequest
@@ -433,22 +388,13 @@ public class KMLNetworkLinkDownloader implements RequestListener {
                     Log.e(TAG,
                             "Remote KML Download Failed - Failed to create local file: "
                                     + downloadedFile);
-                    NotificationUtil
-                            .getInstance()
-                            .postNotification(
-                                    initialRequest.getNotificationId(),
-                                    R.drawable.ic_network_error_notification_icon,
-                                    NotificationUtil.RED,
-                                    _context.getString(
-                                            R.string.importmgr_remote_kml_download_failed),
-                                    String.format(
-                                            _context.getString(
-                                                    R.string.importmgr_failed_to_create_local_file_filename),
-                                            curRequest.getFileName()),
-                                    String.format(
-                                            _context.getString(
-                                                    R.string.importmgr_failed_to_create_local_file_filename),
-                                            curRequest.getFileName()));
+                    postNotification(initialRequest,
+                            R.drawable.ic_network_error_notification_icon,
+                            getString(
+                                    R.string.importmgr_remote_kml_download_failed),
+                            getString(
+                                    R.string.importmgr_failed_to_create_local_file_filename,
+                                    curRequest.getFileName()));
                     continue;
                     //return;
                 }
@@ -472,22 +418,13 @@ public class KMLNetworkLinkDownloader implements RequestListener {
                         Log.e(TAG,
                                 "Remote KML Download Failed - Failed to rename local file: "
                                         + renamed.getAbsolutePath());
-                        NotificationUtil
-                                .getInstance()
-                                .postNotification(
-                                        initialRequest.getNotificationId(),
-                                        R.drawable.ic_network_error_notification_icon,
-                                        NotificationUtil.RED,
-                                        _context.getString(
-                                                R.string.importmgr_remote_kml_download_failed),
-                                        String.format(
-                                                _context.getString(
-                                                        R.string.importmgr_failed_to_create_local_file_filename),
-                                                curRequest.getFileName()),
-                                        String.format(
-                                                _context.getString(
-                                                        R.string.importmgr_failed_to_create_local_file_filename),
-                                                curRequest.getFileName()));
+                        postNotification(initialRequest,
+                                R.drawable.ic_network_error_notification_icon,
+                                getString(
+                                        R.string.importmgr_remote_kml_download_failed),
+                                getString(
+                                        R.string.importmgr_failed_to_create_local_file_filename,
+                                        curRequest.getFileName()));
                         return;
                     }
 
@@ -500,22 +437,13 @@ public class KMLNetworkLinkDownloader implements RequestListener {
                     Log.e(TAG,
                             "Remote KML Download Failed - Failed to create local file: "
                                     + downloadedFile);
-                    NotificationUtil
-                            .getInstance()
-                            .postNotification(
-                                    initialRequest.getNotificationId(),
-                                    R.drawable.ic_network_error_notification_icon,
-                                    NotificationUtil.RED,
-                                    _context.getString(
-                                            R.string.importmgr_remote_kml_download_failed),
-                                    String.format(
-                                            _context.getString(
-                                                    R.string.importmgr_failed_to_create_local_file_filename),
-                                            curRequest.getFileName()),
-                                    String.format(
-                                            _context.getString(
-                                                    R.string.importmgr_failed_to_create_local_file_filename),
-                                            curRequest.getFileName()));
+                    postNotification(initialRequest,
+                            R.drawable.ic_network_error_notification_icon,
+                            getString(
+                                    R.string.importmgr_remote_kml_download_failed),
+                            getString(
+                                    R.string.importmgr_failed_to_create_local_file_filename,
+                                    curRequest.getFileName()));
                     return;
                 }
 
@@ -538,160 +466,23 @@ public class KMLNetworkLinkDownloader implements RequestListener {
                             e1);
                 }
 
-                Kml kml;
-                try {
-                    Log.d(TAG,
-                            "Parsing downloaded file: "
-                                    + downloadedFile.getAbsolutePath());
-                    kml = _serializer
-                            .read(Kml.class, downloadedFile, false);
+                try (FileInputStream fis = IOProviderFactory
+                        .getInputStream(downloadedFile)) {
+                    Log.d(TAG, "Parsing downloaded file: " + downloadedFile);
+                    childRequests.getRequests().addAll(
+                            processLinks(initialRequest, curRequest, fis));
                 } catch (Exception e) {
                     Log.e(TAG,
                             "Remote KML Download Failed - Unable to de-serialize KML",
                             e);
-                    NotificationUtil
-                            .getInstance()
-                            .postNotification(
-                                    initialRequest.getNotificationId(),
-                                    R.drawable.ic_network_error_notification_icon,
-                                    NotificationUtil.RED,
-                                    _context.getString(
-                                            R.string.importmgr_remote_kml_download_failed),
-                                    String.format(
-                                            _context.getString(
-                                                    R.string.importmgr_invalid_kml),
-                                            curRequest.getFileName()),
-                                    String.format(
-                                            _context.getString(
-                                                    R.string.importmgr_invalid_kml),
-                                            curRequest.getFileName()));
+                    postNotification(initialRequest,
+                            R.drawable.ic_network_error_notification_icon,
+                            getString(
+                                    R.string.importmgr_remote_kml_download_failed),
+                            getString(R.string.importmgr_invalid_kml,
+                                    curRequest.getFileName()));
                     return;
                 }
-
-                if (kml == null || kml.getFeature() == null) {
-                    Log.w(TAG,
-                            "Remote KML Download Failed - KML has no Feature");
-                    NotificationUtil
-                            .getInstance()
-                            .postNotification(
-                                    initialRequest.getNotificationId(),
-                                    R.drawable.ic_network_error_notification_icon,
-                                    NotificationUtil.RED,
-                                    _context.getString(
-                                            R.string.importmgr_remote_kml_download_failed),
-                                    String.format(
-                                            _context.getString(
-                                                    R.string.importmgr_kml_has_no_features),
-                                            curRequest.getFileName()),
-                                    String.format(
-                                            _context.getString(
-                                                    R.string.importmgr_kml_has_no_features),
-                                            curRequest.getFileName()));
-                    return;
-                }
-
-                KMLUtil.deepFeatures(kml,
-                        new FeatureHandler<NetworkLink>() {
-
-                            @Override
-                            public boolean process(NetworkLink link) {
-                                if (link == null || link.getLink() == null
-                                        || link.getLink().getHref() == null) {
-                                    Log.w(TAG,
-                                            "Remote KML Download Failed - KML has invalid Link");
-                                    NotificationUtil
-                                            .getInstance()
-                                            .postNotification(
-                                                    initialRequest
-                                                            .getNotificationId(),
-                                                    R.drawable.ic_network_error_notification_icon,
-                                                    NotificationUtil.RED,
-                                                    _context.getString(
-                                                            R.string.importmgr_remote_kml_download_failed),
-                                                    String.format(
-                                                            _context.getString(
-                                                                    R.string.importmgr_kml_has_invalid_link),
-                                                            curRequest
-                                                                    .getFileName()),
-                                                    String.format(
-                                                            _context.getString(
-                                                                    R.string.importmgr_kml_has_invalid_link),
-                                                            curRequest
-                                                                    .getFileName()));
-                                    return false;
-                                }
-
-                                String url = KMLUtil.getURL(link.getLink());
-                                if (FileSystemUtils.isEmpty(url)) {
-                                    Log.e(TAG,
-                                            "Unsupported NetworkLink URL: : "
-                                                    + url);
-                                    NotificationUtil
-                                            .getInstance()
-                                            .postNotification(
-                                                    initialRequest
-                                                            .getNotificationId(),
-                                                    R.drawable.ic_network_error_notification_icon,
-                                                    NotificationUtil.RED,
-                                                    _context.getString(
-                                                            R.string.importmgr_remote_kml_download_failed),
-                                                    String.format(
-                                                            _context.getString(
-                                                                    R.string.importmgr_only_http_s_network_links_supported),
-                                                            curRequest
-                                                                    .getFileName()),
-                                                    String.format(
-                                                            _context.getString(
-                                                                    R.string.importmgr_only_http_s_network_links_supported),
-                                                            curRequest
-                                                                    .getFileName()));
-                                    return false;
-                                }
-
-                                String filename = curRequest.getFileName();
-                                if (FileSystemUtils.isEmpty(filename)) {
-                                    Log.e(TAG,
-                                            "Unable to determine local filename for Network Link: "
-                                                    + url);
-                                    NotificationUtil
-                                            .getInstance()
-                                            .postNotification(
-                                                    initialRequest
-                                                            .getNotificationId(),
-                                                    R.drawable.ic_network_error_notification_icon,
-                                                    NotificationUtil.RED,
-                                                    _context.getString(
-                                                            R.string.importmgr_remote_kml_download_failed),
-                                                    _context.getString(
-                                                            R.string.importmgr_unable_to_determine_filename),
-                                                    _context.getString(
-                                                            R.string.importmgr_unable_to_determine_filename));
-                                    return false;
-                                }
-
-                                // get label for this Network Link
-
-                                Log.d(TAG, "download: " + link);
-                                filename = filename + "-"
-                                        + link.getLink().getHref()
-                                                .replaceAll(":", "")
-                                                .replaceAll("/", "-");
-                                Log.d(TAG, "to: " + filename);
-
-                                // filename = KMLUtil.getNetworkLinkName(
-                                //         filename, link) + (count++);
-                                childRequests
-                                        .getRequests()
-                                        .add(
-                                                new GetFileRequest(
-                                                        url,
-                                                        filename,
-                                                        curRequest.getDir(),
-                                                        initialRequest
-                                                                .getNotificationId()));
-                                return false;
-                            }
-                        }, NetworkLink.class);
 
             } // end request loop
 
@@ -700,9 +491,8 @@ public class KMLNetworkLinkDownloader implements RequestListener {
                 // psuedo-recurse
                 download(childRequests);
             } else {
-                Log.d(TAG,
-                        "Finished downloading Network Links for: "
-                                + initialRequest.toString());
+                Log.d(TAG, "Finished downloading Network Links for: "
+                        + initialRequest);
 
                 // all data is on file system, now move them into KML folder to be imported
                 // we are storing all in the same temp dir, so just grab off first one
@@ -711,7 +501,8 @@ public class KMLNetworkLinkDownloader implements RequestListener {
 
                 new ImportNetworkLinksTask(_serializer, _context,
                         initialRequest.getResource(),
-                        initialRequest.getNotificationId())
+                        initialRequest.getNotificationId(),
+                        initialRequest.showNotifications())
                                 .execute(tempFolder);
             }
         } else {
@@ -720,68 +511,111 @@ public class KMLNetworkLinkDownloader implements RequestListener {
         }
     }
 
+    private List<RemoteResourceRequest> processLinks(
+            final RemoteResourcesRequest initialRequest,
+            final GetFileRequest curRequest, InputStream is) {
+        final RemoteResource resource = initialRequest.getResource();
+        final List<RemoteResourceRequest> ret = new ArrayList<>();
+        KMLUtil.parseNetworkLinks(is, new FeatureHandler<NetworkLink>() {
+            @Override
+            public boolean process(NetworkLink link) {
+                if (link == null || link.getLink() == null
+                        || link.getLink().getHref() == null) {
+                    Log.w(TAG,
+                            "Remote KML Download Failed - KML has invalid Link");
+                    postNotification(initialRequest,
+                            R.drawable.ic_network_error_notification_icon,
+                            getString(
+                                    R.string.importmgr_remote_kml_download_failed),
+                            getString(R.string.importmgr_kml_has_invalid_link,
+                                    curRequest.getFileName()));
+                    return false;
+                }
+
+                Link l = link.getLink();
+                String url = KMLUtil.getURL(l);
+                if (FileSystemUtils.isEmpty(url)) {
+                    Log.e(TAG, "Unsupported NetworkLink URL: : " + url);
+                    postNotification(initialRequest,
+                            R.drawable.ic_network_error_notification_icon,
+                            getString(
+                                    R.string.importmgr_remote_kml_download_failed),
+                            getString(
+                                    R.string.importmgr_only_http_s_network_links_supported,
+                                    curRequest.getFileName()));
+                    return false;
+                }
+
+                String filename = curRequest.getFileName();
+                if (FileSystemUtils.isEmpty(filename)) {
+                    Log.e(TAG,
+                            "Unable to determine local filename for Network Link: "
+                                    + url);
+                    postNotification(initialRequest,
+                            R.drawable.ic_network_error_notification_icon,
+                            getString(
+                                    R.string.importmgr_remote_kml_download_failed),
+                            getString(
+                                    R.string.importmgr_unable_to_determine_filename));
+                    return false;
+                }
+
+                // get label for this Network Link
+
+                Log.d(TAG, "download: " + link);
+                filename = filename + "-" + l.getHref()
+                        .replaceAll(":", "")
+                        .replaceAll("/", "-");
+                Log.d(TAG, "to: " + filename);
+
+                RemoteResource child = resource.findChildByURL(url);
+                if (child == null)
+                    resource.addChild(child = new RemoteResource());
+                child.setUrl(url);
+                child.setName(link.getName());
+                child.setTypeFromURL(url);
+                child.setRefreshSeconds(l.getRefreshInterval().longValue());
+                child.setLocalPath(new File(curRequest.getDir(), filename));
+
+                // filename = KMLUtil.getNetworkLinkName(
+                //         filename, link) + (count++);
+                ret.add(new RemoteResourceRequest(child, filename,
+                        curRequest.getDir(),
+                        initialRequest.getNotificationId(),
+                        initialRequest.showNotifications()));
+                return false;
+            }
+        });
+        return ret;
+    }
+
     @Override
     public void onRequestConnectionError(Request request,
             RequestManager.ConnectionError ce) {
         String detail = NetworkOperation.getErrorMessage(ce);
         Log.e(TAG, "Remote KML Download Failed - Request Connection Error: "
                 + detail);
-        NotificationUtil
-                .getInstance()
-                .postNotification(
-                        SpatialDbContentSource.getNotificationId(),
-                        R.drawable.ic_network_error_notification_icon,
-                        NotificationUtil.RED,
-                        _context.getString(
-                                R.string.importmgr_remote_kml_download_failed),
-                        String.format(_context
-                                .getString(R.string.importmgr_check_your_url),
-                                detail),
-                        String.format(_context
-                                .getString(R.string.importmgr_check_your_url),
-                                detail));
+        postNotification(SpatialDbContentSource.getNotificationId(),
+                R.drawable.ic_network_error_notification_icon,
+                getString(R.string.importmgr_remote_kml_download_failed),
+                getString(R.string.importmgr_check_your_url, detail));
     }
 
     @Override
     public void onRequestDataError(Request request) {
         Log.e(TAG, "Remote KML Download Failed - Request Data Error");
-        NotificationUtil
-                .getInstance()
-                .postNotification(
-                        SpatialDbContentSource.getNotificationId(),
-                        R.drawable.ic_network_error_notification_icon,
-                        NotificationUtil.RED,
-                        _context.getString(
-                                R.string.importmgr_remote_kml_download_failed),
-                        _context.getString(
-                                R.string.importmgr_request_data_error),
-                        _context.getString(
-                                R.string.importmgr_request_data_error));
+        postNotification(SpatialDbContentSource.getNotificationId(),
+                R.drawable.ic_network_error_notification_icon,
+                R.string.importmgr_remote_kml_download_failed,
+                R.string.importmgr_request_data_error);
     }
 
     @Override
     public void onRequestCustomError(Request request, Bundle resultData) {
         Log.e(TAG, "Remote KML Download Failed - Request Custom Error");
-        NotificationUtil
-                .getInstance()
-                .postNotification(
-                        SpatialDbContentSource.getNotificationId(),
-                        R.drawable.ic_network_error_notification_icon,
-                        NotificationUtil.RED,
-                        _context.getString(
-                                R.string.importmgr_remote_kml_download_failed),
-                        _context.getString(
-                                R.string.importmgr_request_custom_error),
-                        _context.getString(
-                                R.string.importmgr_request_custom_error));
-    }
-
-    public void shutdown() {
-        // TODO what to do? Shutdown RequestService? cancel any ongoing downloads?
-
-        if (_linkRefresh != null) {
-            _linkRefresh.shutdown();
-            _linkRefresh = null;
-        }
+        postNotification(SpatialDbContentSource.getNotificationId(),
+                R.drawable.ic_network_error_notification_icon,
+                R.string.importmgr_remote_kml_download_failed,
+                R.string.importmgr_request_custom_error);
     }
 }

@@ -5,6 +5,7 @@ import android.app.IntentService;
 import android.content.Intent;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
+import android.os.Bundle;
 import android.os.Parcelable;
 import android.os.SystemClock;
 
@@ -121,16 +122,16 @@ public class DownloadAndCacheService extends IntentService {
 
     private static final String SERVICE_NAME = "DownloadAndCacheService";
     private static final String TAG = "DownloadAndCacheService";
-    private String title = "";
+    protected String title = "";
     private CacheRequest currentRequest = null;
     private GeoPoint upperLeft = null;
     private GeoPoint lowerRight = null;
     private GeoPoint[] geometry = null;
-    private int queuedDownloads = 0;
+    protected int queuedDownloads = 0;
 
-    private int currentProgress = 0;
-    private int secondaryProgress = 0;
-    private int maxProgress = 0;
+    protected int currentProgress = 0;
+    protected int secondaryProgress = 0;
+    protected int maxProgress = 0;
 
     public DownloadAndCacheService() {
         super(SERVICE_NAME);
@@ -138,23 +139,31 @@ public class DownloadAndCacheService extends IntentService {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        if (intent != null)
-            if (intent.getExtras() != null) {
-                if (intent.getExtras().containsKey(CANCEL_DOWNLOAD)) {
-                    if (currentRequest != null)
-                        currentRequest.canceled = true;
-                } else if (intent.getExtras().containsKey(QUEUE_DOWNLOAD)) {
-                    queuedDownloads++;
-                    Log.d(TAG, "tileset added to queue");
-                }
+        if (intent != null) {
+            // Notify download canceled
+            if (intent.hasExtra(CANCEL_DOWNLOAD)) {
+                if (currentRequest != null)
+                    currentRequest.canceled = true;
             }
+
+            // Mark download queued
+            else if (intent.hasExtra(QUEUE_DOWNLOAD)) {
+                queuedDownloads++;
+                Log.d(TAG, "tileset added to queue");
+            }
+        }
 
         return super.onStartCommand(intent, flags, startId);
     }
 
     @Override
     protected void onHandleIntent(Intent intent) {
+        // Download in queue ready
+        if (intent.hasExtra(QUEUE_DOWNLOAD))
+            queueDownload(intent);
+    }
 
+    private void queueDownload(Intent intent) {
         this.upperLeft = intent.getParcelableExtra(UPPERLEFT);
         this.lowerRight = intent.getParcelableExtra(LOWERRIGHT);
         Parcelable[] p = (Parcelable[]) intent.getSerializableExtra(GEOMETRY);
@@ -164,12 +173,21 @@ public class DownloadAndCacheService extends IntentService {
                 this.geometry[i] = (GeoPoint) p[i];
         }
 
-        title = intent.getExtras().getString(TITLE);
-        String uri = intent.getExtras().getString(SOURCE_URI);
-        double minRes = intent.getExtras()
-                .getDouble(MIN_RESOLUTION, Double.NaN);
-        double maxRes = intent.getExtras()
-                .getDouble(MAX_RESOLUTION, Double.NaN);
+        final Bundle extras = intent.getExtras();
+
+        double minRes = Double.NaN;
+        double maxRes = Double.NaN;
+        String uri = null;
+
+        if (extras != null) {
+
+            title = extras.getString(TITLE);
+            uri = extras.getString(SOURCE_URI);
+            minRes = extras
+                    .getDouble(MIN_RESOLUTION, Double.NaN);
+            maxRes = extras
+                    .getDouble(MAX_RESOLUTION, Double.NaN);
+        }
 
         if (title == null || title.equals("")) {
             Log.e(TAG,
@@ -217,10 +235,7 @@ public class DownloadAndCacheService extends IntentService {
             };
         }
 
-        download(
-                intent.getStringExtra(CACHE_URI),
-                uri,
-                minRes, maxRes);
+        download(intent.getStringExtra(CACHE_URI), uri, minRes, maxRes);
     }
 
     /**
@@ -415,8 +430,7 @@ public class DownloadAndCacheService extends IntentService {
                     // location
 
                     // TODO notify the user that they do not have a network
-                    // connection
-                    // with the option to cancel the DL or retry
+                    // connection with the option to cancel the DL or retry
 
                     // for now just notify the user of the error
 
@@ -485,7 +499,7 @@ public class DownloadAndCacheService extends IntentService {
      * Broadcasts an intent with the time left to download all the tilesets in the queue, the
      * current tile that has been downloaded, and the current layer that is being downloaded.
      */
-    private void reportDownloadStatus(Long time, String tile, String layer) {
+    protected void reportDownloadStatus(Long time, String tile, String layer) {
         Intent localIntent = new Intent(BROADCAST_ACTION);
         localIntent.putExtra(DOWNLOAD_STATUS, true);
 
@@ -499,13 +513,14 @@ public class DownloadAndCacheService extends IntentService {
         localIntent.putExtra(PROGRESS_BAR_PROGRESS, currentProgress);
         localIntent.putExtra(PROGRESS_BAR_ADJUST_SECONDARY, secondaryProgress);
         localIntent.putExtra(PROGRESS_BAR_SET_MAX, maxProgress);
+        localIntent.putExtra(TITLE, title);
 
         // Broadcasts the Intent to receivers in this app.
         AtakBroadcast.getInstance().sendBroadcast(
                 localIntent);
     }
 
-    private void reportJobStatus(int statusMessage) {
+    protected void reportJobStatus(int statusMessage) {
         Intent localIntent = new Intent(BROADCAST_ACTION);
 
         // Puts the status into the Intent
@@ -517,10 +532,11 @@ public class DownloadAndCacheService extends IntentService {
         AtakBroadcast.getInstance().sendBroadcast(localIntent);
     }
 
-    private void reportProgress(String name, int value) {
+    protected void reportProgress(String name, int value) {
         Intent localIntent = new Intent(BROADCAST_ACTION);
         localIntent.putExtra(PROGRESS_BAR_STATUS, true);
         localIntent.putExtra(name, value);
+        localIntent.putExtra(TITLE, title);
 
         // Broadcasts the Intent to receivers in this app.
         AtakBroadcast.getInstance().sendBroadcast(
@@ -535,13 +551,20 @@ public class DownloadAndCacheService extends IntentService {
         AtakBroadcast.getInstance().sendBroadcast(scanIntent);
     }
 
+    /**
+     * Returns if the network is determined to be online.  This does not take into account
+     * networks supplied by physical radio connections.
+     * @return true if the wifi or cell is online.
+     * @deprecated
+     */
+    @Deprecated
     public boolean isOnline() {
         ConnectivityManager cm = (ConnectivityManager) this
                 .getSystemService(CONNECTIVITY_SERVICE);
-        NetworkInfo netInfo = cm.getActiveNetworkInfo();
-        if (netInfo != null && netInfo.isConnectedOrConnecting()) {
-            return true;
-        }
-        return false;
+        NetworkInfo netInfo = null;
+        if (cm != null)
+            netInfo = cm.getActiveNetworkInfo();
+
+        return netInfo != null && netInfo.isConnectedOrConnecting();
     }
 }

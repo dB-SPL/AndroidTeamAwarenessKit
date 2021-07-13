@@ -4,6 +4,7 @@ package com.atakmap.android.gdal.layers;
 import com.atakmap.android.layers.GenericLayerScanner;
 import com.atakmap.android.layers.LayerScanner;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.map.layer.raster.apass.ApassLayerInfoSpi;
 
@@ -49,7 +50,7 @@ public class ApassMosaicScanner extends GenericLayerScanner {
     @Override
     protected void scanDirectory(int depth, File dir) {
         File apassDb = new File(dir, "images.pfiva.sqlite3");
-        if (apassDb.exists()) {
+        if (IOProviderFactory.exists(apassDb)) {
             if (!this.database.contains(apassDb))
                 try {
                     this.database.add(apassDb, this.getName());
@@ -62,11 +63,11 @@ public class ApassMosaicScanner extends GenericLayerScanner {
         }
         if (depth == SCAN_DEPTH_LIMIT)
             return;
-        File[] children = dir.listFiles();
+        File[] children = IOProviderFactory.listFiles(dir);
         if (children == null)
             return;
         for (File aChildren : children) {
-            if (aChildren.isDirectory()
+            if (IOProviderFactory.isDirectory(aChildren)
                     && !SCAN_BLACKLIST.contains(aChildren.getName()))
                 this.scanDirectory(depth + 1, aChildren);
         }

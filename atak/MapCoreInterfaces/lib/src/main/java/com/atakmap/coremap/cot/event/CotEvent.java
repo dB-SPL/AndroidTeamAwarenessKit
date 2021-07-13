@@ -3,6 +3,7 @@ package com.atakmap.coremap.cot.event;
 
 import java.io.File;
 import java.io.FileNotFoundException;
+import java.io.OutputStreamWriter;
 import java.io.UnsupportedEncodingException;
 import java.io.IOException;
 import java.io.PrintWriter;
@@ -11,6 +12,8 @@ import java.util.Locale;
 
 import android.os.Parcel;
 import android.os.Parcelable;
+
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
 
 import com.atakmap.coremap.maps.time.CoordinatedTime;
@@ -212,19 +215,18 @@ public class CotEvent implements Parcelable {
                 return;
 
             // File f = FileSystemUtils.getItem("cot");
-            if (!directory.exists())
-                if (!directory.mkdir())
+            if (!IOProviderFactory.exists(directory))
+                if (!IOProviderFactory.mkdir(directory))
                     Log.w(TAG, "Failed to create directory");
 
             try {
                 File lf = new File(directory, "cot_" + getLogDateString()
                         + ".log");
-                fileWriter = new PrintWriter(lf,
-                        FileSystemUtils.UTF8_CHARSET.name());
-            } catch (UnsupportedEncodingException uee) {
+                fileWriter = new PrintWriter(new OutputStreamWriter(
+                        IOProviderFactory.getOutputStream(lf),
+                        FileSystemUtils.UTF8_CHARSET.name()));
+            } catch (IOException uee) {
                 Log.e(TAG, "error: ", uee);
-            } catch (FileNotFoundException fnfe) {
-                Log.e(TAG, "error: ", fnfe);
             }
         } else {
             if (fileWriter != null)

@@ -1,28 +1,24 @@
 
 package com.atakmap.android.importfiles.sort;
 
-import com.atakmap.coremap.locale.LocaleUtil;
-
-import android.content.Context;
-
-import com.atakmap.app.R;
-import com.atakmap.coremap.filesystem.FileSystemUtils;
-import com.atakmap.coremap.log.Log;
-
 import android.app.Notification;
+import android.content.Context;
 import android.util.Pair;
 
 import com.atakmap.android.util.NotificationUtil;
+import com.atakmap.app.R;
+import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
+import com.atakmap.coremap.locale.LocaleUtil;
+import com.atakmap.coremap.log.Log;
+import com.atakmap.util.zip.ZipFile;
 
 import java.io.File;
-import java.io.InputStream;
-import java.io.IOException;
-import java.io.FileInputStream;
 import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
 import java.util.Enumeration;
 import java.util.Set;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipFile;
 import java.util.zip.ZipInputStream;
 
 /**
@@ -121,7 +117,7 @@ public class ImportDTEDZSort extends ImportInPlaceResolver {
             return false;
         }
 
-        if (!file.exists()) {
+        if (!IOProviderFactory.exists(file)) {
             Log.d(TAG, "ZIP does not exist: " + file.getAbsolutePath());
             return false;
         }
@@ -131,9 +127,10 @@ public class ImportDTEDZSort extends ImportInPlaceResolver {
             zip = new ZipFile(file);
 
             boolean hasDTED = false;
-            Enumeration<? extends ZipEntry> entries = zip.entries();
+            Enumeration<? extends com.atakmap.util.zip.ZipEntry> entries = zip
+                    .entries();
             while (entries.hasMoreElements() && !hasDTED) {
-                ZipEntry ze = entries.nextElement();
+                com.atakmap.util.zip.ZipEntry ze = entries.nextElement();
                 String name = ze.getName();
                 if (containsDT(name)) {
                     File f = new File(name);
@@ -181,7 +178,6 @@ public class ImportDTEDZSort extends ImportInPlaceResolver {
 
     private boolean installDTED(File dtedFile) {
         byte[] buffer = new byte[4096];
-        FileOutputStream fos = null;
         String entry;
         boolean error = false;
         ZipInputStream zis = null;
@@ -197,22 +193,21 @@ public class ImportDTEDZSort extends ImportInPlaceResolver {
         Notification.Builder builder = NotificationUtil.getInstance()
                 .getNotificationBuilder(notificationId);
 
-        try {
+        try (InputStream is = IOProviderFactory.getInputStream(dtedFile)) {
             // create output directory is not exists
             File folder = FileSystemUtils
                     .getItem(FileSystemUtils.DTED_DIRECTORY);
-            if (!folder.exists()) {
-                if (!folder.mkdir()) {
+            if (!IOProviderFactory.exists(folder)) {
+                if (!IOProviderFactory.mkdir(folder)) {
                     Log.d(TAG, "could not wrap: " + folder);
                 }
             }
 
-            InputStream in = new FileInputStream(dtedFile);
             // get the zip file content
-            zis = new ZipInputStream(in);
+            zis = new ZipInputStream(is);
 
             // get the zipped file list entry
-            ZipEntry ze = zis.getNextEntry();
+            java.util.zip.ZipEntry ze = zis.getNextEntry();
 
             int count = 0;
             while (ze != null) {
@@ -267,12 +262,13 @@ public class ImportDTEDZSort extends ImportInPlaceResolver {
                     // create all non exists folders
                     // else you will hit FileNotFoundException 
                     // for compressed folder
-                    if (!(new File(newFile.getParent()).mkdirs())) {
+                    if (!(IOProviderFactory
+                            .mkdirs(new File(newFile.getParent())))) {
                         Log.d(TAG, "could not make: " + newFile.getParent());
                     }
 
-                    try {
-                        fos = new FileOutputStream(newFile);
+                    try (FileOutputStream fos = IOProviderFactory
+                            .getOutputStream(newFile)) {
 
                         int len;
                         while ((len = zis.read(buffer)) > 0) {
@@ -282,9 +278,6 @@ public class ImportDTEDZSort extends ImportInPlaceResolver {
                     } catch (IOException ex) {
                         // skip this file
                         Log.d(TAG, "error occurred during unzipping", ex);
-                    } finally {
-                        if (fos != null)
-                            fos.close();
                     }
                 }
                 //else {

@@ -2,8 +2,9 @@
 package com.atakmap.map.layer.raster.gdal;
 
 import android.graphics.Bitmap;
-import com.atakmap.coremap.log.Log;
 
+import com.atakmap.coremap.log.Log;
+import com.atakmap.map.gdal.GdalLibrary;
 import com.atakmap.map.layer.raster.drg.DRGTileReader;
 import com.atakmap.map.layer.raster.tilereader.TileCacheData;
 import com.atakmap.map.layer.raster.tilereader.TileReader;
@@ -44,7 +45,7 @@ public class GdalTileReader extends TileReader {
 
             Throwable error = null;
             try {
-                Dataset dataset = gdal.Open(uri);
+                Dataset dataset = GdalLibrary.openDatasetFromPath(uri);
                 if(dataset != null) {
                     int tileWidth = 0;
                     int tileHeight = 0;
@@ -79,8 +80,11 @@ public class GdalTileReader extends TileReader {
             
             Dataset dataset = null;
             try {
-                dataset = gdal.Open(uri);
+                dataset = GdalLibrary.openDatasetFromPath(uri);
                 return (dataset != null);
+            } catch (Exception e) { 
+                Log.e(TAG, "unexpected error opening: " + uri, e);
+                return false;
             } finally {
                 if(dataset != null)
                     dataset.delete();
@@ -135,6 +139,9 @@ public class GdalTileReader extends TileReader {
             AsynchronousIO asynchronousIO) {
 
         super(uri, cacheUri, MAX_UNCACHED_READ_LEVEL, asynchronousIO);
+
+        if(tileWidth <= 0 || tileHeight <= 0)
+            throw new IllegalArgumentException();
         
         this.dataset = dataset;
         this.width = this.dataset.GetRasterXSize();
@@ -203,7 +210,7 @@ public class GdalTileReader extends TileReader {
             };
             for (int i = 1; i <= numBands; i++) {
                 if (this.dataset.GetRasterBand(i).GetColorInterpretation() != gdalconst.GCI_AlphaBand) {
-                    alphaBand = i;
+                    this.bandRequest[0] = i;
                     break;
                 }
             }

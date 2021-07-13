@@ -6,6 +6,7 @@ import android.content.Context;
 import android.app.Activity;
 import android.content.pm.PackageManager;
 import android.Manifest;
+
 import com.atakmap.coremap.log.Log;
 
 import android.app.AlertDialog;
@@ -13,6 +14,10 @@ import android.content.DialogInterface;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Build;
+import android.view.LayoutInflater;
+import android.view.View;
+import android.widget.TextView;
+
 import androidx.annotation.NonNull;
 
 public class Permissions {
@@ -20,6 +25,11 @@ public class Permissions {
     private final static String TAG = "Permissions";
 
     final static int REQUEST_ID = 90402;
+
+    final static int LOCATION_REQUEST_ID = 90403;
+
+
+
 
     final static String[] PermissionsList = new String[] {
             Manifest.permission.ACCESS_FINE_LOCATION,
@@ -57,11 +67,20 @@ public class Permissions {
             "com.atakmap.app.ALLOW_TEXT_SPEECH",
     };
 
+    final static String[] locationPermissionsList = new String[] {
+            Manifest.permission.ACCESS_FINE_LOCATION,
+            Manifest.permission.ACCESS_LOCATION_EXTRA_COMMANDS,
+            // 29 - protection in place
+            Manifest.permission.ACCESS_BACKGROUND_LOCATION,
+    };
+
     static boolean checkPermissions(final Activity a) {
 
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
             return true;
         }
+
+
         int result = 0;
         for (String permission : PermissionsList) {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q
@@ -72,6 +91,11 @@ public class Permissions {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O
                     && Manifest.permission.REQUEST_DELETE_PACKAGES
                             .equals(permission))
+                continue;
+
+            // for this specific flavor, go ahead and do not enable SEND_SMS
+            if (BuildConfig.FLAVOR.equalsIgnoreCase("civSmall")
+                    && Manifest.permission.SEND_SMS.equals(permission))
                 continue;
 
             result += a.checkSelfPermission(permission);
@@ -111,17 +135,42 @@ public class Permissions {
 
     }
 
-    @TargetApi(29)
+    @TargetApi(23)
     private static void showWarning(final Activity a) {
+        LayoutInflater li = LayoutInflater.from(a);
+        View v = li.inflate(R.layout.background_location, null);
         final AlertDialog.Builder builder = new AlertDialog.Builder(a);
-        builder.setMessage(R.string.background_permission_warning);
+        builder.setTitle(R.string.use_your_location_title);
+        builder.setView(v);
+        builder.setIcon(R.drawable.ic_menu_mylocation);
 
         builder.setCancelable(false);
         builder.setPositiveButton(R.string.ok,
                 new DialogInterface.OnClickListener() {
                     @Override
                     public void onClick(DialogInterface dialog, int which) {
-                        a.requestPermissions(PermissionsList, REQUEST_ID);
+
+                        if (Build.VERSION.SDK_INT > Build.VERSION_CODES.Q) {
+                            View view = LayoutInflater.from(a)
+                                    .inflate(R.layout.location_permission_warning, null);
+
+                            AlertDialog.Builder ab = new AlertDialog.Builder(a);
+                            ab.setTitle(R.string.android_11_warning);
+                            ab.setView(view);
+                            ab.setCancelable(false);
+                            ab.setPositiveButton(R.string.ok,
+                                    new DialogInterface.OnClickListener() {
+                                        @Override
+                                        public void onClick(
+                                                DialogInterface dialog,
+                                                int which) {
+                                            a.requestPermissions(locationPermissionsList, LOCATION_REQUEST_ID);
+                                        }
+                                    });
+                            ab.show();
+                        } else {
+                            a.requestPermissions(locationPermissionsList, LOCATION_REQUEST_ID);
+                        }
                     }
                 });
         AlertDialog ad = builder.create();
@@ -133,9 +182,23 @@ public class Permissions {
 
     static void displayNeverAskAgainDialog(final Activity a) {
 
-        AlertDialog.Builder builder = new AlertDialog.Builder(a);
-        builder.setMessage(R.string.permission_warning);
+        View view = LayoutInflater.from(a).inflate(R.layout.general_permission_guidance,
+                null);
 
+
+
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            final int result = a.checkSelfPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION);
+            if (result != PackageManager.PERMISSION_GRANTED) {
+                view = LayoutInflater.from(a).inflate(R.layout.location_permission_guidance,
+                        null);
+            }
+        }
+
+        final AlertDialog.Builder builder = new AlertDialog.Builder(a);
+        builder.setTitle("Missing Permissions");
+        builder.setView(view);
         builder.setCancelable(false);
         builder.setPositiveButton(R.string.permit_manually,
                 new DialogInterface.OnClickListener() {
@@ -189,6 +252,7 @@ public class Permissions {
 
         Log.d(TAG, "onRequestPermissionsResult called: " + requestCode);
         switch (requestCode) {
+            case Permissions.LOCATION_REQUEST_ID:
             case Permissions.REQUEST_ID:
                 if (grantResults.length > 0) {
                     boolean b = true;
@@ -200,6 +264,12 @@ public class Permissions {
 
                         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O
                                 && Manifest.permission.REQUEST_DELETE_PACKAGES
+                                        .equals(permissions[i]))
+                            continue;
+
+                        // for this specific flavor, go ahead and do not enable SEND_SMS
+                        if (BuildConfig.FLAVOR.equalsIgnoreCase("civSmall")
+                                && Manifest.permission.SEND_SMS
                                         .equals(permissions[i]))
                             continue;
 

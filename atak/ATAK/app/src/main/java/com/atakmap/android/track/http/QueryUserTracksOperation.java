@@ -5,6 +5,7 @@ import android.app.Notification;
 import android.app.NotificationManager;
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.SystemClock;
 import android.preference.PreferenceManager;
@@ -18,6 +19,7 @@ import com.atakmap.comms.http.TakHttpClient;
 import com.atakmap.comms.http.TakHttpException;
 import com.atakmap.comms.http.TakHttpResponse;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.locale.LocaleUtil;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.spatial.kml.FeatureHandler;
@@ -37,6 +39,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
@@ -97,7 +100,7 @@ public final class QueryUserTracksOperation extends HTTPOperation {
                     .getSystemService(Context.NOTIFICATION_SERVICE);
 
             Notification.Builder builder;
-            if (android.os.Build.VERSION.SDK_INT < 26) {
+            if (android.os.Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
                 builder = new Notification.Builder(context);
             } else {
                 builder = new Notification.Builder(context,
@@ -152,33 +155,17 @@ public final class QueryUserTracksOperation extends HTTPOperation {
                     tempFileName);
             Log.d(TAG,
                     "processing response into file: " + temp.getAbsolutePath());
-            FileOutputStream fos = new FileOutputStream(temp);
 
-            // stream in content, keep user notified on progress
-            builder.setProgress(100, 1, false);
-            if (notifyManager != null) {
-                notifyManager.notify(queryRequest.getNotificationId(),
-                        builder.build());
-            }
-
-            int len;
-            byte[] buf = new byte[8192];
-
-            InputStream in = null;
-            try {
-                in = resEntity.getContent();
-                while ((len = in.read(buf)) > 0) {
-                    fos.write(buf, 0, len);
-                } // end read loop
-                in.close();
-            } finally {
-                if (in != null) {
-                    try {
-                        in.close();
-                    } catch (IOException ignored) {
-                    }
+            try (OutputStream fos = IOProviderFactory.getOutputStream(temp);
+                    InputStream in = resEntity.getContent()) {
+                // stream in content, keep user notified on progress
+                builder.setProgress(100, 1, false);
+                if (notifyManager != null) {
+                    notifyManager.notify(queryRequest.getNotificationId(),
+                            builder.build());
                 }
-                fos.close();
+
+                FileSystemUtils.copy(in, fos);
             }
 
             // Now verify we got download correctly
@@ -187,7 +174,7 @@ public final class QueryUserTracksOperation extends HTTPOperation {
                 throw new ConnectionException("Failed to download data");
             }
 
-            long downloadSize = temp.length();
+            long downloadSize = IOProviderFactory.length(temp);
             Log.d(TAG, "Parsing downloaded file: " + temp.getAbsolutePath());
 
             // update notification

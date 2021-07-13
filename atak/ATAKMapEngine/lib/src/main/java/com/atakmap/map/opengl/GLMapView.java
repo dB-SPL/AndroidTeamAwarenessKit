@@ -4,9 +4,9 @@ package com.atakmap.map.opengl;
 import java.nio.Buffer;
 import java.nio.DoubleBuffer;
 import java.nio.FloatBuffer;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.IdentityHashMap;
 import java.util.Iterator;
 import java.util.LinkedList;
@@ -14,10 +14,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import android.graphics.Color;
 import android.graphics.PointF;
 import android.graphics.RectF;
-import android.view.Display;
+import android.opengl.GLES30;
 
+import com.atakmap.annotations.DeprecatedApi;
+import com.atakmap.annotations.IncubatingApi;
 import com.atakmap.coremap.log.Log;
 
 import com.atakmap.coremap.maps.coords.GeoPoint;
@@ -32,18 +35,18 @@ import com.atakmap.map.AtakMapView;
 import com.atakmap.map.EngineLibrary;
 import com.atakmap.map.Globe;
 import com.atakmap.map.Interop;
-import com.atakmap.map.MapRenderer2;
+import com.atakmap.map.MapRenderer3;
 import com.atakmap.map.RenderContext;
 import com.atakmap.map.RenderSurface;
+import com.atakmap.map.elevation.ElevationManager;
+import com.atakmap.map.layer.control.AtmosphereControl;
+import com.atakmap.map.layer.control.ColorControl2;
+import com.atakmap.map.layer.control.SurfaceRendererControl;
 import com.atakmap.map.layer.control.TerrainBlendControl;
 import com.atakmap.map.layer.model.Mesh;
-import com.atakmap.map.layer.model.Model;
-import com.atakmap.map.layer.model.ModelBuilder;
 import com.atakmap.map.layer.model.ModelHitTestControl;
-import com.atakmap.map.layer.model.ModelInfo;
-import com.atakmap.map.layer.model.Models;
+import com.atakmap.map.layer.raster.osm.OSMUtils;
 import com.atakmap.map.projection.Projection;
-import com.atakmap.math.GeometryModel;
 import com.atakmap.math.MathUtils;
 import com.atakmap.math.PointD;
 import com.atakmap.map.MapControl;
@@ -59,7 +62,6 @@ import com.atakmap.map.layer.opengl.GLLayerFactory;
 import com.atakmap.map.projection.ProjectionFactory;
 import com.atakmap.math.Matrix;
 import com.atakmap.opengl.GLES20FixedPipeline;
-import com.atakmap.opengl.GLTexture;
 import com.atakmap.util.Collections2;
 import com.atakmap.util.Disposable;
 import com.atakmap.util.ReadWriteLock;
@@ -82,7 +84,7 @@ public class GLMapView implements
         AtakMapView.OnContinuousScrollEnabledChangedListener,
         AtakMapController.OnFocusPointChangedListener,
         MapRenderer,
-        MapRenderer2,
+        MapRenderer3,
         Disposable {
 
     static {
@@ -99,14 +101,27 @@ public class GLMapView implements
     final static Interop<MapSceneModel> MapSceneModel_interop = Interop.findInterop(MapSceneModel.class);
     final static Interop<Mesh> Mesh_interop = Interop.findInterop(Mesh.class);
 
+    private final static double ENABLED_COLLIDE_RADIUS = 10d;
+    private final static double DISABLED_COLLIDE_RADIUS = 0d;
+
     private final static int INVERSE_MODE_ABSOLUTE = 0;
     private final static int INVERSE_MODE_TERRAIN = 1;
     private final static int INVERSE_MODE_MODEL = 2;
+
+    private final static int CAMERA_COLLISION_IGNORE = 0;
+    private final static int CAMERA_COLLISION_ADJUST_CAMERA = 1;
+    private final static int CAMERA_COLLISION_ADJUST_FOCUS = 2;
+    private final static int CAMERA_COLLISION_ABORT = 3;
+
+    private final static int IMPL_IFACE = 0;
+    private final static int IMPL_V1 = 1;
+    private final static int IMPL_V2 = 2;
 
     public final static int RENDER_PASS_SURFACE = 0x01;
     public final static int RENDER_PASS_SPRITES = 0x02;
     public final static int RENDER_PASS_SCENES = 0x04;
     public final static int RENDER_PASS_UI = 0x08;
+    public final static int RENDER_PASS_SURFACE2 = 0x10;
 
     // retain an instance of the scale component for the vertical flip so we
     // don't have to instantiate on every draw
@@ -121,57 +136,187 @@ public class GLMapView implements
     private final static boolean depthEnabled = true;
     private final Cleaner cleaner;
 
-    /** The scale that the map is being drawn at. */
+    /**
+     * The scale that the map is being drawn at.
+     * @deprecated use {@link #currentPass}.{@link State#drawMapResolution drawMapResolution}
+     */
+    @Deprecated
+    @DeprecatedApi(since = "4.2", forRemoval = true, removeAt = "4.5")
     public double drawMapScale = 2.5352504279048383E-9d;
-    /** The resolution in meters-per-pixel that the map is being drawn at. */
+    /**
+     * The resolution in meters-per-pixel that the map is being drawn at.
+     * @deprecated use {@link #currentPass}.{@link State#drawMapResolution drawMapResolution}
+     */
+    @Deprecated
+    @DeprecatedApi(since = "4.2", forRemoval = true, removeAt = "4.5")
     public double drawMapResolution = 0.0d;
-    /** The latitude of the center point of the rendering */
+    /**
+     * The latitude of the center point of the rendering
+     * @deprecated use {@link #currentPass}.{@link State#drawLat drawLat}
+     */
+    @Deprecated
+    @DeprecatedApi(since = "4.2", forRemoval = true, removeAt = "4.5")
     public double drawLat = 0d;
-    /** The longitude of the center point of the rendering */
+    /**
+     * The longitude of the center point of the rendering
+     * @deprecated use {@link #currentPass}.{@link State#drawLng drawLng}
+     */
+    @Deprecated
+    @DeprecatedApi(since = "4.2", forRemoval = true, removeAt = "4.5")
     public double drawLng = 0d;
-    /** The rotation, in radians, of the map about the center point */
+    /**
+     * The rotation, in radians, of the map about the center point
+     * @deprecated use {@link #currentPass}.{@link State#drawRotation drawRotation}
+     */
+    @Deprecated
+    @DeprecatedApi(since = "4.2", forRemoval = true, removeAt = "4.5")
     public double drawRotation = 0d;
-    /** The tilt, in radians, of the map about the center point */
+    /**
+     * The tilt, in radians, of the map about the center point
+     * @deprecated use {@link #currentPass}.{@link State#drawTilt drawTilt}
+     */
+    @Deprecated
+    @DeprecatedApi(since = "4.2", forRemoval = true, removeAt = "4.5")
     public double drawTilt = 0d;
     /** The current animation factor for transitions */
     public double animationFactor = 0.3d;
     /**
      * The current version of the draw parameters. Must be incremented each time the parameters
      * change.
+     * @deprecated use {@link #currentPass}.{@link State#drawVersion drawVersion}
      */
+    @Deprecated
+    @DeprecatedApi(since = "4.2", forRemoval = true, removeAt = "4.5")
     public int drawVersion = 0;
 
     /** Flag indicating whether or not this view is used for targeting */
     public boolean targeting = false;
 
+    /**
+     * @deprecated use {@link #currentPass}.{@link State#westBound westBound}
+     */
+    @Deprecated
+    @DeprecatedApi(since = "4.2", forRemoval = true, removeAt = "4.5")
     public double westBound = -180d;
+    /**
+     * @deprecated use {@link #currentPass}.{@link State#southBound southBound}
+     */
+    @Deprecated
+    @DeprecatedApi(since = "4.2", forRemoval = true, removeAt = "4.5")
     public double southBound = -90d;
+    /**
+     * @deprecated use {@link #currentPass}.{@link State#northBound northBound}
+     */
+    @Deprecated
+    @DeprecatedApi(since = "4.2", forRemoval = true, removeAt = "4.5")
     public double northBound = 90d;
+    /**
+     * @deprecated use {@link #currentPass}.{@link State#eastBound eastBound}
+     */
+    @Deprecated
+    @DeprecatedApi(since = "4.2", forRemoval = true, removeAt = "4.5")
     public double eastBound = 180d;
+    /**
+     * @deprecated to be removed without replacement
+     */
+    @Deprecated
+    @DeprecatedApi(since = "4.2", forRemoval = true, removeAt = "4.5")
     public double eastBoundUnwrapped = 180d;
+    /**
+     * @deprecated to be removed without replacement
+     */
+    @Deprecated
+    @DeprecatedApi(since = "4.2", forRemoval = true, removeAt = "4.5")
     public double westBoundUnwrapped = -180d;
+    /**
+     * @deprecated use {@link #currentPass}.{@link State#crossesIDL crossesIDL}
+     */
+    @Deprecated
+    @DeprecatedApi(since = "4.2", forRemoval = true, removeAt = "4.5")
     public boolean crossesIDL = false;
+
     public final GLAntiMeridianHelper idlHelper = new GLAntiMeridianHelper();
 
+    /**
+     * @deprecated use {@link #currentPass}.{@link State#left left}
+     */
+    @Deprecated
+    @DeprecatedApi(since = "4.2", forRemoval = true, removeAt = "4.5")
     public int _left;
+    /**
+     * @deprecated use {@link #currentPass}.{@link State#right right}
+     */
+    @Deprecated
+    @DeprecatedApi(since = "4.2", forRemoval = true, removeAt = "4.5")
     public int _right;
+    /**
+     * @deprecated use {@link #currentPass}.{@link State#top top}
+     */
+    @Deprecated
+    @DeprecatedApi(since = "4.2", forRemoval = true, removeAt = "4.5")
     public int _top;
+    /**
+     * @deprecated use {@link #currentPass}.{@link State#bottom bottom}
+     */
+    @Deprecated
+    @DeprecatedApi(since = "4.2", forRemoval = true, removeAt = "4.5")
     public int _bottom;
 
     private RenderContext _context;
     private RenderSurface _surface;
+    /**
+     * @deprecated use {@link #currentPass}.{@link State#drawSrid drawSrid}
+     */
+    @Deprecated
+    @DeprecatedApi(since = "4.2", forRemoval = true, removeAt = "4.5")
     public int drawSrid = -1;
     private Projection drawProjection;
 
-    public float focusx, focusy;
+    /**
+     * @deprecated use {@link #currentPass}.{@link State#focusx focusx}
+     */
+    @Deprecated
+    @DeprecatedApi(since = "4.2", forRemoval = true, removeAt = "4.5")
+    public float focusx;
+    /**
+     * @deprecated use {@link #currentPass}.{@link State#focusy focusy}
+     */
+    @Deprecated
+    @DeprecatedApi(since = "4.2", forRemoval = true, removeAt = "4.5")
+    public float focusy;
 
+    /**
+     * @deprecated use {@link #currentPass}.{@link State#upperLeft upperLeft}
+     */
+    @Deprecated
+    @DeprecatedApi(since = "4.2", forRemoval = true, removeAt = "4.5")
     public GeoPoint upperLeft;
+    /**
+     * @deprecated use {@link #currentPass}.{@link State#upperRight upperRight}
+     */
+    @Deprecated
+    @DeprecatedApi(since = "4.2", forRemoval = true, removeAt = "4.5")
     public GeoPoint upperRight;
+    /**
+     * @deprecated use {@link #currentPass}.{@link State#lowerRight lowerRight}
+     */
+    @Deprecated
+    @DeprecatedApi(since = "4.2", forRemoval = true, removeAt = "4.5")
     public GeoPoint lowerRight;
+    /**
+     * @deprecated use {@link #currentPass}.{@link State#lowerLeft lowerLeft}
+     */
+    @Deprecated
+    @DeprecatedApi(since = "4.2", forRemoval = true, removeAt = "4.5")
     public GeoPoint lowerLeft;
 
     public boolean settled;
 
+    /**
+     * @deprecated use {@link #currentPass}.{@link State#renderPump renderPump}
+     */
+    @Deprecated
+    @DeprecatedApi(since = "4.2", forRemoval = true, removeAt = "4.5")
     public int renderPump;
 
     protected Animator animator;
@@ -199,8 +344,19 @@ public class GLMapView implements
     public long animationDelta = -1L;
 
     private int sceneModelVersion;
+    /**
+     * @deprecated use {@link #currentPass}.{@link State#scene scene}
+     */
+    @Deprecated
+    @DeprecatedApi(since = "4.2", forRemoval = true, removeAt = "4.5")
     public MapSceneModel scene;
+    // XXX - unused; remove field usage from JNI
     private MapSceneModel oscene;
+    /**
+     * @deprecated use {@link #currentPass}.{@link State#sceneModelForwardMatrix sceneModelForwardMatrix}
+     */
+    @Deprecated
+    @DeprecatedApi(since = "4.2", forRemoval = true, removeAt = "4.5")
     public float[] sceneModelForwardMatrix;
 
     public final static double recommendedGridSampleDistance = 0.125d;
@@ -208,7 +364,7 @@ public class GLMapView implements
     private Map<Layer2, Collection<MapControl>> controls;
     private Collection<MapControl> mapViewControls;
     // XXX - cache the model hit test controls separately to optimize inverse impl
-    private Set<ModelHitTestControl> modelHitTestControls = Collections2.newIdentityHashSet();
+    private final Set<ModelHitTestControl> modelHitTestControls = Collections2.newIdentityHashSet();
 
 
     public double hardwareTransformResolutionThreshold = 0d;
@@ -232,6 +388,43 @@ public class GLMapView implements
     private int syncVersion;
     private int syncPass;
 
+    private int terrainTilesVersion;
+
+    private TerrainBlendControl terrainBlendControl;
+    private SurfaceRendererControl surfaceControl;
+    private AtmosphereControl atmosphereControl;
+
+    /**
+     * Flag indicating if the pass is being executed in multiple parts. If
+     * <code>true</code>, {@link #currentPass} represents only part of the
+     * rendering pass. If <code>false</code>, there are no remaining parts to
+     * the rendering pass.
+     *
+     * <P>All instances of {@link #currentPass} that are parts for a given
+     * pass will share the same value for
+     * {@link #currentPass}.{@link State#renderPump renderPump}, however, they
+     * may have different values for
+     * {@link #currentPass}.{@link State#drawVersion drawVersion} as the
+     * various parameters may be different (e.g. each part renders different
+     * regions of a large orthographic view).
+     */
+    public boolean multiPartPass;
+
+    /**
+     * The state for the current pass. Scenes may be rendered in multiple
+     * passes, using different parameters and cameras.
+     */
+    public final State currentPass = new State();
+    /**
+     * The scene that is the final render target.
+     */
+    public final State currentScene = new State();
+
+    private int impl;
+    private double collideRadius = 10d; // 10m
+
+    private MapSceneModel lastsm;
+
     private final RenderSurface.OnSizeChangedListener sizeChangedHandler = new RenderSurface.OnSizeChangedListener() {
         @Override
         public void onSizeChanged(RenderSurface surface, int width, int height) {
@@ -239,76 +432,12 @@ public class GLMapView implements
             try {
                 if(pointer.raw == 0L)
                     return;
-                setSize(pointer.raw, width, height);
+                setSize(pointer.raw, width, height, impl);
             } finally {
                 rwlock.releaseRead();
             }
         }
     };
-    // XXX - move offscreen into single struct for easier management
-
-    // offscreen rendering
-
-
-    static class Offscreen {
-        static class Program {
-            int handle;
-
-            int uProjection;
-            int uModelView;
-            int uModelViewOffscreen;
-            int uTexWidth;
-            int uTexHeight;
-            int aVertexCoords;
-
-            int uTexture;
-
-            Program() {
-                handle = 0;
-            }
-        }
-
-        /** offscreen texture */
-        GLTexture texture;
-        /** offscreen scene */
-        MapSceneModel scene;
-
-        /** offscreen FBO handles, index 0 is FBO, index 1 is depth buffer */
-        int[] fbo;
-
-        //GLOffscreenVertex[] vertices;
-
-        double hfactor = Double.NaN;
-
-        Map<Pointer, TerrainTile> terrainTilesFront = new HashMap<>();
-        Map<Pointer, TerrainTile> terrainTilesBack = new HashMap<>();
-        int terrainTilesVersion = -1;
-
-        final Program program = new Program();
-    }
-
-    static class TerrainTile {
-        int numIndices;
-        ModelInfo info;
-        Model model;
-        int skirtIndexOffset;
-        /**
-         * AABB in WGS84; x=latitude, y=longitude, z=hae
-         */
-        Envelope aabb;
-
-        Object opaque;
-
-        TerrainTile() {
-            this.info = new ModelInfo();
-            this.info.localFrame = Matrix.getIdentity();
-            this.info.srid = -1;
-            this.model = null;
-            this.aabb = null;
-        }
-    }
-
-    Offscreen offscreen;
 
     private Set<OnControlsChangedListener> controlsListeners;
 
@@ -325,14 +454,19 @@ public class GLMapView implements
         this(surface, surface.getMapView().getGlobe(), left, bottom, right, top);
     }
     public GLMapView(RenderContext context, Globe globe, int left, int bottom, int right, int top) {
+        this(context, globe, left, bottom, right, top, false);
+    }
+
+    protected GLMapView(RenderContext context, Globe globe, int left, int bottom, int right, int top, boolean legacy) {
         _context = context;
         _surface = _context.getRenderSurface();
+        impl = legacy ? IMPL_V1 : IMPL_V2;
 
         Interop<RenderContext> RenderContext_interop = Interop.findInterop(RenderContext.class);
         Interop<Globe> Globe_interop = Interop.findInterop(Globe.class);
 
         ctxptr = RenderContext_interop.wrap(_context);
-        pointer = create(ctxptr.raw, Globe_interop.getPointer(globe), left, bottom, right, top);
+        pointer = create(ctxptr.raw, Globe_interop.getPointer(globe), left, bottom, right, top, legacy);
         cleaner = NativePeerManager.register(this, pointer, rwlock, null, CLEANER);
 
         intern(this);
@@ -361,65 +495,41 @@ public class GLMapView implements
 
         this.controls = new IdentityHashMap<Layer2, Collection<MapControl>>();
 
-        this.terrain = new ElMgrTerrainRenderService(getTerrainRenderService(this.pointer.raw), this);
-
-        this.offscreen = new Offscreen();
+        this.terrain = new ElMgrTerrainRenderService(getTerrainRenderService(this.pointer.raw, impl), this);
 
         this.controlsListeners = Collections.newSetFromMap(new IdentityHashMap<OnControlsChangedListener, Boolean>());
 
-        this.registerControl(null, terrainBlendControl);
+        if(impl == IMPL_V2) {
+            surfaceControl = new SurfaceControlImpl();
+            terrainBlendControl = new SurfaceTerrainBlendControl();
+            this.registerControl(null, surfaceControl);
+            atmosphereControl = new AtmosphereControlImpl();
+            this.registerControl(null, atmosphereControl);
+        } else if(impl == IMPL_V1) {
+            terrainBlendControl = new LegacyTerrainBlendControl();
+        }
+        if(terrainBlendControl != null)
+            this.registerControl(null, terrainBlendControl);
+
+        // assign current pass/scene `scene` so non-null before sync
+        currentScene.scene = new MapSceneModel(_surface.getDpi(),
+                                               _surface.getWidth(),
+                                               _surface.getHeight(),
+                                               ProjectionFactory.getProjection(4326),
+                                               new GeoPoint(0, 0),
+                                               _surface.getWidth()/2f,
+                                               _surface.getHeight()/2f,
+                                               0d,
+                                               0d,
+                                                OSMUtils.mapnikTileResolution(0),
+                                                true);
+        currentPass.scene = new MapSceneModel(currentScene.scene);
+        this.lastsm = new MapSceneModel(currentScene.scene);
 
         this.sync();
 
         this.startAnimating(this.drawLat, this.drawLng, this.drawMapScale, this.drawRotation, this.drawTilt, 1d);
     }
-
-    private TerrainBlendControl terrainBlendControl = new TerrainBlendControl() {
-
-        private double localBlendFactor = 1.0;
-        private boolean localBlendEnabled = false;
-
-        @Override
-        public double getBlendFactor() {
-            synchronized (this) {
-                return localBlendFactor;
-            }
-        }
-
-        @Override
-        public boolean getEnabled() {
-            synchronized (this) {
-                return localBlendEnabled;
-            }
-        }
-
-        @Override
-        public void setEnabled(final boolean enabled) {
-            synchronized (this) {
-                localBlendEnabled = enabled;
-            }
-            _context.queueEvent(new Runnable() {
-                @Override
-                public void run() {
-                    GLMapView.this.terrainBlendEnabled = enabled;
-                }
-            });
-        }
-
-        @Override
-        public void setBlendFactor(double blendFactor) {
-            final double clampedValue = MathUtils.clamp(blendFactor, 0.0, 1.0);
-            synchronized (this) {
-                localBlendFactor = clampedValue;
-            }
-            _context.queueEvent(new Runnable() {
-                @Override
-                public void run() {
-                    GLMapView.this.terrainBlendFactor = clampedValue;
-                }
-            });
-        }
-    };
 
     protected void setTargeting(boolean v) {
         this.rwlock.acquireRead();
@@ -432,6 +542,36 @@ public class GLMapView implements
         }
     }
 
+    public void setRenderDiagnosticsEnabled(boolean enabled) {
+        this.rwlock.acquireRead();
+        try {
+            if(this.pointer.raw == 0L)
+                return;
+            setRenderDiagnosticsEnabled(this.pointer.raw, enabled, impl);
+        } finally {
+            this.rwlock.releaseRead();
+        }
+    }
+    public boolean isRenderDiagnosticsEnabled() {
+        this.rwlock.acquireRead();
+        try {
+            if(this.pointer.raw == 0L)
+                return false;
+            return isRenderDiagnosticsEnabled(this.pointer.raw, impl);
+        } finally {
+            this.rwlock.releaseRead();
+        }
+    }
+    public void addRenderDiagnostic(String msg) {
+        this.rwlock.acquireRead();
+        try {
+            if(this.pointer.raw == 0L)
+                return;
+            addRenderDiagnostic(this.pointer.raw, msg, impl);
+        } finally {
+            this.rwlock.releaseRead();
+        }
+    }
     public void setBaseMap(final GLMapRenderable basemap) {
         setBaseMap(this.pointer.raw, LegacyAdapters.adapt(basemap));
     }
@@ -445,6 +585,14 @@ public class GLMapView implements
     }
 
     public void release() {
+        this.rwlock.acquireRead();
+        try {
+            if(this.pointer.raw == 0L)
+                return;
+            release(this.pointer.raw);
+        } finally {
+            this.rwlock.releaseRead();
+        }
     }
 
     /**
@@ -496,16 +644,52 @@ public class GLMapView implements
 
     @Override
     public boolean lookAt(GeoPoint from, GeoPoint at, boolean animate) {
+        return lookAt(from, at, CameraCollision.AdjustFocus, animate);
+    }
+
+    @Override
+    public boolean lookAt(GeoPoint from, GeoPoint at, MapRenderer3.CameraCollision collision, boolean animate) {
         return false;
     }
 
     @Override
     public boolean lookAt(GeoPoint at, double resolution, double azimuth, double tilt, boolean animate) {
+        return lookAt(at, resolution, azimuth, tilt, CameraCollision.AdjustFocus, animate);
+    }
+
+    @Override
+    public boolean lookAt(GeoPoint at, double resolution, double azimuth, double tilt, CameraCollision collision, boolean animate) {
+        if(!at.isValid() || Double.isNaN(resolution) || Double.isNaN(azimuth) || Double.isNaN(tilt)) {
+            Log.w("GLMapView", "Invalid lookAt");
+            return false;
+        }
+        int collideMode;
+        switch(collision) {
+            case Abort:
+                collideMode = CAMERA_COLLISION_ABORT;
+                break;
+            case AdjustCamera:
+                collideMode = CAMERA_COLLISION_ADJUST_CAMERA;
+                break;
+            case AdjustFocus:
+                collideMode = CAMERA_COLLISION_ADJUST_FOCUS;
+                break;
+            case Ignore:
+                collideMode = CAMERA_COLLISION_IGNORE;
+                break;
+            default :
+                throw new IllegalArgumentException("Invalid CameraCollision");
+        }
         this.rwlock.acquireRead();
         try {
             if(this.pointer.raw == 0L)
                 return false;
-            return lookAt(this.pointer.raw, at.getLatitude(), at.getLongitude(), resolution, azimuth, tilt, animate);
+            double alt = 0d;
+            if(!Double.isNaN(at.getAltitude()))
+                alt = at.getAltitude();
+            if(at.getAltitudeReference() == GeoPoint.AltitudeReference.AGL)
+                alt += ElevationManager.getElevation(at.getLatitude(), at.getLongitude(), null);
+            return lookAt(this.pointer.raw, at.getLatitude(), at.getLongitude(), alt, resolution, azimuth, tilt, collideRadius, collideMode, animate, impl);
         } finally {
             this.rwlock.releaseRead();
         }
@@ -513,6 +697,11 @@ public class GLMapView implements
 
     @Override
     public boolean lookFrom(GeoPoint from, double azimuth, double elevation, boolean animate) {
+        return lookFrom(from, azimuth, elevation, CameraCollision.AdjustFocus, animate);
+    }
+
+    @Override
+    public boolean lookFrom(GeoPoint from, double azimuth, double elevation, CameraCollision collision, boolean animate) {
         return false;
     }
 
@@ -522,7 +711,7 @@ public class GLMapView implements
         try {
             if(this.pointer.raw == 0L)
                 return null;
-            return MapSceneModel_interop.create(getMapSceneModel(this.pointer.raw, instant, (origin == DisplayOrigin.Lowerleft)));
+            return MapSceneModel_interop.create(getMapSceneModel(this.pointer.raw, instant, (origin == DisplayOrigin.Lowerleft), impl));
         } finally {
             this.rwlock.releaseRead();
         }
@@ -569,7 +758,7 @@ public class GLMapView implements
         try {
             if(this.pointer.raw == 0L)
                 return;
-            setDisplayMode(this.pointer.raw, srid);
+            setDisplayMode(this.pointer.raw, srid, impl);
         } finally {
             this.rwlock.releaseRead();
         }
@@ -598,6 +787,13 @@ public class GLMapView implements
 
     @Override
     public InverseResult inverse(PointD xyz, GeoPoint lla, InverseMode mode, int hints, DisplayOrigin origin) {
+        final InverseResult result = inverseImpl(xyz, lla, mode, hints, origin);
+        if(result != InverseResult.None && Math.abs(lla.getLongitude()) > 180d)
+            lla.set(lla.getLatitude(), GeoCalculations.wrapLongitude(lla.getLongitude()), lla.getAltitude(), lla.getAltitudeReference(), lla.getCE(), lla.getLE());
+        return result;
+    }
+
+    private InverseResult inverseImpl(PointD xyz, GeoPoint lla, InverseMode mode, int hints, DisplayOrigin origin) {
         double x = xyz.x;
         double y = xyz.y;
         double z = xyz.z;
@@ -612,22 +808,92 @@ public class GLMapView implements
                 else
                     return InverseResult.None;
             case RayCast:
+                PointD cam = new PointD(0d, 0d, 0d);
+                Projection proj;
+                final double sx;
+                final double sy;
+                final double sz;
+                synchronized(lastsm) {
+                    cam.x = lastsm.camera.location.x;
+                    cam.y = lastsm.camera.location.y;
+                    cam.z = lastsm.camera.location.z;
+                    proj = lastsm.mapProjection;
+                    sx = lastsm.displayModel.projectionXToNominalMeters;
+                    sy = lastsm.displayModel.projectionYToNominalMeters;
+                    sz = lastsm.displayModel.projectionZToNominalMeters;
+
+                    // if ortho camera, need to move the camera back out of the
+                    // scene. This should not impact results as distances will
+                    // remain relative when the measure from point moves
+                    // further away.
+                    if(!lastsm.camera.perspective) {
+                        // borrow logic from legacy `intersecWithTerrain` impl
+
+                        // compute LOS vector in nominal display meters
+                        final double camdirx = (lastsm.camera.target.x-cam.x)*sx;
+                        final double camdiry = (lastsm.camera.target.y-cam.y)*sy;
+                        final double camdirz = (lastsm.camera.target.z-cam.z)*sz;
+
+                        // compute LOS magnitude
+                        final double mag = Math.sqrt(camdirx*camdirx + camdiry*camdiry + camdirz*camdirz);
+
+                        // compute the desired standoff for raycast comparisions
+                        final double standoff = Math.max(mag, 2000d)*2d;
+
+                        // adjust the camera position to the standoff
+                        cam.x = lastsm.camera.target.x + ((camdirx/mag)*standoff)/sx;
+                        cam.y = lastsm.camera.target.y + ((camdiry/mag)*standoff)/sy;
+                        cam.z = lastsm.camera.target.z + ((camdirz/mag)*standoff)/sz;
+                    }
+                }
+                InverseResult result = InverseResult.None;
+                double candidate2 = Double.NaN;
+                GeoPoint candidatella = GeoPoint.createMutable();
+                PointD candidatexyz = new PointD(0d, 0d, 0d);
                 if(!MathUtils.hasBits(hints, HINT_RAYCAST_IGNORE_SURFACE_MESH)) {
+                    List<ModelHitTestControl> controls;
+                    synchronized (modelHitTestControls) {
+                        controls = new ArrayList<>(modelHitTestControls);
+                    }
                     // perform model hit test
-                    synchronized (this) {
-                        final float px = (float) x;
-                        final float py = (origin == DisplayOrigin.UpperLeft) ? (float) xyz.y : (float) (_surface.getHeight() - xyz.y);
-                        for (ModelHitTestControl ctrl : modelHitTestControls) {
-                            // NOTE: control expects UL xyz
-                            if (ctrl.hitTest(px, py, lla))
-                                return InverseResult.SurfaceMesh;
+                    final float px = (float) x;
+                    final float py = (origin == DisplayOrigin.UpperLeft) ? (float) xyz.y : (float) (_surface.getHeight() - xyz.y);
+                    for (ModelHitTestControl ctrl : controls) {
+                        // NOTE: control expects UL xyz
+                        if (ctrl.hitTest(px, py, lla)) {
+                            // a hit occurred -- check distance to camera
+                            proj.forward(lla, candidatexyz);
+                            final double dx = (candidatexyz.x-cam.x)*sx;
+                            final double dy = (candidatexyz.y-cam.y)*sy;
+                            final double dz = (candidatexyz.z-cam.z)*sz;
+                            final double d2 = (dx*dx) + (dy*dy) + (dz*dz);
+                            if(Double.isNaN(candidate2) || d2 < candidate2) {
+                                candidatella.set(lla);
+                                candidate2 = d2;
+                                result = InverseResult.SurfaceMesh;
+                            }
                         }
                     }
                 }
                 if(!MathUtils.hasBits(hints, HINT_RAYCAST_IGNORE_TERRAIN_MESH)) {
                     // perform terrain mesh hit test
-                    if (inverse(this.pointer.raw, x, y, z, INVERSE_MODE_TERRAIN, lla))
-                        return InverseResult.TerrainMesh;
+                    if (inverse(this.pointer.raw, x, y, z, INVERSE_MODE_TERRAIN, lla)) {
+                        // a hit occurred -- check distance to camera
+                        proj.forward(lla, candidatexyz);
+                        final double dx = (candidatexyz.x - cam.x) * sx;
+                        final double dy = (candidatexyz.y - cam.y) * sy;
+                        final double dz = (candidatexyz.z - cam.z) * sz;
+                        final double d2 = (dx * dx) + (dy * dy) + (dz * dz);
+                        if (Double.isNaN(candidate2) || d2 < candidate2) {
+                            candidatella.set(lla);
+                            candidate2 = d2;
+                            result = InverseResult.TerrainMesh;
+                        }
+                    }
+                }
+                if(result != InverseResult.None) {
+                    lla.set(candidatella);
+                    return result;
                 }
                 // intersect with the underlying geometry model
                 if (inverse(this.pointer.raw, x, y, z, INVERSE_MODE_MODEL, lla))
@@ -646,7 +912,7 @@ public class GLMapView implements
         try {
             if(this.pointer.raw == 0L)
                 return;
-            setElevationExaggerationFactor(this.pointer.raw, factor);
+            setElevationExaggerationFactor(this.pointer.raw, factor, impl);
         } finally {
             rwlock.releaseRead();
         }
@@ -682,7 +948,7 @@ public class GLMapView implements
         try {
             if(this.pointer.raw == 0L)
                 return;
-            setFocusPointOffset(this.pointer.raw, x, y);
+            setFocusPointOffset(this.pointer.raw, x, y, impl);
         } finally {
             this.rwlock.releaseRead();
         }
@@ -694,7 +960,7 @@ public class GLMapView implements
         try {
             if(this.pointer.raw == 0L)
                 return 0f;
-            return getFocusPointOffsetX(this.pointer.raw);
+            return getFocusPointOffsetX(this.pointer.raw, impl);
         } finally {
             this.rwlock.releaseRead();
         }
@@ -706,7 +972,7 @@ public class GLMapView implements
         try {
             if(this.pointer.raw == 0L)
                 return 0f;
-            return getFocusPointOffsetY(this.pointer.raw);
+            return getFocusPointOffsetY(this.pointer.raw, impl);
         } finally {
             this.rwlock.releaseRead();
         }
@@ -730,11 +996,11 @@ public class GLMapView implements
      * @return  The elevation value at the given latitude/longitude
      */
     public double getTerrainMeshElevation(double latitude, double longitude) {
-        return getTerrainMeshElevation(this.pointer.raw, latitude, longitude);
+        return getTerrainMeshElevation(this.pointer.raw, latitude, longitude, impl);
     }
 
     public int getTerrainVersion() {
-        return offscreen.terrainTilesVersion;
+        return terrainTilesVersion;
     }
 
     /**
@@ -743,8 +1009,10 @@ public class GLMapView implements
      * @param longitude
      * @return
      *
-     * @deprecated
+     * @deprecated use {@link #getTerrainMeshElevation(double, double)}
      */
+    @Deprecated
+    @DeprecatedApi(since = "4.1", forRemoval = true, removeAt = "4.4")
     public double getElevation(double latitude, double longitude) {
         return getTerrainMeshElevation(latitude, longitude);
     }
@@ -755,7 +1023,10 @@ public class GLMapView implements
      *
      * @param p A geodetic coordinate
      * @return The OpenGL coordinate that corresponds to <code>p</code>
+     * @deprecated Use {@link #currentPass}.{@link MapSceneModel#forward(GeoPoint, PointF) forward(GeoPoint, PointF)}
      */
+    @Deprecated
+    @DeprecatedApi(since = "4.2", forRemoval = true, removeAt = "4.5")
     public PointF forward(GeoPoint p) {
         return this.forward(p, new PointF());
     }
@@ -769,7 +1040,10 @@ public class GLMapView implements
      *            have its value set to the transformed coordinate. If <code>null</code> a new
      *            <code>PointF</code> will be allocated and returned.
      * @return The OpenGL coordinate that corresponds to <code>p</code>
+     * @deprecated Use {@link #currentPass}.{@link MapSceneModel#forward(GeoPoint, PointF) forward(GeoPoint, PointF)}
      */
+    @Deprecated
+    @DeprecatedApi(since = "4.2", forRemoval = true, removeAt = "4.5")
     public PointF forward(GeoPoint p, PointF retval) {
         if (retval == null)
             retval = new PointF();
@@ -787,7 +1061,10 @@ public class GLMapView implements
      *            , elements will only be instantiated and assigned if <code>null</code>.
      * @return The OpenGL coordinates that correspond to <code>p</code>
      * @see {@link #forward(GeoPoint, PointF)}
+     * @deprecated Use {@link #currentPass}.{@link MapSceneModel#forward(GeoPoint, PointF) forward(GeoPoint, PointF)}
      */
+    @Deprecated
+    @DeprecatedApi(since = "4.2", forRemoval = true, removeAt = "4.5")
     public PointF[] forward(GeoPoint[] p, PointF[] retval) {
         if (retval == null)
             retval = new PointF[p.length];
@@ -800,6 +1077,16 @@ public class GLMapView implements
         return retval;
     }
 
+    /**
+     *
+     * @param p
+     * @param retval
+     * @return
+     *
+     * @deprecated Use {@link #currentPass}.{@link MapSceneModel#forward(GeoPoint, PointD) forward(GeoPoint, PointD)}
+     */
+    @Deprecated
+    @DeprecatedApi(since = "4.2", forRemoval = true, removeAt = "4.5")
     public PointD forward(GeoPoint p, PointD retval) {
         if (retval == null)
             retval = new PointD(0d, 0d, 0d);
@@ -943,7 +1230,10 @@ public class GLMapView implements
      *
      * @param p A pixel in the OpenGL coordinate space
      * @return The geodetic coordinate that corresponds to <code>p</code>
+     * @deprecated Use {@link #currentPass}.{@link MapSceneModel#inverse(PointF, GeoPoint) inverse(PointF, GeoPoint)}
      */
+    @Deprecated
+    @DeprecatedApi(since = "4.2", forRemoval = true, removeAt = "4.5")
     public GeoPoint inverse(PointF p) {
         return this.inverse(p, GeoPoint.createMutable());
     }
@@ -959,7 +1249,10 @@ public class GLMapView implements
      *            <code>GeoPoint<code> instance will be returned (whether
      *                  or not it is a <code>MutableGeoPoint</code> is undefined).
      * @return The geodetic coordinate that corresponds to <code>p</code>
+     * @deprecated Use {@link #currentPass}.{@link MapSceneModel#inverse(PointF, GeoPoint) inverse(PointF, GeoPoint)}
      */
+    @Deprecated
+    @DeprecatedApi(since = "4.2", forRemoval = true, removeAt = "4.5")
     public GeoPoint inverse(PointF p, GeoPoint retval) {
         if (retval == null)
             retval = GeoPoint.createMutable();
@@ -978,7 +1271,10 @@ public class GLMapView implements
      *            <code>MutableGeoPoint</code> will have their values set, otherwise the element
      *            will be assigned a newly allocated <code>GeoPoint</code> instance.
      * @return The geodetic coordinates that correspond to <code>p</code>
+     * @deprecated Use {@link #currentPass}.{@link MapSceneModel#inverse(PointF, GeoPoint) inverse(PointF, GeoPoint)}
      */
+    @Deprecated
+    @DeprecatedApi(since = "4.2", forRemoval = true, removeAt = "4.5")
     public GeoPoint[] inverse(PointF[] p, GeoPoint[] retval) {
         if (retval == null)
             retval = new GeoPoint[p.length];
@@ -997,19 +1293,29 @@ public class GLMapView implements
 
     private void sync() {
         // sync with the map
-        sync(this.pointer.raw, this);
+        sync(this.pointer.raw, this, false);
+        sync(this.pointer.raw, this, true);
+        synchronized(lastsm) {
+            lastsm.set(this.currentScene.scene);
+        }
         // update boolean fields explicitly
-        this.targeting = get_targeting(this.pointer.raw);
+        this.currentPass.targeting = get_targeting(this.pointer.raw, true);
+        this.currentScene.targeting = get_targeting(this.pointer.raw, false);
         this.rigorousRegistrationResolutionEnabled = get_rigorousRegistrationResolutionEnabled(this.pointer.raw);
-        this.crossesIDL = get_crossesIDL(this.pointer.raw);
+        this.currentPass.crossesIDL = get_crossesIDL(this.pointer.raw, true);
+        this.currentScene.crossesIDL = get_crossesIDL(this.pointer.raw, false);
         // XXX - managed by Java layer currently
         //this.terrainBlendEnabled = get_terrainBlendEnabled(this.pointer.raw);
         this.continuousScrollEnabled = get_continuousScrollEnabled(this.pointer.raw);
         this.settled = get_settled(this.pointer.raw);
+        this.multiPartPass = get_multiPartPass(this.pointer.raw);
 
+        // set member fields based on current pass state
+        this.currentPass.restore(this);
+        this.drawMapScale = Globe.getMapScale(_surface.getDpi(), this.currentPass.drawMapResolution);
         // update transforms
         GLES20FixedPipeline.glMatrixMode(GLES20FixedPipeline.GL_PROJECTION);
-        GLES20FixedPipeline.glOrthof(this._left, this._right, this._bottom, this._top, (float) this.scene.camera.near, (float) this.scene.camera.far);
+        GLES20FixedPipeline.glOrthof(this.currentPass.left, this.currentPass.right, this.currentPass.bottom, this.currentPass.top, (float) this.currentPass.scene.camera.near, (float) this.currentPass.scene.camera.far);
         GLES20FixedPipeline.glMatrixMode(GLES20FixedPipeline.GL_MODELVIEW);
         GLES20FixedPipeline.glLoadIdentity();
 
@@ -1043,7 +1349,7 @@ public class GLMapView implements
         // update IDL helper
         this.idlHelper.update(this);
 
-        this.offscreen.terrainTilesVersion = getTerrainVersion(this.pointer.raw);
+        this.terrainTilesVersion = getTerrainVersion(this.pointer.raw, impl);
     }
 
     /**
@@ -1070,19 +1376,24 @@ public class GLMapView implements
 
         render(this.pointer.raw);
         sync();
+        if(this.drawTilt > 0 && this.syncPass == RENDER_PASS_SURFACE)
+            this.syncPass = 0;
+        this.syncPass = 0;
 
         if(this.drawTilt > 0 && this.terrainBlendEnabled)
-            set_terrainBlendFactor(this.pointer.raw, (float)this.terrainBlendFactor);
+            set_terrainBlendFactor(this.pointer.raw, (float)this.terrainBlendFactor, impl);
         else
-            set_terrainBlendFactor(this.pointer.raw, 1f);
+            set_terrainBlendFactor(this.pointer.raw, 1f, impl);
     }
 
     public void start() {
         _surface.addOnSizeChangedListener(sizeChangedHandler);
         sizeChangedHandler.onSizeChanged(_surface, _surface.getWidth(), _surface.getHeight());
-        setDisplayDpi(this.pointer.raw, _surface.getDpi());
+        setDisplayDpi(this.pointer.raw, _surface.getDpi(), impl);
         start(this.pointer.raw);
-        sync(this.pointer.raw, this);
+        sync(this.pointer.raw, this, false);
+        sync(this.pointer.raw, this, true);
+        this.syncPass = 0;
     }
 
     public void stop() {
@@ -1112,6 +1423,8 @@ public class GLMapView implements
 
         render(this.pointer.raw);
         sync();
+        if(this.drawTilt > 0 && this.syncPass == RENDER_PASS_SURFACE)
+            this.syncPass = 0;
     }
 
     public int getLeft() {
@@ -1136,7 +1449,9 @@ public class GLMapView implements
         return _bottom;
     }
 
-    /** @deprecated */
+    /** @deprecated refactor based on {@link #drawMapScale} or {@link #drawMapResolution} */
+    @Deprecated
+    @DeprecatedApi(since = "4.1", forRemoval = true, removeAt = "4.4")
     public double getLegacyScale() {
         return ((drawMapScale * Globe.getFullEquitorialExtentPixels(_surface.getDpi())) / 360d);
     }
@@ -1667,6 +1982,8 @@ public class GLMapView implements
         private OnAnimationSettledCallback _animCallback;
 
         /** @deprecated use {@link #startAnimating(double, double, double, double, double, double)} */
+        @Deprecated
+        @DeprecatedApi(since = "4.1", forRemoval = true, removeAt = "4.4")
         public final void startAnimating(double lat, double lng, double scale,
                                          double rotation, double animateFactor) {
             this.startAnimating(lat, lng, scale, rotation, _targetTilt, animateFactor);
@@ -1801,6 +2118,27 @@ public class GLMapView implements
     }
 
     public final static class ScratchPad {
+        @IncubatingApi(since="4.3")
+        public final static class DepthRestore {
+            boolean[] mask = new boolean[1];
+            int[] func = new int[1];
+            boolean enabled;
+
+            public void save() {
+                enabled = GLES30.glIsEnabled(GLES30.GL_DEPTH_TEST);
+                GLES30.glGetIntegerv(GLES30.GL_DEPTH_FUNC, func, 0);
+                GLES30.glGetBooleanv(GLES30.GL_DEPTH_WRITEMASK, mask, 0);
+            }
+            public void restore() {
+                if(enabled)
+                    GLES30.glEnable(GLES30.GL_DEPTH_TEST);
+                else
+                    GLES30.glDisable(GLES30.GL_DEPTH_TEST);
+                GLES30.glDepthFunc(func[0]);
+                GLES30.glDepthMask(mask[0]);
+            }
+        }
+
         public final PointF pointF = new PointF();
         public final PointD pointD = new PointD(0, 0);
         public final RectF rectF = new RectF();
@@ -1808,6 +2146,8 @@ public class GLMapView implements
         public final double[] matrixD = new double[16];
         public final float[] matrixF = new float[16];
         public final Matrix matrix = Matrix.getIdentity();
+        @IncubatingApi(since="4.3")
+        public final DepthRestore depth = new DepthRestore();
 
         private ScratchPad() {}
     }
@@ -1820,31 +2160,40 @@ public class GLMapView implements
     }
 
     @Override
-    public synchronized void registerControl(Layer2 layer, MapControl ctrl) {
-        Collection<MapControl> ctrls = this.getMapViewControls();
-        if (layer != null) {
-            ctrls = this.controls.get(layer);
-            if (ctrls == null)
-                this.controls.put(layer, ctrls = Collections2.<MapControl>newIdentityHashSet());
+    public void registerControl(Layer2 layer, MapControl ctrl) {
+        if (ctrl instanceof ModelHitTestControl) {
+            synchronized (modelHitTestControls) {
+                this.modelHitTestControls.add((ModelHitTestControl) ctrl);
+            }
         }
-        if(ctrls.add(ctrl)) {
-            if(ctrl instanceof ModelHitTestControl)
-                this.modelHitTestControls.add((ModelHitTestControl)ctrl);
-
-            for(OnControlsChangedListener l : this.controlsListeners)
-                l.onControlRegistered(layer, ctrl);
+        synchronized (this) {
+            Collection<MapControl> ctrls = this.getMapViewControls();
+            if (layer != null) {
+                ctrls = this.controls.get(layer);
+                if (ctrls == null)
+                    this.controls.put(layer, ctrls = Collections2.<MapControl>newIdentityHashSet());
+            }
+            if (ctrls.add(ctrl)) {
+                for (OnControlsChangedListener l : this.controlsListeners)
+                    l.onControlRegistered(layer, ctrl);
+            }
         }
     }
 
     @Override
-    public synchronized void unregisterControl(Layer2 layer, MapControl ctrl) {
-        Collection<MapControl> ctrls = layer == null ? this.mapViewControls : this.controls.get(layer);
-        if(ctrls != null) {
-            if(ctrls.remove(ctrl)) {
-                if(ctrl instanceof ModelHitTestControl)
-                    this.modelHitTestControls.remove((ModelHitTestControl)ctrl);
-                for(OnControlsChangedListener l : this.controlsListeners)
-                    l.onControlUnregistered(layer, ctrl);
+    public void unregisterControl(Layer2 layer, MapControl ctrl) {
+        if(ctrl instanceof ModelHitTestControl) {
+            synchronized (modelHitTestControls) {
+                this.modelHitTestControls.remove((ModelHitTestControl) ctrl);
+            }
+        }
+        synchronized (this) {
+            Collection<MapControl> ctrls = layer == null ? this.mapViewControls : this.controls.get(layer);
+            if (ctrls != null) {
+                if (ctrls.remove(ctrl)) {
+                    for (OnControlsChangedListener l : this.controlsListeners)
+                        l.onControlUnregistered(layer, ctrl);
+                }
             }
         }
     }
@@ -1876,6 +2225,15 @@ public class GLMapView implements
     @Override
     public synchronized void visitControls(Visitor<Iterator<Map.Entry<Layer2, Collection<MapControl>>>> visitor) {
         visitor.visit(this.controls.entrySet().iterator());
+    }
+
+    @Override
+    public <T> T getControl(Class<T> ctrlClazz) {
+        for(MapControl ctrl : this.mapViewControls) {
+            if(ctrlClazz.isAssignableFrom(ctrl.getClass()))
+                return (T)ctrl;
+        }
+        return null;
     }
 
     /*************************************************************************/
@@ -1929,62 +2287,27 @@ public class GLMapView implements
         this.controlsListeners.remove(l);
     }
 
+    /** @deprecated use {@link #inverse(PointD, GeoPoint, InverseMode, int, DisplayOrigin)} */
+    @Deprecated
+    @DeprecatedApi(since = "4.3", forRemoval = true, removeAt = "4.6")
     public GeoPoint intersectWithTerrain2(MapSceneModel scene, float x, float y) {
         GeoPoint result = GeoPoint.createMutable();
-        synchronized(this.offscreen) {
-            if (intersectWithTerrain2(this.pointer.raw, MapSceneModel_interop.getPointer(scene), x, y, result))
+        rwlock.acquireRead();
+        try {
+            if (this.pointer.raw != 0L && intersectWithTerrain2(this.pointer.raw, MapSceneModel_interop.getPointer(scene), x, y, result, impl))
                 return result;
-
+        } finally {
+            rwlock.releaseRead();
         }
         return scene.inverse(new PointF(x, y), null);
-    }
-
-    /**
-     * Must be called when holding lock on <code>this</code> or on GL thread
-     * @param scene
-     * @param tile
-     * @param screenX
-     * @param screenY
-     * @param result
-     * @return
-     */
-    private static boolean hitTest(MapSceneModel scene, TerrainTile tile, float screenX, float screenY,
-                           GeoPoint result) {
-        Model m;
-        int srid;
-        Matrix localFrame = null;
-        double renderElOffset;
-        if (tile.model == null)
-            return false;
-        m = tile.model;
-        srid = tile.info.srid;
-        if (tile.info.localFrame != null) { 
-            if (localFrame == null) {
-                localFrame = tile.info.localFrame;
-            } else {
-                localFrame.concatenate(tile.info.localFrame);
-            }
-        } else {
-            return false;
-        }
-
-        if (scene.mapProjection.getSpatialReferenceID() != srid)
-            return false;
-
-        GeometryModel gm = Models.createGeometryModel(m, localFrame);
-        if (gm == null)
-            return false;
-
-        if (scene.inverse(new PointF(screenX, screenY), result, gm) == null)
-            return false;
-
-        return true;
     }
 
     /**
      * @deprecated subject to be changed/removed at any time
      * @return
      */
+    @Deprecated
+    @DeprecatedApi(since = "4.1")
     public static double estimateResolution(GLMapView model, double ullat, double ullng, double lrlat, double lrlng, GeoPoint closest) {
         return estimateResolutionFromViewAABB(model.pointer.raw, ullat, ullng, lrlat, lrlng, closest);
     }
@@ -1993,6 +2316,8 @@ public class GLMapView implements
      * @deprecated subject to be changed/removed at any time
      * @return
      */
+    @Deprecated
+    @DeprecatedApi(since = "4.1")
     public static double estimateResolution(MapSceneModel model, double ullat, double ullng, double lrlat, double lrlng, GeoPoint closest) {
         return estimateResolutionFromModelAABB(MapSceneModel_interop.getPointer(model), ullat, ullng, lrlat, lrlng, closest);
     }
@@ -2001,6 +2326,8 @@ public class GLMapView implements
      * @deprecated subject to be changed/removed at any time
      * @return
      */
+    @Deprecated
+    @DeprecatedApi(since = "4.1")
     public static double estimateResolution(GLMapView model, PointD center, double radius, GeoPoint closest) {
         return estimateResolutionFromViewSphere(model.pointer.raw, center.x, center.y, center.z, radius, closest);
     }
@@ -2009,54 +2336,61 @@ public class GLMapView implements
      * @deprecated subject to be changed/removed at any time
      * @return
      */
+    @Deprecated
+    @DeprecatedApi(since = "4.1")
     public static double estimateResolution(MapSceneModel model, PointD center, double radius, GeoPoint closest) {
         return estimateResolutionFromModelSphere(MapSceneModel_interop.getPointer(model), center.x, center.y, center.z, radius, closest);
     }
 
-    private final static class State {
-        private double drawMapScale = 2.5352504279048383E-9d;
-        private double drawMapResolution = 0.0d;
-        private double drawLat = 0d;
-        private double drawLng = 0d;
-        private double drawRotation = 0d;
-        private double drawTilt = 0d;
-        private double animationFactor = 0.3d;
-        private int drawVersion = 0;
-        private boolean targeting = false;
-        private double westBound = -180d;
-        private double southBound = -90d;
-        private double northBound = 90d;
-        private double eastBound = 180d;
-        private int _left;
-        private int _right;
-        private int _top;
-        private int _bottom;
-        private int drawSrid = -1;
-        private Projection drawProjection;
-        private float focusx, focusy;
-        private GeoPoint upperLeft;
-        private GeoPoint upperRight;
-        private GeoPoint lowerRight;
-        private GeoPoint lowerLeft;
-        private boolean settled;
-        private int renderPump;
-        private Matrix verticalFlipTranslate;
-        private int verticalFlipTranslateHeight;
-        private boolean rigorousRegistrationResolutionEnabled;
-        private long animationLastTick = -1L;
-        private long animationDelta = -1L;
-        private int sceneModelVersion;
+    public final static class State {
+        public double drawMapResolution = 0.0d;
+        public double drawLat = 0d;
+        public double drawLng = 0d;
+        public double drawRotation = 0d;
+        public double drawTilt = 0d;
+        public int drawVersion = 0;
+        public boolean targeting = false;
+        public double westBound = -180d;
+        public double southBound = -90d;
+        public double northBound = 90d;
+        public double eastBound = 180d;
+        public int left;
+        public int right;
+        public int top;
+        public int bottom;
+        public int drawSrid = -1;
+        public float focusx, focusy;
+        public final GeoPoint upperLeft;
+        public final GeoPoint upperRight;
+        public final GeoPoint lowerRight;
+        public final GeoPoint lowerLeft;
+        public int renderPump;
+        /**
+         * The associated scene. Note that the object is mutable, and that
+         * references are _live_. If a persistent snapshot is needed, users
+         * should create a clone.
+         */
         public MapSceneModel scene;
-        private float[] sceneModelForwardMatrix;
+        public final float[] sceneModelForwardMatrix;
+        public boolean crossesIDL;
+        /**
+         * Hint indicating relative scaling that is being applied to the scene.
+         * The value of this hint indicates the relative number of pixels in
+         * the ortho projection that correspond to the number of pixels as
+         * displayed in the viewport. To maintain constant pixel size, clients
+         * may divide quantities specified in pixels by this value (e.g. line
+         * width).
+         */
+        public float relativeScaleHint;
 
         public State() {
             this.upperLeft = GeoPoint.createMutable();
             this.upperRight = GeoPoint.createMutable();
             this.lowerRight = GeoPoint.createMutable();
             this.lowerLeft = GeoPoint.createMutable();
-            this.verticalFlipTranslate = Matrix.getIdentity();
             this.sceneModelForwardMatrix = new float[16];
             this.scene = null;
+            this.relativeScaleHint = 1f;
         }
 
         /**
@@ -2064,40 +2398,60 @@ public class GLMapView implements
          *
          * @param view
          */
-        public void save(GLMapView view) {
-            this.drawMapScale = view.drawMapScale;
+        void copy(GLMapView view) {
             this.drawMapResolution = view.drawMapResolution;
             this.drawLat = view.drawLat;
             this.drawLng = view.drawLng;
             this.drawRotation = view.drawRotation;
             this.drawTilt = view.drawTilt;
-            this.animationFactor = view.animationFactor;
             this.drawVersion = view.drawVersion;
             this.targeting = view.targeting;
             this.westBound = view.westBound;
             this.southBound = view.southBound;
             this.northBound = view.northBound;
             this.eastBound = view.eastBound;
-            this._left = view._left;
-            this._right = view._right;
-            this._top = view._top;
-            this._bottom = view._bottom;
+            this.crossesIDL = view.crossesIDL;
+            this.left = view._left;
+            this.right = view._right;
+            this.top = view._top;
+            this.bottom = view._bottom;
             this.drawSrid = view.drawSrid;
-            this.drawProjection = view.drawProjection;
             this.focusx = view.focusx;
             this.focusy = view.focusy;
             this.upperLeft.set(view.upperLeft);
             this.upperRight.set(view.upperRight);
             this.lowerRight.set(view.lowerRight);
             this.lowerLeft.set(view.lowerLeft);
-            this.settled = view.settled;
             this.renderPump = view.renderPump;
-            this.verticalFlipTranslate.set(view.verticalFlipTranslate);
-            this.verticalFlipTranslateHeight = view.verticalFlipTranslateHeight;
-            this.rigorousRegistrationResolutionEnabled = view.rigorousRegistrationResolutionEnabled;
-            this.animationLastTick = view.animationLastTick;
-            this.animationDelta = view.animationDelta;
-            this.sceneModelVersion = view.sceneModelVersion;
+            this.scene = view.scene;
+            System.arraycopy(view.sceneModelForwardMatrix, 0, this.sceneModelForwardMatrix, 0, 16);
+        }
+
+        public void copy(GLMapView.State view) {
+            this.drawMapResolution = view.drawMapResolution;
+            this.drawLat = view.drawLat;
+            this.drawLng = view.drawLng;
+            this.drawRotation = view.drawRotation;
+            this.drawTilt = view.drawTilt;
+            this.drawVersion = view.drawVersion;
+            this.targeting = view.targeting;
+            this.westBound = view.westBound;
+            this.southBound = view.southBound;
+            this.northBound = view.northBound;
+            this.eastBound = view.eastBound;
+            this.crossesIDL = view.crossesIDL;
+            this.left = view.left;
+            this.right = view.right;
+            this.top = view.top;
+            this.bottom = view.bottom;
+            this.drawSrid = view.drawSrid;
+            this.focusx = view.focusx;
+            this.focusy = view.focusy;
+            this.upperLeft.set(view.upperLeft);
+            this.upperRight.set(view.upperRight);
+            this.lowerRight.set(view.lowerRight);
+            this.lowerLeft.set(view.lowerLeft);
+            this.renderPump = view.renderPump;
             this.scene = view.scene;
             System.arraycopy(view.sceneModelForwardMatrix, 0, this.sceneModelForwardMatrix, 0, 16);
         }
@@ -2107,39 +2461,65 @@ public class GLMapView implements
          * @param view
          */
         public void restore(GLMapView view) {
-            view.drawMapScale = this.drawMapScale;
+            view.drawMapScale = Globe.getMapScale(this.scene.dpi, this.drawMapResolution);
             view.drawMapResolution = this.drawMapResolution;
             view.drawLat = this.drawLat;
             view.drawLng = this.drawLng;
             view.drawRotation = this.drawRotation;
             view.drawTilt = this.drawTilt;
-            view.animationFactor = this.animationFactor;
             view.drawVersion = this.drawVersion;
             view.targeting = this.targeting;
             view.westBound = this.westBound;
             view.southBound = this.southBound;
             view.northBound = this.northBound;
             view.eastBound = this.eastBound;
-            view._left = this._left;
-            view._right = this._right;
-            view._top = this._top;
-            view._bottom = this._bottom;
+            view.crossesIDL = this.crossesIDL;
+            view._left = this.left;
+            view._right = this.right;
+            view._top = this.top;
+            view._bottom = this.bottom;
             view.drawSrid = this.drawSrid;
-            view.drawProjection = this.drawProjection;
+            view.drawProjection = this.scene.mapProjection;
             view.focusx = this.focusx;
             view.focusy = this.focusy;
             (view.upperLeft).set(this.upperLeft);
             (view.upperRight).set(this.upperRight);
             (view.lowerRight).set(this.lowerRight);
             (view.lowerLeft).set(this.lowerLeft);
-            view.settled = this.settled;
             view.renderPump = this.renderPump;
-            view.verticalFlipTranslate.set(this.verticalFlipTranslate);
-            view.verticalFlipTranslateHeight = this.verticalFlipTranslateHeight;
-            view.rigorousRegistrationResolutionEnabled = this.rigorousRegistrationResolutionEnabled;
-            view.animationLastTick = this.animationLastTick;
-            view.animationDelta = this.animationDelta;
-            view.sceneModelVersion = this.sceneModelVersion;
+            view.scene = this.scene;
+            System.arraycopy(this.sceneModelForwardMatrix, 0, view.sceneModelForwardMatrix, 0, 16);
+        }
+
+        /**
+         * Restores the state of the specified GLMapView.
+         * @param view
+         */
+        public void restore(GLMapView.State view) {
+            view.drawMapResolution = this.drawMapResolution;
+            view.drawLat = this.drawLat;
+            view.drawLng = this.drawLng;
+            view.drawRotation = this.drawRotation;
+            view.drawTilt = this.drawTilt;
+            view.drawVersion = this.drawVersion;
+            view.targeting = this.targeting;
+            view.westBound = this.westBound;
+            view.southBound = this.southBound;
+            view.northBound = this.northBound;
+            view.eastBound = this.eastBound;
+            view.crossesIDL = this.crossesIDL;
+            view.left = this.left;
+            view.right = this.right;
+            view.top = this.top;
+            view.bottom = this.bottom;
+            view.drawSrid = this.drawSrid;
+            view.focusx = this.focusx;
+            view.focusy = this.focusy;
+            (view.upperLeft).set(this.upperLeft);
+            (view.upperRight).set(this.upperRight);
+            (view.lowerRight).set(this.lowerRight);
+            (view.lowerLeft).set(this.lowerLeft);
+            view.renderPump = this.renderPump;
             view.scene = this.scene;
             System.arraycopy(this.sceneModelForwardMatrix, 0, view.sceneModelForwardMatrix, 0, 16);
         }
@@ -2189,6 +2569,322 @@ public class GLMapView implements
             if(!this.enqueued) {
                 this.enqueued = true;
                 _context.queueEvent(this);
+            }
+        }
+    }
+
+    private class SurfaceControlImpl implements SurfaceRendererControl {
+        int surfaceBoundsVersion = -1;
+        ArrayList<Envelope> surfaceBounds = new ArrayList<>();
+
+        @Override
+        public void markDirty(Envelope region, boolean streaming) {
+            if(region == null)
+                return;
+            rwlock.acquireRead();
+            try {
+                if (pointer.raw == 0L)
+                    return;
+                GLMapView.markDirty(pointer.raw, region.minX, region.minY, region.maxX, region.maxY, streaming);
+            } finally {
+                rwlock.releaseRead();
+            }
+        }
+
+        @Override
+        public void markDirty() {
+            rwlock.acquireRead();
+            try {
+                if (pointer.raw == 0L)
+                    return;
+                GLMapView.markDirty(pointer.raw);
+            } finally {
+                rwlock.releaseRead();
+            }
+        }
+
+        @Override
+        public void enableDrawMode(Mesh.DrawMode mode) {
+            rwlock.acquireRead();
+            try {
+                if (pointer.raw == 0L)
+                    return;
+                // XXX -
+                int tedm = -1;
+                switch(mode) {
+                    case Triangles:
+                        tedm = 0;
+                        break;
+                    case Points:
+                        tedm = 2;
+                        break;
+                    case Lines:
+                        tedm = 3;
+                        break;
+                }
+                GLMapView.enableDrawMode(pointer.raw, tedm);
+            } finally {
+                rwlock.releaseRead();
+            }
+        }
+
+        @Override
+        public void disableDrawMode(Mesh.DrawMode mode) {
+            rwlock.acquireRead();
+            try {
+                if (pointer.raw == 0L)
+                    return;
+                // XXX -
+                int tedm = -1;
+                switch(mode) {
+                    case Triangles:
+                        tedm = 0;
+                        break;
+                    case Points:
+                        tedm = 2;
+                        break;
+                    case Lines:
+                        tedm = 3;
+                        break;
+                }
+                GLMapView.disableDrawMode(pointer.raw, tedm);
+            } finally {
+                rwlock.releaseRead();
+            }
+        }
+
+        @Override
+        public boolean isDrawModeEnabled(Mesh.DrawMode mode) {
+            rwlock.acquireRead();
+            try {
+                if (pointer.raw == 0L)
+                    return false;
+                // XXX -
+                int tedm = -1;
+                switch(mode) {
+                    case Triangles:
+                        tedm = 0;
+                        break;
+                    case Points:
+                        tedm = 2;
+                        break;
+                    case Lines:
+                        tedm = 3;
+                        break;
+                }
+                return GLMapView.isDrawModeEnabled(pointer.raw, tedm);
+            } finally {
+                rwlock.releaseRead();
+            }
+        }
+
+        @Override
+        public void setColor(Mesh.DrawMode mode, int color, ColorControl2.Mode colorMode) {
+            rwlock.acquireRead();
+            try {
+                if (pointer.raw == 0L)
+                    return;
+                // XXX -
+                int tedm = -1;
+                switch(mode) {
+                    case Triangles:
+                        tedm = 0;
+                        break;
+                    case Points:
+                        tedm = 2;
+                        break;
+                    case Lines:
+                        tedm = 3;
+                        break;
+                }
+                GLMapView.setDrawModeColor(pointer.raw, tedm, color);
+            } finally {
+                rwlock.releaseRead();
+            }
+        }
+
+        @Override
+        public int getColor(Mesh.DrawMode mode) {
+            rwlock.acquireRead();
+            try {
+                if (pointer.raw == 0L)
+                    return -1;
+                // XXX -
+                int tedm = -1;
+                switch(mode) {
+                    case Triangles:
+                        tedm = 0;
+                        break;
+                    case Points:
+                        tedm = 2;
+                        break;
+                    case Lines:
+                        tedm = 3;
+                        break;
+                }
+                return GLMapView.getDrawModeColor(pointer.raw, tedm);
+            } finally {
+                rwlock.releaseRead();
+            }
+        }
+
+        @Override
+        public ColorControl2.Mode getColorMode(Mesh.DrawMode mode) {
+            return ColorControl2.Mode.Modulate;
+        }
+
+        @Override
+        public void setCameraCollisionRadius(double radius) {
+            rwlock.acquireRead();
+            try {
+                if (pointer.raw == 0L)
+                    return;
+                collideRadius = radius;
+            } finally {
+                rwlock.releaseRead();
+            }
+        }
+
+        @Override
+        public double getCameraCollisionRadius() {
+            return collideRadius;
+        }
+
+        @Override
+        public Collection<Envelope> getSurfaceBounds() {
+            if(!_context.isRenderThread())
+                return Collections.emptyList();
+
+            // validate surface bounds
+            if(surfaceBoundsVersion != currentScene.renderPump) {
+                rwlock.acquireRead();
+                try {
+                    if (pointer.raw != 0L) {
+                        surfaceBounds.clear();
+                        GLMapView.getSurfaceBounds(pointer.raw, surfaceBounds);
+                        surfaceBoundsVersion = currentScene.renderPump;
+                    }
+                } finally {
+                    rwlock.releaseRead();
+                }
+            }
+            return surfaceBounds;
+        }
+
+        @Override
+        public void setMinimumRefreshInterval(long millis) {
+            // XXX - add JNI
+        }
+
+        @Override
+        public long getMinimumRefreshInterval() {
+            // XXX - add JNI; return default value from C++ impl
+            return 3000L;
+        }
+    }
+
+    class SurfaceTerrainBlendControl implements TerrainBlendControl {
+
+        @Override
+        public double getBlendFactor() {
+            return Color.alpha(surfaceControl.getColor(Mesh.DrawMode.Triangles)) / 255d;
+        }
+
+        @Override
+        public boolean getEnabled() {
+            return true;
+        }
+
+        @Override
+        public void setEnabled(final boolean enabled) {
+        }
+
+        @Override
+        public void setBlendFactor(double blendFactor) {
+            final double clampedValue = MathUtils.clamp(blendFactor, 0.0, 1.0);
+            if(clampedValue < 1d)
+                surfaceControl.enableDrawMode(Mesh.DrawMode.Lines);
+            else
+                surfaceControl.disableDrawMode(Mesh.DrawMode.Lines);
+
+            surfaceControl.setColor(Mesh.DrawMode.Triangles,
+                    ((int)(255d*clampedValue)<<24)|0xFFFFFF,
+                    ColorControl2.Mode.Modulate);
+            surfaceControl.setColor(Mesh.DrawMode.Lines,
+                    ((int)(255d*(1d-clampedValue)*0.75d)<<24)|0xCFCFCF,
+                    ColorControl2.Mode.Modulate);
+        }
+    }
+
+    class LegacyTerrainBlendControl implements TerrainBlendControl {
+
+        private double localBlendFactor = 1.0;
+        private boolean localBlendEnabled = false;
+
+        @Override
+        public double getBlendFactor() {
+            synchronized (this) {
+                return localBlendFactor;
+            }
+        }
+
+        @Override
+        public boolean getEnabled() {
+            synchronized (this) {
+                return localBlendEnabled;
+            }
+        }
+
+        @Override
+        public void setEnabled(final boolean enabled) {
+            synchronized (this) {
+                localBlendEnabled = enabled;
+            }
+            _context.queueEvent(new Runnable() {
+                @Override
+                public void run() {
+                    GLMapView.this.terrainBlendEnabled = enabled;
+                }
+            });
+        }
+
+        @Override
+        public void setBlendFactor(double blendFactor) {
+            final double clampedValue = MathUtils.clamp(blendFactor, 0.0, 1.0);
+            synchronized (this) {
+                localBlendFactor = clampedValue;
+            }
+            _context.queueEvent(new Runnable() {
+                @Override
+                public void run() {
+                    GLMapView.this.terrainBlendFactor = clampedValue;
+                }
+            });
+        }
+    }
+
+    final class AtmosphereControlImpl implements AtmosphereControl {
+
+        @Override
+        public boolean isAtmosphereEnabled() {
+            rwlock.acquireRead();
+            try {
+                if(pointer.raw == 0L)
+                    return false;
+                return GLMapView.isAtmosphereEnabled(pointer.raw, impl);
+            } finally {
+                rwlock.releaseRead();
+            }
+        }
+
+        @Override
+        public void setAtmosphereEnabled(boolean enabled) {
+            rwlock.acquireRead();
+            try {
+                if(pointer.raw != 0L)
+                    GLMapView.setAtmosphereEnabled(pointer.raw, enabled, impl);
+            } finally {
+                rwlock.releaseRead();
             }
         }
     }
@@ -2313,40 +3009,6 @@ public class GLMapView implements
         
     }
 
-    void refreshTerrainTiles() {
-        LinkedList<Pointer> tilePtrs = new LinkedList<>();
-        getTerrainTiles(this.pointer.raw, tilePtrs);
-        synchronized(this.offscreen) {
-            for (Pointer tilePtr : tilePtrs) {
-                GLMapView.TerrainTile tile = this.offscreen.terrainTilesFront.remove(tilePtr);
-                if (tile == null) {
-                    // interop
-                    tile = new GLMapView.TerrainTile();
-                    tile.aabb = new Envelope();
-                    ElMgrTerrainRenderService.TerrainTile_getAAbbWgs84(tilePtr.raw, tile.aabb);
-                    tile.skirtIndexOffset = ElMgrTerrainRenderService.TerrainTile_getSkirtIndexOffset(tilePtr.raw);
-                    tile.numIndices = ElMgrTerrainRenderService.TerrainTile_getNumIndices(tilePtr.raw);
-                    tile.model = ModelBuilder.build(Mesh_interop.create(ElMgrTerrainRenderService.TerrainTile_getMesh(tilePtr.raw)));
-                    tile.info = new ModelInfo();
-                    tile.info.srid = ElMgrTerrainRenderService.TerrainTile_getSrid(tilePtr.raw);
-                    tile.info.localFrame = ElMgrTerrainRenderService.TerrainTile_getLocalFrame(tilePtr.raw);
-                }
-                offscreen.terrainTilesBack.put(tilePtr, tile);
-            }
-
-            // swap buffers
-            Map<Pointer, TerrainTile> tmp = offscreen.terrainTilesFront;
-            offscreen.terrainTilesFront = offscreen.terrainTilesBack;
-            offscreen.terrainTilesBack = tmp;
-
-            // destruct all pointers in the back buffer and clear it
-            for(Pointer pointer : offscreen.terrainTilesBack.keySet()) {
-                ElMgrTerrainRenderService.TerrainTile_destruct(pointer);
-            }
-            offscreen.terrainTilesBack.clear();
-        }
-    }
-
     /*************************************************************************/
     // Interop
 
@@ -2365,19 +3027,30 @@ public class GLMapView implements
 
     // native implementation
 
-    static native Pointer create(long ctxPtr, long mapviewPtr, int left, int bottom, int right, int top);
+    static native Pointer create(long ctxPtr, long mapviewPtr, int left, int bottom, int right, int top, boolean orthoOnly);
     static native void render(long ptr);
+    static native void release(long ptr);
     static native void setBaseMap(long ptr, GLMapRenderable2 basemap);
-    static native void sync(long ptr, GLMapView view);
+    static native void sync(long ptr, GLMapView view, boolean current);
     static native void start(long ptr);
     static native void stop(long ptr);
     static native void intern(GLMapView view);
 
-    static native double getTerrainMeshElevation(long ptr, double latitude, double longitude);
-    static native boolean intersectWithTerrain2(long viewptr, long sceneptr, float x, float y, GeoPoint result);
-    static native void getTerrainTiles(long ptr, Collection<Pointer> tiles);
-    static native int getTerrainVersion(long ptr);
-    static native Pointer getTerrainRenderService(long ptr);
+    // surface control
+    static native void markDirty(long ptr);
+    static native void markDirty(long ptr, double minX, double minY, double maxX, double maxY, boolean streaming);
+    static native void enableDrawMode(long ptr, int tedm);
+    static native void disableDrawMode(long ptr, int tedm);
+    static native boolean isDrawModeEnabled(long ptr, int tedm);
+    static native int getDrawModeColor(long ptr, int tedm);
+    static native void setDrawModeColor(long ptr, int tedm, int color);
+    static native void getSurfaceBounds(long ptr, Collection<Envelope> bounds);
+
+    static native double getTerrainMeshElevation(long ptr, double latitude, double longitude, int impl);
+    static native boolean intersectWithTerrain2(long viewptr, long sceneptr, float x, float y, GeoPoint result, int impl);
+    static native void getTerrainTiles(long ptr, Collection<Pointer> tiles, int impl);
+    static native int getTerrainVersion(long ptr, int impl);
+    static native Pointer getTerrainRenderService(long ptr, int impl);
 
     static native void forwardD(long ptr, long srcBufPtr, int srcSize, long dstBufPtr, int dstSize, int count);
     static native void forwardF(long ptr, long srcBufPtr, int srcSize, long dstBufPtr, int dstSize, int count);
@@ -2387,34 +3060,41 @@ public class GLMapView implements
     static native double estimateResolutionFromViewSphere(long ptr, double centerX, double centerY, double centerZ, double radius, GeoPoint closest);
     static native double estimateResolutionFromModelSphere(long ptr, double centerX, double centerY, double centerZ, double radius, GeoPoint closest);
 
-    static native void set_terrainBlendFactor(long pointer, float value);
+    static native void set_terrainBlendFactor(long pointer, float value, int impl);
     static native void set_targeting(long pointer, boolean value);
 
     // XXX - so bizarre, but getting a JNI error trying to set boolean fields, make accessors as temporary workaround
 
-    static native boolean get_targeting(long pointer);
-    static native boolean get_crossesIDL(long pointr);
+    static native boolean get_targeting(long pointer, boolean current);
+    static native boolean get_crossesIDL(long pointr, boolean current);
     static native boolean get_settled(long pointer);
     static native boolean get_rigorousRegistrationResolutionEnabled(long pointer);
     static native boolean get_terrainBlendEnabled(long pointer);
     static native boolean get_continuousScrollEnabled(long pointer);
+    static native boolean get_multiPartPass(long pointer);
 
     // MapRenderer2 camera management
     static native int getDisplayMode(long pointer);
-    static native void setDisplayMode(long pointer, int srid);
-    static native boolean lookAt(long ptr, double lat, double lng, double resolution, double azimuth, double tilt, boolean animate);
-    static native Pointer getMapSceneModel(long ptr, boolean instant, boolean llOrigin);
+    static native void setDisplayMode(long pointer, int srid, int impl);
+    static native boolean lookAt(long ptr, double lat, double lng, double alt, double resolution, double azimuth, double tilt, double collideRadius, int collideMode, boolean animate, int impl);
+    static native Pointer getMapSceneModel(long ptr, boolean instant, boolean llOrigin, int type);
     static native boolean isAnimating(long ptr);
-    static native void setFocusPointOffset(long ptr, float x, float y);
-    static native float getFocusPointOffsetX(long ptr);
-    static native float getFocusPointOffsetY(long ptr);
-    static native void setDisplayDpi(long ptr, double dpi);
-    static native void setSize(long ptr, int w, int h);
+    static native void setFocusPointOffset(long ptr, float x, float y, int type);
+    static native float getFocusPointOffsetX(long ptr, int type);
+    static native float getFocusPointOffsetY(long ptr, int impl);
+    static native void setDisplayDpi(long ptr, double dpi, int impl);
+    static native void setSize(long ptr, int w, int h, int impl);
 
     static native boolean inverse(long ptr, double x, double y, double z, int mode, GeoPoint result);
 
     static native double getElevationExaggerationFactor(long ptr);
-    static native void setElevationExaggerationFactor(long ptr, double factor);
+    static native void setElevationExaggerationFactor(long ptr, double factor, int impl);
 
+    static native void setRenderDiagnosticsEnabled(long ptr, boolean enabled, int impl);
+    static native boolean isRenderDiagnosticsEnabled(long ptr, int impl);
+    static native void addRenderDiagnostic(long ptr, String msg, int impl);
+
+    static native void setAtmosphereEnabled(long ptr, boolean enabled, int impl);
+    static native boolean isAtmosphereEnabled(long ptr, int impl);
 }
 

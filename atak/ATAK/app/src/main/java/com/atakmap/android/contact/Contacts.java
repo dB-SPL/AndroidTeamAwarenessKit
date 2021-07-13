@@ -194,7 +194,7 @@ public class Contacts implements MapEventDispatcher.MapEventDispatchListener {
         return getAllContactsOfClass(IndividualContact.class);
     }
 
-    private List<String> getAllContactsOfClass(Class classType) {
+    private List<String> getAllContactsOfClass(Class<?> classType) {
         List<String> uuidsToReturn = new ArrayList<>();
         synchronized (contacts) {
             for (Contact contact : contacts) {
@@ -420,7 +420,7 @@ public class Contacts implements MapEventDispatcher.MapEventDispatchListener {
         }
     }
 
-    private BroadcastReceiver timeDriftDetected = new BroadcastReceiver() {
+    private final BroadcastReceiver timeDriftDetected = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
             synchronized (contacts) {

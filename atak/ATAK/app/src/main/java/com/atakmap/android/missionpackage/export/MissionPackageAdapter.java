@@ -15,6 +15,7 @@ import com.atakmap.android.math.MathUtils;
 import com.atakmap.android.missionpackage.file.MissionPackageManifest;
 import com.atakmap.app.R;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
 
 import java.io.File;
@@ -66,8 +67,10 @@ public class MissionPackageAdapter extends BaseAdapter {
                 if (existing != null) {
                     File fc = new File(c.getPath());
                     File fe = new File(existing.getPath());
-                    if (!fc.exists() || (fe.exists()
-                            && fc.lastModified() < fe.lastModified()))
+                    if (!IOProviderFactory.exists(fc) || (IOProviderFactory
+                            .exists(fe)
+                            && IOProviderFactory.lastModified(
+                                    fc) < IOProviderFactory.lastModified(fe)))
                         continue;
                 }
                 pkgs.put(c.getName(), c);

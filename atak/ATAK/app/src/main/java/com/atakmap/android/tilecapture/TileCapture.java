@@ -7,11 +7,11 @@ import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
 
 import com.atakmap.android.data.URIScheme;
-import com.atakmap.android.layers.LayersMapComponent;
-import com.atakmap.android.maps.CardLayer;
+import com.atakmap.android.layers.RasterUtils;
 import com.atakmap.android.maps.MapView;
 import com.atakmap.android.maps.graphics.GLCapture;
 import com.atakmap.android.math.MathUtils;
+import com.atakmap.android.tilecapture.imagery.ImageryCaptureTask;
 import com.atakmap.android.tilecapture.reader.BitmapReader;
 import com.atakmap.android.tilecapture.reader.DatasetTileReader;
 import com.atakmap.android.tilecapture.reader.GdalTileReader;
@@ -21,19 +21,16 @@ import com.atakmap.android.tilecapture.reader.NativeTileReader;
 import com.atakmap.android.tilecapture.reader.TileBitmap;
 import com.atakmap.app.R;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.coremap.maps.coords.GeoBounds;
 import com.atakmap.coremap.maps.coords.GeoPoint;
 import com.atakmap.coremap.maps.coords.Vector2D;
-import com.atakmap.map.layer.Layer;
-import com.atakmap.map.layer.raster.AbstractRasterLayer2;
+import com.atakmap.map.gdal.GdalLibrary;
 import com.atakmap.map.layer.raster.DatasetDescriptor;
 import com.atakmap.map.layer.raster.DatasetProjection2;
 import com.atakmap.map.layer.raster.DefaultDatasetProjection2;
 import com.atakmap.map.layer.raster.ImageDatasetDescriptor;
-import com.atakmap.map.layer.raster.LocalRasterDataStore;
-import com.atakmap.map.layer.raster.RasterDataStore;
-import com.atakmap.map.layer.raster.RasterDataStore.DatasetQueryParameters;
 import com.atakmap.map.layer.raster.mobac.MobacMapSource;
 import com.atakmap.map.layer.raster.mobac.MobacMapSourceFactory;
 import com.atakmap.map.layer.raster.mobac.MobacTileClient2;
@@ -43,17 +40,17 @@ import com.atakmap.math.PointD;
 import com.atakmap.util.ConfigOptions;
 
 import org.gdal.gdal.Dataset;
-import org.gdal.gdal.gdal;
 import org.gdal.gdalconst.gdalconst;
 
 import java.io.File;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 
 /**
  * Reads tiles from a mobile or local tileset with the intent of capturing
  * each tile to a file
+ *
+ * Use with {@link ImageryCaptureTask} for asynchronous capture of map imagery
  */
 public class TileCapture extends DatasetTileReader {
 
@@ -102,8 +99,13 @@ public class TileCapture extends DatasetTileReader {
             DatasetTileReader r = createTileReader(info);
             if (r == null)
                 return null;
+
+            int srid = info.getSpatialReferenceID();
+            if (srid == -1)
+                srid = 4326; // Default
+
             tc = new TileCapture(r);
-            tc._srid = info.getSpatialReferenceID();
+            tc._srid = srid;
             tc._levelTransitionAdj = 0.5d - ConfigOptions.getOption(
                     "imagery.relative-scale", 0d);
 
@@ -113,13 +115,15 @@ public class TileCapture extends DatasetTileReader {
             GeoPoint lr = info.getLowerRight();
 
             if (info.getProvider().equals("mobac")) {
-                int width = info.getWidth() * (1 << tc._levelOffset);
-                int height = info.getHeight() * (1 << tc._levelOffset);
+                long width = (long) (info.getWidth() & 0xFFFFFFFFL)
+                        * (1L << (long) tc._levelOffset);
+                long height = (long) (info.getHeight() & 0xFFFFFFFFL)
+                        * (1L << (long) tc._levelOffset);
                 tc._imprecise = new DefaultDatasetProjection2(
-                        info.getSpatialReferenceID(), width, height,
+                        srid, width, height,
                         ul, ur, lr, ll);
             } else
-                tc._imprecise = new DefaultProjection(info);
+                tc._imprecise = new DefaultProjection(srid);
 
             // GSD
             tc._gsd = info.getMaxResolution(null);
@@ -133,63 +137,36 @@ public class TileCapture extends DatasetTileReader {
         return tc;
     }
 
+    /**
+     * Create a tile capture instance given a set of geobounds
+     * @param bounds Bounds to query
+     * @return Tile capture instance or null if failed
+     */
     public static TileCapture create(GeoBounds bounds) {
         MapView mv = MapView.getMapView();
         if (mv == null)
             return null;
 
-        // TODO: Simpler way to get the current on-screen imagery
-        AbstractRasterLayer2 layer = null;
-        List<Layer> layers = mv.getLayers(MapView.RenderStack.MAP_LAYERS);
-        for (Layer l : layers) {
-            if (!l.getName().equals("Raster Layers"))
-                continue;
-            CardLayer cd = (CardLayer) l;
-            layer = (AbstractRasterLayer2) cd.get();
-            break;
-        }
-        if (layer == null)
-            return null;
-
-        boolean mobile = layer instanceof MobileImageryRasterLayer2;
-        LocalRasterDataStore db = LayersMapComponent.getLayersDatabase();
-        DatasetQueryParameters dp = new DatasetQueryParameters();
-        if (mobile) {
-            dp.names = Collections.singleton(layer.getSelection());
-            dp.providers = Collections.singleton("mobac");
-        }
-        dp.spatialFilter = new DatasetQueryParameters.RegionSpatialFilter(
-                new GeoPoint(bounds.getNorth(), bounds.getWest()),
-                new GeoPoint(bounds.getSouth(), bounds.getEast()));
-
+        // Create tile capture instances for all applicable layers
         TileCapture lastCap = null;
         List<TileCapture> captures = new ArrayList<>();
-        RasterDataStore.DatasetDescriptorCursor c = null;
-        try {
-            c = db.queryDatasets(dp);
-            while (c != null && c.moveToNext()) {
-                DatasetDescriptor d = c.get();
-                if (!(d instanceof ImageDatasetDescriptor))
-                    continue;
-                ImageDatasetDescriptor info = (ImageDatasetDescriptor) d;
-                if (info.getProvider().equals("mobac") && !mobile)
-                    continue;
-                TileCapture tc = create(info);
-                if (tc == null || tc.tooSmall(info, bounds))
-                    continue;
-                if (lastCap != null && !lastCap.compatible(tc))
-                    continue;
-                captures.add(tc);
-                lastCap = tc;
-            }
-        } catch (Exception e) {
-            Log.e(TAG, "Failed to query datasets", e);
-        } finally {
-            if (c != null)
-                c.close();
+        List<ImageDatasetDescriptor> datasets = RasterUtils.getCurrentImagery(
+                mv, bounds);
+        for (ImageDatasetDescriptor info : datasets) {
+            TileCapture tc = create(info);
+            if (tc == null || tc.tooSmall(info, bounds))
+                continue;
+            if (lastCap != null && !lastCap.compatible(tc))
+                continue;
+            captures.add(tc);
+            lastCap = tc;
         }
+
+        // No layers - fallback to basemap
         if (captures.isEmpty())
             return createBasemapReader(mv);
+
+        // If there's only one layer then use it
         else if (captures.size() == 1)
             return captures.get(0);
 
@@ -212,7 +189,7 @@ public class TileCapture extends DatasetTileReader {
 
         File bmFile = new File(FileSystemUtils.getItem(
                 FileSystemUtils.TMP_DIRECTORY), "worldmap_4326.png");
-        if (!bmFile.exists()) {
+        if (!IOProviderFactory.exists(bmFile)) {
             try {
                 GLCapture.compress(bmp, 100, Bitmap.CompressFormat.PNG,
                         bmFile, false);
@@ -227,7 +204,7 @@ public class TileCapture extends DatasetTileReader {
                 new GeoPoint(-90, 180), new GeoPoint(-90, -180)
         };
 
-        Dataset ds = gdal.Open(bmFile.getAbsolutePath());
+        Dataset ds = GdalLibrary.openDatasetFromFile(bmFile);
         if (ds == null) {
             Log.e(TAG, "gdal.Open failed " + bmFile);
             return null;
@@ -249,7 +226,7 @@ public class TileCapture extends DatasetTileReader {
     private double _levelTransitionAdj;
     private double _gsd;
     private int _srid;
-    private Vector2D[] _tmpVec = new Vector2D[] {
+    private final Vector2D[] _tmpVec = new Vector2D[] {
             new Vector2D(0, 0), new Vector2D(0, 0), new Vector2D(0, 0)
     };
 
@@ -427,24 +404,36 @@ public class TileCapture extends DatasetTileReader {
         if (!cb.onStartCapture(tiles.size(), _tileWidth, _tileHeight, fw, fh))
             return;
 
-        // Clamp tile extents
-        _imprecise.groundToImage(new GeoPoint(0, 180), pd);
-        getTilePoint(level, pd, cr);
-        int eastLimit = cr.x;
+        // Check if this SRID corresponds to a world projection
+        // If it doesn't, we don't need to clamp to IDL
+        boolean worldProjection = _srid == 4326 || _srid == 3857
+                || _srid == 900913 || _srid == 90094326;
 
-        _imprecise.groundToImage(new GeoPoint(0, -180), pd);
-        getTilePoint(level, pd, cr);
-        int westLimit = cr.x;
+        int eastLimit = 0, westLimit = 0, unwrap = 0;
+        if (worldProjection) {
+            // Get tile extents
+            _imprecise.groundToImage(new GeoPoint(0, 180), pd);
+            getTilePoint(level, pd, cr);
+            eastLimit = cr.x;
 
-        int unwrap = (eastLimit - westLimit) + 1;
+            _imprecise.groundToImage(new GeoPoint(0, -180), pd);
+            getTilePoint(level, pd, cr);
+            westLimit = cr.x;
+
+            unwrap = (eastLimit - westLimit) + 1;
+        }
+
         int maxLevels = getMaxLevels() + getLevelOffset();
         for (int i = 0; i < tiles.size(); i++) {
             TilePoint tp = tiles.get(i);
             int col = tp.c;
-            if (col < westLimit)
-                col += unwrap;
-            else if (col > eastLimit)
-                col -= unwrap;
+            if (worldProjection) {
+                // Unwrap column overflow
+                if (col < westLimit)
+                    col += unwrap;
+                else if (col > eastLimit)
+                    col -= unwrap;
+            }
             TileBitmap tile = getTile(maxLevels - level - 1, col, tp.r);
             if (tile == null || tile.bmp == null)
                 Log.w(TAG, "Tile at " + tp.c + ", " + tp.r + " is null");
@@ -679,7 +668,8 @@ public class TileCapture extends DatasetTileReader {
                     path = path.substring(URIScheme.FILE.length())
                             .replace("%20", " ")
                             .replace("%23", "#");
-                Dataset ds = gdal.Open(path, gdalconst.GA_ReadOnly);
+                Dataset ds = GdalLibrary.openDatasetFromFile(new File(path),
+                        gdalconst.GA_ReadOnly);
                 return ds != null ? new GdalTileReader(info, ds)
                         : new NativeTileReader(info);
             }
@@ -702,10 +692,6 @@ public class TileCapture extends DatasetTileReader {
 
         public DefaultProjection(int srid) {
             this(MobileImageryRasterLayer2.getProjection(srid));
-        }
-
-        public DefaultProjection(ImageDatasetDescriptor info) {
-            this(info.getSpatialReferenceID());
         }
 
         @Override

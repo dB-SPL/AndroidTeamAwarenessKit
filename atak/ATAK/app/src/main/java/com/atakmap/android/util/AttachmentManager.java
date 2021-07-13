@@ -1,6 +1,7 @@
 
 package com.atakmap.android.util;
 
+import com.atakmap.os.FileObserver;
 import com.atakmap.android.filesystem.MIMETypeMapper;
 import com.atakmap.android.importfiles.task.ImportFileTask;
 import com.atakmap.android.importfiles.task.ImportFilesTask;
@@ -17,13 +18,16 @@ import com.atakmap.android.ipc.AtakBroadcast;
 import com.atakmap.android.maps.MapItem;
 import com.atakmap.android.maps.MapView;
 import android.widget.ImageButton;
-import android.os.FileObserver;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
+
 import java.io.IOException;
 import java.io.File;
 import java.io.FilenameFilter;
+
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
+
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
 
@@ -49,7 +53,7 @@ public class AttachmentManager {
 
     public static final String TAG = "AttachmentManager";
     private final MapView mapView;
-    private MapItem mapItem;
+    protected MapItem mapItem;
     private final ImageButton _attachmentsButton;
     private FileObserver fObserver;
     private int _prevAttachments;
@@ -82,7 +86,8 @@ public class AttachmentManager {
                 getFolderPath(this.mapItem.getUID(), true)) {
             @Override
             public void onEvent(int event, String path) {
-                if (event == FileObserver.OPEN) {
+                if (event == FileObserver.CREATE
+                        || event == FileObserver.DELETE) {
                     updateAttachmentsButton();
                 }
             }
@@ -114,7 +119,7 @@ public class AttachmentManager {
 
     }
 
-    private void updateAttachmentsButton() {
+    protected void updateAttachmentsButton() {
         if (mapItem == null)
             return;
         final String uid = mapItem.getUID();
@@ -140,7 +145,7 @@ public class AttachmentManager {
                                 .setImageResource(R.drawable.attachment);
                     }
                 } catch (NullPointerException npe) {
-                    Log.d(TAG, "unknown error occured", npe);
+                    Log.d(TAG, "unknown error occurred", npe);
                 }
             }
         });
@@ -248,23 +253,23 @@ public class AttachmentManager {
 
         // Check if the attachments directory even exists
         File attDir = FileSystemUtils.getItem("attachments");
-        if (!attDir.exists())
+        if (!IOProviderFactory.exists(attDir))
             return ret;
 
         // Get all attachment sub-directories
         // Directory name corresponds to the map item UID
-        File[] subDirs = attDir.listFiles();
+        File[] subDirs = IOProviderFactory.listFiles(attDir);
         if (FileSystemUtils.isEmpty(subDirs))
             return ret;
 
         // Add map items for valid sub-directories
         for (File d : subDirs) {
             // Ignore regular files
-            if (!d.isDirectory())
+            if (!IOProviderFactory.isDirectory(d))
                 continue;
 
             // Ignore empty sub-directories
-            File[] files = d.listFiles();
+            File[] files = IOProviderFactory.listFiles(d);
             if (FileSystemUtils.isEmpty(files))
                 continue;
 
@@ -294,8 +299,9 @@ public class AttachmentManager {
         final String retval = getFolderPath(uid);
         if (retval != null) {
             File imageDir = new File(retval);
-            if (imageDir.isDirectory()) {
-                File[] files = imageDir.listFiles(_fileFilter);
+            if (IOProviderFactory.isDirectory(imageDir)) {
+                File[] files = IOProviderFactory.listFiles(imageDir,
+                        _fileFilter);
                 if (files == null)
                     files = new File[0];
                 ret.addAll(Arrays.asList(files));
@@ -331,15 +337,17 @@ public class AttachmentManager {
 
         File outDir = new File(path);
         File attachment;
-        try {
+        try (InputStream is = IOProviderFactory.getInputStream(f)) {
             attachment = new File(outDir, f.getName());
 
             // the passed in file is equal to the location where it will be attached
             if (attachment.getCanonicalPath().equals(f.getCanonicalPath()))
                 return null;
 
-            FileSystemUtils.copy(new FileInputStream(f),
-                    new FileOutputStream(attachment));
+            try (OutputStream os = IOProviderFactory
+                    .getOutputStream(attachment)) {
+                FileSystemUtils.copy(is, os);
+            }
         } catch (IOException ioe) {
             return null;
         }
@@ -374,7 +382,7 @@ public class AttachmentManager {
         // we can not observe a folder that does not exist
         if (createDir) {
             File f = new File(fPath);
-            if (!f.exists() && !f.mkdirs())
+            if (!IOProviderFactory.exists(f) && !IOProviderFactory.mkdirs(f))
                 Log.d(TAG, "unable to create the directory: " + f);
         }
 

@@ -65,14 +65,27 @@ public class FeatureStyleParser {
                 
                 style = new BasicFillStyle(brush.foreColor);
             } else if(tool instanceof Symbol) {
-                Symbol symbol = (Symbol)tool;
-                if(symbol.id != null)
-                    style = new IconPointStyle(symbol.color, symbol.id);
+                Symbol symbol = (Symbol) tool;
+                if (symbol.id != null) {
+                    if (symbol.scale != 0)
+                        style = new IconPointStyle(symbol.color, symbol.id, symbol.scale, 0, 0, 0f, false);
+                    else
+                        style = new IconPointStyle(symbol.color, symbol.id);
+                }
+            } else if(tool instanceof Label) {
+                Label label = (Label)tool;
+                // NOTE: ogr "stretch" is width only, but we map to
+                // full scaling for matching KML rendering to google earth.
+                style = new LabelPointStyle(label.textString,  label.color, label.backgroundColor,
+                        LabelPointStyle.ScrollMode.OFF, label.fontSize, (int)label.dx, (int)label.dy,
+                        label.angle, false, 14d, label.stretch / 100.0f);
             } else {
                 continue;
             }
+
+            if (style != null)
+                retval.add(style);
             
-            retval.add(style);
         } while (true);
         
         if(retval.size() < 1)
@@ -80,7 +93,7 @@ public class FeatureStyleParser {
         else if(retval.size() == 1)
             style = retval.get(0);
         else
-            style = new CompositeStyle(retval.toArray(new Style[retval.size()]));
+            style = new CompositeStyle(retval.toArray(new Style[0]));
         if(style != null)
             styleCache.put(ogrStyle, style);
         return style;

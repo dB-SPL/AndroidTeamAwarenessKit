@@ -9,12 +9,12 @@ import com.atakmap.android.importfiles.sort.ImportResolver;
 import com.atakmap.android.video.manager.VideoManager;
 import com.atakmap.app.R;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
-import com.atakmap.coremap.filesystem.SecureDelete;
+import com.atakmap.coremap.io.IOProvider;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
 
 import java.io.BufferedReader;
 import java.io.File;
-import java.io.FileReader;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
@@ -40,11 +40,10 @@ public class ImportVideoAliasSort extends ImportResolver {
     public boolean match(final File file) {
         if (!super.match(file))
             return false;
-        BufferedReader br = null;
-        try {
+        try (BufferedReader br = new BufferedReader(
+                IOProviderFactory.getFileReader(file))) {
             // read first few hundred bytes and search for known strings
             char[] buffer = new char[1024];
-            br = new BufferedReader(new FileReader(file));
             int numRead = br.read(buffer);
             br.close();
             if (numRead < 1) {
@@ -56,12 +55,6 @@ public class ImportVideoAliasSort extends ImportResolver {
                     || content.contains("<feed>");
         } catch (Exception e) {
             Log.d(TAG, "Failed to match txt", e);
-        } finally {
-            try {
-                if (br != null)
-                    br.close();
-            } catch (Exception ignore) {
-            }
         }
         return false;
     }
@@ -93,7 +86,7 @@ public class ImportVideoAliasSort extends ImportResolver {
         File atakdata = new File(_context.getCacheDir(),
                 FileSystemUtils.ATAKDATA);
         if (file.getAbsolutePath().startsWith(atakdata.getAbsolutePath())
-                && SecureDelete.delete(file))
+                && IOProviderFactory.delete(file, IOProvider.SECURE_DELETE))
             Log.d(TAG, "deleted imported video alias: "
                     + file.getAbsolutePath());
 

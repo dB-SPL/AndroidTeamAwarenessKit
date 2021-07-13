@@ -14,6 +14,7 @@ import com.atakmap.android.maps.MapItem;
 import com.atakmap.android.maps.MapView;
 import com.atakmap.android.maps.Marker;
 import com.atakmap.app.R;
+import com.atakmap.coremap.conversions.AreaUtilities;
 import com.atakmap.coremap.cot.event.CotEvent;
 import com.atakmap.coremap.cot.event.CotPoint;
 import com.atakmap.coremap.log.Log;
@@ -42,6 +43,7 @@ public class DrawingShape extends EditablePolyline implements ParentMapItem {
     public DrawingShape(MapView mapView, MapGroup mapGroup, String uid) {
         super(mapView, uid);
         this.childItemMapGroup = mapGroup.addGroup();
+        this.childItemMapGroup.setMetaString("shapeUID", uid);
         this.setClickable(true);
         setMetaBoolean("editable", true);
         setMetaString("menu", getShapeMenu());
@@ -153,6 +155,14 @@ public class DrawingShape extends EditablePolyline implements ParentMapItem {
             _shapeMarkerType = "shape_marker";
         }
         return _shapeMarkerType;
+    }
+
+    @Override
+    public void setHeight(double height) {
+        super.setHeight(height);
+        Marker marker = getMarker();
+        if (marker != null)
+            marker.setHeight(height);
     }
 
     public void setMovable(boolean movable) {
@@ -363,4 +373,10 @@ public class DrawingShape extends EditablePolyline implements ParentMapItem {
 
         return cotEvent;
     }
+
+    @Override
+    public double getArea() {
+        return AreaUtilities.calcShapeArea(getPoints());
+    }
+
 }

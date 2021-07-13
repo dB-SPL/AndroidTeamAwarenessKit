@@ -23,6 +23,7 @@ import android.widget.TextView;
 
 import com.atakmap.android.missionpackage.api.MissionPackageApi;
 import com.atakmap.app.R;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.maps.coords.GeoPoint;
 import com.atakmap.coremap.conversions.CoordinateFormat;
 import com.atakmap.coremap.conversions.CoordinateFormatUtilities;
@@ -37,6 +38,7 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.io.Writer;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Iterator;
@@ -52,23 +54,23 @@ public class FavoriteListAdapter extends BaseAdapter {
     public static final String FAVS = "::ATAK FAVORITES";
     public static final String TAG = "FavoriteListAdapter";
 
-    private final static int VERSION = 5;
+    private final static int VERSION = 6;
 
-    private final List<Favorite> mData;
+    protected final List<Favorite> mData;
     public static final String DIRNAME = FileSystemUtils.TOOL_DATA_DIRECTORY
             + File.separatorChar + "favorites";
     private static final String FILENAME = "favs.txt";
     private static final String PATH_TO_FILE = FileSystemUtils.getItem(
             DIRNAME + File.separator + FILENAME).toString();
 
-    private final LayoutInflater mInflater;
+    protected final LayoutInflater mInflater;
     private static Drawable DELETE_ICON;
     private static Drawable EDIT_ICON;
     private static Drawable SEND_ICON;
     private static final String DELIMITER = "\t";
-    private final Context _context;
+    protected final Context _context;
 
-    private final SharedPreferences _prefs;
+    protected final SharedPreferences _prefs;
 
     public FavoriteListAdapter(Context context) {
         mInflater = LayoutInflater.from(context);
@@ -252,7 +254,7 @@ public class FavoriteListAdapter extends BaseAdapter {
         writeList();
     }
 
-    private String getLocationText(final int position,
+    protected String getLocationText(final int position,
             final CoordinateFormat cf) {
         final Favorite fav = mData.get(position);
         if (fav != null) {
@@ -262,7 +264,7 @@ public class FavoriteListAdapter extends BaseAdapter {
         return "";
     }
 
-    private void setText(ViewHolder holder, int position) {
+    protected void setText(ViewHolder holder, int position) {
         String name = mData.get(position).title;
         if (name.length() > 24)
             holder.titleText.setTextSize(13);
@@ -298,76 +300,62 @@ public class FavoriteListAdapter extends BaseAdapter {
      */
     public static List<Favorite> loadList(final String file) {
         ArrayList<Favorite> result = new ArrayList<>();
-        BufferedReader reader = null;
-        InputStreamReader isr = null;
-        FileInputStream fis = null;
 
         try {
             File f = new File(
                     FileSystemUtils.sanitizeWithSpacesAndSlashes(file));
-            if (f.exists()) {
-                reader = new BufferedReader(
-                        isr = new InputStreamReader(
-                                fis = new FileInputStream(f),
-                                FileSystemUtils.UTF8_CHARSET));
-                String line;
-                int version = 0;
-                Favorite fav;
-                while ((line = reader.readLine()) != null) {
-                    // drop all newlines from the input
-                    line = line.replace("\n", "");
-                    // process any header
-                    if (line.startsWith("::")) {
-                        if (version == 0 && line.startsWith("::VERSION")) {
-                            // obtain the version
-                            String versionStr = line.substring(9).trim();
-                            if (versionStr.matches("\\d+"))
-                                version = Integer.parseInt(versionStr);
+            if (IOProviderFactory.exists(f)) {
+                try (InputStream is = IOProviderFactory.getInputStream(f);
+                        InputStreamReader isr = new InputStreamReader(is,
+                                FileSystemUtils.UTF8_CHARSET);
+                        BufferedReader reader = new BufferedReader(isr)) {
+
+                    String line;
+                    int version = 0;
+                    Favorite fav;
+                    while ((line = reader.readLine()) != null) {
+                        // drop all newlines from the input
+                        line = line.replace("\n", "");
+                        // process any header
+                        if (line.startsWith("::")) {
+                            if (version == 0 && line.startsWith("::VERSION")) {
+                                // obtain the version
+                                String versionStr = line.substring(9).trim();
+                                if (versionStr.matches("\\d+"))
+                                    version = Integer.parseInt(versionStr);
+                            }
+
+                            continue;
                         }
 
-                        continue;
-                    }
+                        // parse the line per the version
+                        switch (version) {
+                            case 6:
+                                fav = parseVersion6(line);
+                                break;
+                            case 5:
+                                fav = parseVersion5(line);
+                                break;
+                            case 4:
+                                fav = parseVersion4(line);
+                                break;
+                            case 3:
+                                fav = parseVersion3(line);
+                                break;
+                            case 2:
+                                fav = parseVersion2(line);
+                                break;
+                            default:
+                                fav = parseLegacy(line);
+                                break;
+                        }
 
-                    // parse the line per the version
-                    switch (version) {
-                        case 5:
-                            fav = parseVersion5(line);
-                            break;
-                        case 4:
-                            fav = parseVersion4(line);
-                            break;
-                        case 3:
-                            fav = parseVersion3(line);
-                            break;
-                        case 2:
-                            fav = parseVersion2(line);
-                            break;
-                        default:
-                            fav = parseLegacy(line);
-                            break;
+                        if (fav != null)
+                            result.add(fav);
                     }
-
-                    if (fav != null)
-                        result.add(fav);
                 }
             }
         } catch (IOException ignored) {
-        } finally {
-            if (reader != null)
-                try {
-                    reader.close();
-                } catch (IOException ignored) {
-                }
-            if (isr != null)
-                try {
-                    isr.close();
-                } catch (IOException ignored) {
-                }
-            if (fis != null)
-                try {
-                    fis.close();
-                } catch (IOException ignored) {
-                }
         }
         return result;
     }
@@ -467,6 +455,23 @@ public class FavoriteListAdapter extends BaseAdapter {
         }
     }
 
+    private static Favorite parseVersion6(final String line) {
+        final String[] parts = line.split(DELIMITER);
+        if (parts.length != 10)
+            return null;
+
+        try {
+            return new Favorite(parts[0], Double.parseDouble(parts[1]),
+                    Double.parseDouble(parts[2]), Double.parseDouble(parts[3]),
+                    Double.parseDouble(parts[4]), Double.parseDouble(parts[5]),
+                    Double.parseDouble(parts[6]),
+                    parts[7], parts[8], Integer.parseInt(parts[9]) != 0);
+        } catch (Exception e) {
+            Log.d(TAG, "error reading v5 line, skipping: " + line, e);
+            return null;
+        }
+    }
+
     public void write(File file, FavoriteListAdapter.Favorite fav) {
         writeList(file, Collections.singletonList(fav));
     }
@@ -481,16 +486,13 @@ public class FavoriteListAdapter extends BaseAdapter {
             return;
         }
 
-        FileWriter fos = null;
-        BufferedWriter bufferedWriter = null;
-        try {
+        try (Writer fos = IOProviderFactory.getFileWriter(file);
+                BufferedWriter bufferedWriter = new BufferedWriter(fos)) {
             File parent = file.getParentFile();
-            if (parent != null && !parent.exists() && !parent.mkdirs()) {
+            if (parent != null && !IOProviderFactory.exists(parent)
+                    && !IOProviderFactory.mkdirs(parent)) {
                 Log.w(TAG, "Failed to create dirs: " + file.getAbsolutePath());
             }
-
-            fos = new FileWriter(file);
-            bufferedWriter = new BufferedWriter(fos);
 
             bufferedWriter.write(FAVS + "\n");
             bufferedWriter.write("::VERSION " + VERSION);
@@ -508,6 +510,7 @@ public class FavoriteListAdapter extends BaseAdapter {
                         .append(i.title).append(DELIMITER)
                         .append(i.latitude).append(DELIMITER)
                         .append(i.longitude).append(DELIMITER)
+                        .append(i.altitude).append(DELIMITER)
                         .append(i.zoomLevel).append(DELIMITER)
                         .append(i.tilt).append(DELIMITER)
                         .append(i.rotation).append(DELIMITER)
@@ -519,17 +522,6 @@ public class FavoriteListAdapter extends BaseAdapter {
             } while (iter.hasNext());
         } catch (IOException io) {
             Log.e(TAG, "error: ", io);
-        } finally {
-            if (bufferedWriter != null)
-                try {
-                    bufferedWriter.close();
-                } catch (IOException ignored) {
-                }
-            if (fos != null)
-                try {
-                    fos.close();
-                } catch (IOException ignored) {
-                }
         }
     }
 
@@ -538,6 +530,7 @@ public class FavoriteListAdapter extends BaseAdapter {
         public String title;
         public double latitude;
         public double longitude;
+        public double altitude;
         public double zoomLevel;
         public double tilt;
         public double rotation;
@@ -554,9 +547,32 @@ public class FavoriteListAdapter extends BaseAdapter {
                 final String layer,
                 final String selection,
                 final boolean locked) {
+            this(title,
+                    latitude,
+                    longitude,
+                    0d,
+                    zoomLevel,
+                    tilt,
+                    rotation,
+                    layer,
+                    selection,
+                    locked);
+        }
+
+        Favorite(final String title,
+                final double latitude,
+                final double longitude,
+                final double altitude,
+                final double zoomLevel,
+                final double tilt,
+                final double rotation,
+                final String layer,
+                final String selection,
+                final boolean locked) {
             this.title = title;
             this.latitude = latitude;
             this.longitude = longitude;
+            this.altitude = altitude;
             this.tilt = tilt;
             this.rotation = rotation;
             this.zoomLevel = zoomLevel;
@@ -570,6 +586,7 @@ public class FavoriteListAdapter extends BaseAdapter {
             dest.writeString(title);
             dest.writeDouble(latitude);
             dest.writeDouble(longitude);
+            dest.writeDouble(altitude);
             dest.writeDouble(zoomLevel);
             dest.writeDouble(tilt);
             dest.writeDouble(rotation);
@@ -594,6 +611,7 @@ public class FavoriteListAdapter extends BaseAdapter {
             title = in.readString();
             latitude = in.readDouble();
             longitude = in.readDouble();
+            altitude = in.readDouble();
             zoomLevel = in.readDouble();
             tilt = in.readDouble();
             rotation = in.readDouble();
@@ -625,6 +643,8 @@ public class FavoriteListAdapter extends BaseAdapter {
                 return false;
             if (Double.compare(longitude, c.longitude) != 0)
                 return false;
+            if (Double.compare(altitude, c.altitude) != 0)
+                return false;
             if (Double.compare(zoomLevel, c.zoomLevel) != 0)
                 return false;
             if (Double.compare(tilt, c.tilt) != 0)
@@ -646,12 +666,13 @@ public class FavoriteListAdapter extends BaseAdapter {
         public String toString() {
             return title + ", " + layer + ", "
                     + selection + ", " + latitude + ","
-                    + longitude + ", " + zoomLevel + ","
+                    + longitude + ", " + altitude + ", "
+                    + zoomLevel + ","
                     + tilt + ", " + rotation + "," + locked;
         }
     }
 
-    private static class ViewHolder {
+    protected static class ViewHolder {
         ImageButton editButton;
         ImageButton deleteButton;
         ImageButton sendButton;
@@ -688,6 +709,15 @@ public class FavoriteListAdapter extends BaseAdapter {
             final double zoom, final double tilt, double rotation,
             final String layer, final String selection,
             final boolean locked) {
+        add(title, latitude, longitude, 0d, zoom, tilt, rotation, layer,
+                selection, locked);
+    }
+
+    public void add(final String title, final double latitude,
+            final double longitude, final double altitude,
+            final double zoom, final double tilt, double rotation,
+            final String layer, final String selection,
+            final boolean locked) {
         final String favTitle;
 
         if (title == null || title.length() < 1)
@@ -695,7 +725,7 @@ public class FavoriteListAdapter extends BaseAdapter {
         else
             favTitle = title;
 
-        add(new Favorite(favTitle, latitude, longitude, zoom,
+        add(new Favorite(favTitle, latitude, longitude, altitude, zoom,
                 tilt, rotation,
                 layer, selection, locked));
     }

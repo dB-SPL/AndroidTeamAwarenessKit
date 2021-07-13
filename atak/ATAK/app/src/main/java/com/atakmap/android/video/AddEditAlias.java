@@ -30,6 +30,7 @@ import com.atakmap.coremap.filesystem.FileSystemUtils;
 import com.atakmap.coremap.log.Log;
 
 import java.net.NetworkInterface;
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -92,6 +93,12 @@ public class AddEditAlias {
     private boolean initialIgnoreKLV = false;
     private String initialPath = "";
     private String initialTimeout = "";
+
+    /**
+     * Fortify has flagged this as Password Management: Hardcoded Password
+     * This is a empty assignment just for the purposes of making the code simpler instead of
+     * extra null pointer checks.    This is not hardcoded.
+     */
     private String initialPassphrase = "";
     private boolean initialBuffered = false;
     private String initialBufferTime = "";
@@ -176,24 +183,30 @@ public class AddEditAlias {
                         p == Protocol.RTMP ||
                         p == Protocol.RTMPS ||
                         p == Protocol.HTTPS) {
-                    Log.d(TAG,
-                            "host contains a port, split into host and port: "
-                                    + host);
-                    if (host.contains(":")) {
-                        String[] vals = host.split(":");
-                        if (vals.length > 0) {
-                            host = vals[0];
-                            if (vals.length > 1)
-                                portVal = vals[1];
-                        } else {
-                            url.requestFocus();
-                            Toast.makeText(context,
-                                    R.string.video_text38_host,
-                                    Toast.LENGTH_LONG).show();
-                            return;
-                        }
 
+                    try {
+                        String temp = "http://" + host;
+
+
+                        URI u = URI.create(temp);
+                        if (u.getPort() > 0)
+                            portVal = "" + u.getPort();
+                        host = u.getHost();
+                        if (host == null)
+                            throw new Exception("badhost");
+
+                        if (!FileSystemUtils.isEmpty(u.getUserInfo()) )
+                            host = u.getUserInfo() + "@" + host;
+
+                    } catch (Exception e) {
+                        url.requestFocus();
+                        Toast.makeText(context,
+                                R.string.video_text38_host,
+                                Toast.LENGTH_LONG).show();
+                        return;
                     }
+
+
                 } else {
                     Log.d(TAG,
                             "ignoring format of the raw video alias, but it was not flagged as RAW: "
@@ -615,7 +628,6 @@ public class AddEditAlias {
             file.setVisibility(View.GONE);
             file.setFocusable(false);
 
-
             passphraseLabel.setVisibility(View.VISIBLE);
             passphrase.setVisibility(View.VISIBLE);
             passphrase.setFocusable(true);
@@ -627,7 +639,7 @@ public class AddEditAlias {
 
     /**
      * test if the connection entry has been modified
-     * 
+     *
      * @return - true if the entry was changed
      */
     private boolean entryChanged(ConnectionEntry ce) {
@@ -682,7 +694,8 @@ public class AddEditAlias {
                 return true;
         }
         if (ce.getProtocol() == Protocol.SRT) {
-            if (!passphrase.getText().toString().contentEquals(initialPassphrase))
+            if (!passphrase.getText().toString()
+                    .contentEquals(initialPassphrase))
                 return true;
         }
 
@@ -703,9 +716,13 @@ public class AddEditAlias {
             final TextView ui) {
 
         if (ui.getText() != null && ui.getText().length() > 0) {
-            int port = Integer.parseInt(ui.getText().toString());
-            if (port > 0 && (port <= MAX_PORT_VAL))
-                return true;
+            try {
+                int port = Integer.parseInt(ui.getText().toString());
+                if (port > 0 && (port <= MAX_PORT_VAL))
+                    return true;
+            } catch (NumberFormatException nfe) {
+                Log.e(TAG, "not a valid integer: " + ui.getText(), nfe);
+            }
         }
         ui.requestFocus();
         Toast.makeText(context, R.string.video_text33, Toast.LENGTH_LONG)
@@ -715,7 +732,7 @@ public class AddEditAlias {
 
     /**
      * test the fields for valid input.
-     * 
+     *
      * @return - true if all fields are valid
      */
 

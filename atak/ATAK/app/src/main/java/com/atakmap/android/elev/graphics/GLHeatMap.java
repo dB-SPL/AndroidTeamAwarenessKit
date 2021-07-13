@@ -2,14 +2,17 @@
 package com.atakmap.android.elev.graphics;
 
 import android.graphics.Color;
+import android.os.CancellationSignal;
 import android.os.SystemClock;
 import android.util.Pair;
 
 import com.atakmap.android.elev.HeatMapOverlay;
 import com.atakmap.android.elev.dt2.Dt2ElevationModel;
+import com.atakmap.android.elev.dt2.Dt2FileWatcher;
 import com.atakmap.app.DeveloperOptions;
 import com.atakmap.coremap.conversions.ConversionFactors;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.locale.LocaleUtil;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.coremap.maps.conversion.EGM96;
@@ -39,10 +42,10 @@ import com.atakmap.math.NoninvertibleTransformException;
 import com.atakmap.math.PointD;
 import com.atakmap.opengl.GLES20FixedPipeline;
 import com.atakmap.opengl.GLTexture;
+import com.atakmap.util.zip.IoUtils;
 
 import java.io.EOFException;
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -50,6 +53,7 @@ import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.BitSet;
 import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.LinkedList;
@@ -115,6 +119,8 @@ public class GLHeatMap extends GLAsynchronousMapRenderable<HeatMapParams>
     protected float alpha;
 
     private final Collection<GLMapRenderable> renderable;
+
+    private CancellationSignal querySignal;
 
     GLHeatMap(MapRenderer renderContext, HeatMapOverlay subject) {
         this.renderContext = renderContext;
@@ -304,6 +310,18 @@ public class GLHeatMap extends GLAsynchronousMapRenderable<HeatMapParams>
     }
 
     @Override
+    public void release() {
+        synchronized (this) {
+            // Cancel active query (if any)
+            if (querySignal != null) {
+                Log.d(TAG, "Requesting cancel on current query");
+                querySignal.cancel();
+            }
+        }
+        super.release();
+    }
+
+    @Override
     protected void query(ViewState state, HeatMapParams result) {
         // set up some defaults
         result.maxElev = (float) (ConversionFactors.FEET_TO_METERS * 19000);
@@ -376,7 +394,18 @@ public class GLHeatMap extends GLAsynchronousMapRenderable<HeatMapParams>
 
         if (state.drawMapResolution > 1000)
             Arrays.fill(result.elevationData, Float.NaN);
+
+        // Connect to active query
+        synchronized (this) {
+            querySignal = result.querySignal;
+        }
+
         queryGridImpl(result, distance);
+
+        // Disconnect from active query
+        synchronized (this) {
+            querySignal = null;
+        }
 
         // generate the RGBA data from the elevation values
         if (result.rgbaData == null
@@ -679,7 +708,7 @@ public class GLHeatMap extends GLAsynchronousMapRenderable<HeatMapParams>
         }
     }
 
-    private static String[] _selectDTEDResource(double coverageArea) {
+    private static int[] _selectDTEDResource(double coverageArea) {
 
         /////////////////////////////////////////////////////////////////////////////////////////
         // DTED policy rules
@@ -688,71 +717,29 @@ public class GLHeatMap extends GLAsynchronousMapRenderable<HeatMapParams>
         // dt2 detail is not relevant to large areas and consumes resources
         //
 
-        final String[] queryExtensions = new String[4];
+        final int[] queryExtensions = new int[4];
         if (coverageArea > 100000) {
-            queryExtensions[0] = ".dt0";
-            queryExtensions[1] = ".dt1";
-            queryExtensions[2] = ".dt2";
-            queryExtensions[3] = ".dt3";
+            queryExtensions[0] = 0;
+            queryExtensions[1] = 1;
+            queryExtensions[2] = 2;
+            queryExtensions[3] = 3;
         } else if (coverageArea > 30000) {
-            queryExtensions[0] = ".dt1";
-            queryExtensions[1] = ".dt2";
-            queryExtensions[2] = ".dt3";
-            queryExtensions[3] = ".dt0";
+            queryExtensions[0] = 1;
+            queryExtensions[1] = 2;
+            queryExtensions[2] = 3;
+            queryExtensions[3] = 0;
         } else if (coverageArea > 10000) {
-            queryExtensions[0] = ".dt2";
-            queryExtensions[1] = ".dt3";
-            queryExtensions[2] = ".dt1";
-            queryExtensions[3] = ".dt0";
+            queryExtensions[0] = 2;
+            queryExtensions[1] = 3;
+            queryExtensions[2] = 1;
+            queryExtensions[3] = 0;
         } else {
-            queryExtensions[0] = ".dt3";
-            queryExtensions[1] = ".dt2";
-            queryExtensions[2] = ".dt1";
-            queryExtensions[3] = ".dt0";
+            queryExtensions[0] = 3;
+            queryExtensions[1] = 2;
+            queryExtensions[2] = 1;
+            queryExtensions[3] = 0;
         }
         return queryExtensions;
-    }
-
-    private static String _makeFileName(StringBuilder p, double lat,
-            double lng) {
-        if (lng > 180)
-            lng -= 360;
-        else if (lng < -180)
-            lng += 360;
-        int lngIndex = (int) lng;
-        if (lng >= 0) {
-            p.append("e");
-        } else {
-            p.append("w");
-            lngIndex = -lngIndex + 1;
-        }
-
-        p.append(pad3(lngIndex));
-        p.append(File.separator);
-
-        int latIndex = (int) lat;
-        if (lat >= 0) {
-            p.append("n");
-        } else {
-            p.append("s");
-            latIndex = -latIndex + 1;
-        }
-
-        if (latIndex < 10)
-            p.append("0");
-
-        p.append(latIndex);
-
-        return p.toString();
-    }
-
-    private static String pad3(int value) {
-        if (value < 10)
-            return "00" + value;
-        else if (value < 100)
-            return "0" + value;
-        else
-            return "" + value;
     }
 
     /** MIL-PRF-89020A 3.11.3.1 */
@@ -771,51 +758,51 @@ public class GLHeatMap extends GLAsynchronousMapRenderable<HeatMapParams>
     // local variable wrapper for the queryGridCacheChunks() and
     // queryGridCachePoints() methods to reduce the copy-paste
     // between them
-    private static class GridCache {
+    private static class GridCache implements
+            CancellationSignal.OnCancelListener {
 
         private final HeatMapParams result;
 
-        private final String[] queryExtensions;
+        private final int[] queryLevels;
         private final int numCellsX;
         private final int numCellsY;
         private final Matrix geo2img;
-        private Matrix img2geo;
-        private StringBuilder p;
+        private final Matrix img2geo;
+        private final StringBuilder p;
         private double cellMinLat;
         private double cellMaxLat;
         private double cellMinLng;
         private double cellMaxLng;
-        private PointD img;
-        private PointD geo;
+        private final PointD img;
+        private final PointD geo;
         private int imgMinX;
         private int imgMinY;
         private int imgMaxX;
         private int imgMaxY;
         private double x0, x1, x2, x3;
         private double y0, y1, y2, y3;
-        private FileInputStream inputStream;
         private FileChannel channel;
         private int imgIdx;
-        private Dted dted;
+        private final Dted dted;
+        private boolean canceled;
 
         GridCache(HeatMapParams result, double coverageArea)
                 throws NoninvertibleTransformException {
 
             this.result = result;
+            this.result.querySignal.setOnCancelListener(this);
 
             Arrays.fill(this.result.elevationData, Float.NaN);
 
-            this.queryExtensions = _selectDTEDResource(coverageArea);
+            this.queryLevels = _selectDTEDResource(coverageArea);
 
             final double maxLat = this.result.getMaxLatitude();
             final double minLon = this.result.getMinLongitude();
             final double minLat = this.result.getMinLatitude();
             final double maxLon = this.result.getMaxLongitude();
 
-            this.numCellsX = ((int) maxLon
-                    - (int) Math.floor(minLon) + 1);
-            this.numCellsY = ((int) maxLat
-                    - (int) Math.floor(minLat) + 1);
+            this.numCellsX = (int) (Math.floor(maxLon) - Math.floor(minLon)) + 1;
+            this.numCellsY = (int) (Math.floor(maxLat) - Math.floor(minLat)) + 1;
 
             this.geo2img = Matrix.mapQuads(
                     this.result.upperLeft.getLongitude(),
@@ -858,22 +845,36 @@ public class GLHeatMap extends GLAsynchronousMapRenderable<HeatMapParams>
             double chunkMaxLat;
             double chunkMaxLng;
 
+            //long start = System.currentTimeMillis();
+
+            BitSet[] coverages = Dt2FileWatcher.getInstance().getCoverages();
+
             for (int celly = 0; celly < numCellsY; celly++) {
                 for (int cellx = 0; cellx < numCellsX; cellx++) {
-                    String filePathWithoutExt = _makeFileName(p,
-                            result.getMaxLatitude()
-                                    - celly,
-                            result.getMinLongitude() + cellx);
-                    p.delete(0, p.length());
-                    outer: for (String queryExtension : queryExtensions) {
 
-                        File file;
+                    // Check if query was canceled
+                    if (canceled) {
+                        Log.d(TAG, "Canceled busy query");
+                        return;
+                    }
+
+                    int lat = (int) Math.floor(result.getMaxLatitude() - celly);
+                    int lng = (int) Math.floor(result.getMinLongitude() + cellx);
+
+                    // Wrap IDL crossing
+                    if (lng >= 180) lng -= 360;
+                    else if (lng < -180) lng += 360;
+
+                    int cvIdx = Dt2FileWatcher.getCoverageIndex(lat, lng);
+                    if (cvIdx < 0 || cvIdx >= coverages[0].size())
+                        continue;
+
+                    outer: for (int level : queryLevels) {
+
+                        if (!coverages[level].get(cvIdx))
+                            continue;
+
                         for (String dtedPath : DTED_PATHS) {
-                            file = new File(dtedPath + filePathWithoutExt
-                                    + queryExtension);
-                            if (!file.exists())
-                                continue;
-
                             // define the MBB for the DTED cell
                             cellMaxLat = Math.ceil(result.getMaxLatitude()
                                     - celly);
@@ -892,12 +893,12 @@ public class GLHeatMap extends GLAsynchronousMapRenderable<HeatMapParams>
                             cellMaxLng = Math.min(cellMaxLng,
                                     result.getMaxLongitude());
 
-                            inputStream = null;
                             channel = null;
                             boolean missingElev = false;
                             try {
-                                inputStream = new FileInputStream(file);
-                                channel = inputStream.getChannel();
+                                File file = new File(dtedPath, Dt2FileWatcher
+                                        .getRelativePath(level, lat, lng));
+                                channel = IOProviderFactory.getChannel(file, "r");
 
                                 dted.readHeader(
                                         channel,
@@ -1126,16 +1127,7 @@ public class GLHeatMap extends GLAsynchronousMapRenderable<HeatMapParams>
                                 // extension
                                 continue;
                             } finally {
-                                if (channel != null)
-                                    try {
-                                        channel.close();
-                                    } catch (IOException ignored) {
-                                    }
-                                if (inputStream != null)
-                                    try {
-                                        inputStream.close();
-                                    } catch (IOException ignored) {
-                                    }
+                                IoUtils.close(channel);
                             }
                             if (!missingElev)
                                 break outer;
@@ -1143,26 +1135,43 @@ public class GLHeatMap extends GLAsynchronousMapRenderable<HeatMapParams>
                     }
                 }
             }
+
+            //Log.d(TAG, "Took " + (System.currentTimeMillis() - start) + " ms to query chunks");
         }
 
         void queryPoints() {
             final float[] altGrid = this.result.elevationData;
 
+            //long start = System.currentTimeMillis();
+
+            BitSet[] coverages = Dt2FileWatcher.getInstance().getCoverages();
+
             for (int celly = 0; celly < numCellsY; celly++) {
                 for (int cellx = 0; cellx < numCellsX; cellx++) {
-                    String filePathWithoutExt = _makeFileName(p,
-                            result.getMaxLatitude()
-                                    - celly,
-                            result.getMinLongitude() + cellx);
-                    p.delete(0, p.length());
-                    outer: for (String queryExtension : queryExtensions) {
 
-                        File file;
+                    // Check if query was canceled
+                    if (canceled) {
+                        Log.d(TAG, "Canceled busy query");
+                        return;
+                    }
+
+                    int lat = (int) Math.floor(result.getMaxLatitude() - celly);
+                    int lng = (int) Math.floor(result.getMinLongitude() + cellx);
+
+                    // Wrap IDL crossing
+                    if (lng >= 180) lng -= 360;
+                    else if (lng < -180) lng += 360;
+
+                    int cvIdx = Dt2FileWatcher.getCoverageIndex(lat, lng);
+                    if (cvIdx < 0 || cvIdx >= coverages[0].size())
+                        continue;
+
+                    outer: for (int level : queryLevels) {
+
+                        if (!coverages[level].get(cvIdx))
+                            continue;
+
                         for (String dtedPath : DTED_PATHS) {
-                            file = new File(dtedPath + filePathWithoutExt
-                                    + queryExtension);
-                            if (!file.exists())
-                                continue;
 
                             // define the MBB for the DTED cell
                             cellMaxLat = Math.ceil(result.getMaxLatitude()
@@ -1221,12 +1230,12 @@ public class GLHeatMap extends GLAsynchronousMapRenderable<HeatMapParams>
                                             y3)),
                                     0, result.ySampleResolution - 1);
 
-                            inputStream = null;
                             channel = null;
                             boolean missingElev = false;
                             try {
-                                inputStream = new FileInputStream(file);
-                                channel = inputStream.getChannel();
+                                File file = new File(dtedPath, Dt2FileWatcher
+                                        .getRelativePath(level, lat, lng));
+                                channel = IOProviderFactory.getChannel(file, "r");
 
                                 dted.readHeader(channel, cellMaxLat,
                                         cellMinLng);
@@ -1273,16 +1282,7 @@ public class GLHeatMap extends GLAsynchronousMapRenderable<HeatMapParams>
                                 // extension
                                 continue;
                             } finally {
-                                if (channel != null)
-                                    try {
-                                        channel.close();
-                                    } catch (IOException ignored) {
-                                    }
-                                if (inputStream != null)
-                                    try {
-                                        inputStream.close();
-                                    } catch (IOException ignored) {
-                                    }
+                                IoUtils.close(channel);
                             }
                             if (!missingElev)
                                 break outer;
@@ -1290,6 +1290,8 @@ public class GLHeatMap extends GLAsynchronousMapRenderable<HeatMapParams>
                     }
                 }
             }
+
+            //Log.d(TAG, "Took " + (System.currentTimeMillis() - start) + " ms to query points");
         }
 
         void queryElevationManager() {
@@ -1374,15 +1376,27 @@ public class GLHeatMap extends GLAsynchronousMapRenderable<HeatMapParams>
 
             result = null;
             try {
+                /*Log.d(TAG, "Querying sources " + this.result.upperLeft + ", "
+                        + this.result.upperRight + ", "
+                        + this.result.lowerRight + ", "
+                        + this.result.lowerLeft);
+                long start = System.currentTimeMillis();*/
                 result = ElevationManager.queryElevationSources(params);
                 while (result.moveToNext()) {
                     isAllDted &= result.getType()
                             .toLowerCase(LocaleUtil.getCurrent())
                             .startsWith("dted");
                 }
+                /*Log.d(TAG, "Finished sources query in "
+                        + (System.currentTimeMillis() - start) + " ms");*/
             } finally {
                 if (result != null)
                     result.close();
+            }
+
+            if (canceled) {
+                Log.d(TAG, "Canceled busy query");
+                return;
             }
 
             if (isAllDted) {
@@ -1478,6 +1492,11 @@ public class GLHeatMap extends GLAsynchronousMapRenderable<HeatMapParams>
                     }
                 }
             }
+        }
+
+        @Override
+        public void onCancel() {
+            this.canceled = true;
         }
     }
 

@@ -3,6 +3,7 @@ package com.atakmap.android.vehicle.model.opengl;
 
 import android.opengl.GLES30;
 
+import com.atakmap.coremap.log.Log;
 import com.atakmap.lang.Unsafe;
 import com.atakmap.map.layer.model.Mesh;
 import com.atakmap.map.layer.model.Model;
@@ -78,8 +79,8 @@ public class GLInstancedMesh extends GLInstancedRenderable {
 
     private static Integer _programID;
 
-    private Mesh _subject;
-    private MaterialManager _matmgr;
+    private final Mesh _subject;
+    private final MaterialManager _matmgr;
 
     private int[] _posBuffer, _normalBuffer, _texBuffer;
     private GLMaterial[] _materials;
@@ -171,15 +172,15 @@ public class GLInstancedMesh extends GLInstancedRenderable {
         VertexDataLayout vdl = _subject.getVertexDataLayout();
 
         // Positions buffer
-        _posBuffer = setupVertexBuffer(LOC_POSITION,
+        _posBuffer = setupVertexBuffer(LOC_POSITION, vdl,
                 Mesh.VERTEX_ATTR_POSITION, vdl.position, 3);
 
         // Normals buffer
-        _normalBuffer = setupVertexBuffer(LOC_NORMAL,
+        _normalBuffer = setupVertexBuffer(LOC_NORMAL, vdl,
                 Mesh.VERTEX_ATTR_NORMAL, vdl.normal, 3);
 
         // Textures buffer
-        _texBuffer = setupVertexBuffer(LOC_TEXTURE,
+        _texBuffer = setupVertexBuffer(LOC_TEXTURE, vdl,
                 Mesh.VERTEX_ATTR_TEXCOORD_0, vdl.texCoord0, 2);
 
         // Load materials for this mesh
@@ -330,24 +331,33 @@ public class GLInstancedMesh extends GLInstancedRenderable {
     /**
      * Generic method for setting up a vertex buffer for the subject mesh
      * @param idx Vertex attribute array index (see vertex shader layout locations)
+     * @param vdl The vertex data layout
      * @param attr Mesh attribute index (i.e. {@link Mesh#VERTEX_ATTR_POSITION})
      * @param vdlArr Vertex data layout array (for reading stride and offset)
      * @param size Size of the vertex (usually 2 for texture coordinates, 3 for everything else)
      * @return Generated buffer ID
      */
-    private int[] setupVertexBuffer(int idx, int attr,
+    private int[] setupVertexBuffer(int idx, VertexDataLayout vdl, int attr,
             VertexDataLayout.Array vdlArr, int size) {
-        Buffer buf = _subject.getVertices(attr);
-        buf.position(vdlArr.offset);
-        int[] bufID = new int[1];
-        GLES30.glGenBuffers(1, bufID, 0);
-        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, bufID[0]);
-        GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, _subject.getNumVertices()
-                * vdlArr.stride, buf, GLES30.GL_STATIC_DRAW);
-        GLES30.glVertexAttribPointer(idx, size, GLES30.GL_FLOAT, false,
-                vdlArr.stride, 0);
-        GLES30.glEnableVertexAttribArray(idx);
-        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, 0);
-        return bufID;
+        if (!MathUtils.hasBits(vdl.attributes, attr))
+            return null;
+        try {
+            Buffer buf = _subject.getVertices(attr);
+            buf.position(vdlArr.offset);
+            int[] bufID = new int[1];
+            GLES30.glGenBuffers(1, bufID, 0);
+            GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, bufID[0]);
+            GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, _subject.getNumVertices()
+                    * vdlArr.stride, buf, GLES30.GL_STATIC_DRAW);
+            GLES30.glVertexAttribPointer(idx, size, GLES30.GL_FLOAT, false,
+                    vdlArr.stride, 0);
+            GLES30.glEnableVertexAttribArray(idx);
+            GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, 0);
+            return bufID;
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to setup vertex buffer for " + _name
+                    + " (attr = " + attr + ")", e);
+            return null;
+        }
     }
 }

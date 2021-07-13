@@ -11,6 +11,7 @@ import com.atakmap.android.hierarchy.HierarchyListItem;
 import com.atakmap.android.hierarchy.action.Search;
 import com.atakmap.android.hierarchy.filters.FOVFilter;
 import com.atakmap.android.maps.MapView;
+import com.atakmap.annotations.DeprecatedApi;
 import com.atakmap.app.R;
 import com.atakmap.coremap.log.Log;
 
@@ -23,13 +24,14 @@ import java.util.List;
 import com.atakmap.coremap.locale.LocaleUtil;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentLinkedQueue;
 
 /**
  * A group containing multiple contacts
  * Custom group classes should extend off this
  */
 public class GroupContact extends Contact implements Search {
-    //TODO: use set instead of arraylist to make sure thyere are no duplicate uids
+    //TODO: use set instead of arraylist to make sure there are no duplicate uids
     protected final Map<String, Contact> _contacts = new HashMap<>();
     protected boolean _userCreated = false;
     protected boolean _unmodifiable = false;
@@ -39,6 +41,12 @@ public class GroupContact extends Contact implements Search {
     protected String _iconUri;
 
     public static final String TAG = "GroupContact";
+
+    private final ConcurrentLinkedQueue<OnGroupContactChangedListener> groupContactChangedListeners = new ConcurrentLinkedQueue<>();
+
+    public interface OnGroupContactChangedListener {
+        void onGroupContactChanged();
+    }
 
     /**
      * A group that has a multiple endpoints.
@@ -165,6 +173,7 @@ public class GroupContact extends Contact implements Search {
             _contacts.clear();
             addContacts(contacts);
         }
+        fireOnGroupContactChanged();
     }
 
     public void setContactUIDs(List<String> uids) {
@@ -262,6 +271,7 @@ public class GroupContact extends Contact implements Search {
         synchronized (_contacts) {
             addContactNoSync(c);
         }
+        fireOnGroupContactChanged();
     }
 
     /**
@@ -273,6 +283,7 @@ public class GroupContact extends Contact implements Search {
             for (Contact c : contacts)
                 addContactNoSync(c);
         }
+        fireOnGroupContactChanged();
     }
 
     /**
@@ -290,6 +301,7 @@ public class GroupContact extends Contact implements Search {
         synchronized (_contacts) {
             removeContactNoSync(c);
         }
+        fireOnGroupContactChanged();
     }
 
     /**
@@ -301,6 +313,7 @@ public class GroupContact extends Contact implements Search {
             for (Contact c : contacts)
                 removeContactNoSync(c);
         }
+        fireOnGroupContactChanged();
     }
 
     /**
@@ -524,7 +537,14 @@ public class GroupContact extends Contact implements Search {
         return getUnreadCount(true);
     }
 
+    /**
+     * @deprecated Use {@link #getUnreadCount(boolean)}
+     * @param filtered
+     * @param unused
+     * @return
+     */
     @Deprecated
+    @DeprecatedApi(since = "4.1", forRemoval = true, removeAt = "4.4")
     public int getUnreadCount(boolean filtered, boolean unused) {
         return getUnreadCount(filtered);
     }
@@ -662,5 +682,29 @@ public class GroupContact extends Contact implements Search {
     @Override
     public String toString() {
         return getName() + "[" + getUID() + "]";
+    }
+
+    /**
+     * Adds a listener that is notified when there is a change to the group contact
+     * @param listener the listener to be added.
+     */
+    public void addOnGroupContactChangedListener(
+            OnGroupContactChangedListener listener) {
+        groupContactChangedListeners.add(listener);
+    }
+
+    /**
+     * Removes a listener that is notified when there is a change to the group contact
+     * @param listener the listener to be remove.
+     */
+    public void removeOnGroupContactChangedListener(
+            OnGroupContactChangedListener listener) {
+        groupContactChangedListeners.remove(listener);
+    }
+
+    protected void fireOnGroupContactChanged() {
+        for (OnGroupContactChangedListener listener : groupContactChangedListeners) {
+            listener.onGroupContactChanged();
+        }
     }
 }

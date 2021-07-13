@@ -10,6 +10,9 @@ import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.Point;
 import android.graphics.Rect;
+
+import com.atakmap.android.util.DragMarkerHelper;
+import com.atakmap.app.system.ResourceUtil;
 import com.atakmap.coremap.maps.conversion.GeomagneticField;
 import android.preference.PreferenceManager;
 import android.widget.Toast;
@@ -97,7 +100,7 @@ public class LocalRangeFinderInput implements Runnable, RangeFinderAction,
     private Circle _circle = null;
 
     private SensorFOV _fov = null;
-    private Marker _formerSelf;
+    private final Marker _formerSelf;
 
     private GeoPoint origDstPoint;
     private GeoPointMetaData origSrcPoint;
@@ -110,7 +113,6 @@ public class LocalRangeFinderInput implements Runnable, RangeFinderAction,
     private int _updateTimeout;
 
     private final Icon _defaultIcon;
-    private final Icon _selectedIcon;
     private final Icon _originIcon;
     private final Updater calc;
 
@@ -151,10 +153,6 @@ public class LocalRangeFinderInput implements Runnable, RangeFinderAction,
                 .getResourceUri(context, R.drawable.spip_icon))
                 .build();
 
-        _selectedIcon = new Icon.Builder().setImageUri(0, ATAKUtilities
-                .getResourceUri(context, R.drawable.large_reticle_red))
-                .build();
-
         _formerSelf = new Marker(GeoPoint.ZERO_POINT, spiUID + "_origin");
         _formerSelf.setMetaString("callsign", "origin");
         _formerSelf.setIcon(_originIcon);
@@ -189,7 +187,7 @@ public class LocalRangeFinderInput implements Runnable, RangeFinderAction,
 
     private void updateTimeout() {
         try {
-            _updateTimeout = Integer.valueOf(_prefs.getString(
+            _updateTimeout = Integer.parseInt(_prefs.getString(
                     "spiUpdateDelay", "5"));
         } catch (NumberFormatException e) {
             _updateTimeout = 5;
@@ -333,17 +331,18 @@ public class LocalRangeFinderInput implements Runnable, RangeFinderAction,
                     type.equals(MapEvent.ITEM_DRAG_DROPPED))
                     && item == getSPI()) {
 
+                boolean stopped = type.equals(MapEvent.ITEM_DRAG_DROPPED);
+
                 editTimer(false);
-                if (event.getType().equals(MapEvent.ITEM_DRAG_DROPPED)) {
-                    ((Marker) item).setIcon(_defaultIcon);
+                if (stopped) {
                     stopDrag();
-                } else {
-                    ((Marker) item).setIcon(_selectedIcon);
+                    DragMarkerHelper.getInstance().hideWidget();
                 }
 
                 double lat = item.getMetaDouble("sourceLat", Double.NaN);
                 double lon = item.getMetaDouble("sourceLon", Double.NaN);
                 if (!Double.isNaN(lat) && !Double.isNaN(lon)) {
+                    Marker marker = (Marker) item;
                     GeoPoint anchorPoint = new GeoPoint(lat, lon);
                     double bearing = DistanceCalculations
                             .bearingFromSourceToTarget(
@@ -352,7 +351,7 @@ public class LocalRangeFinderInput implements Runnable, RangeFinderAction,
                                             event.getPoint().x,
                                             event.getPoint().y).get());
                     double range = DistanceCalculations.calculateRange(
-                            anchorPoint, ((Marker) item).getPoint());
+                            anchorPoint, marker.getPoint());
                     final GeoPoint targetPoint = DistanceCalculations
                             .computeDestinationPoint(anchorPoint, bearing,
                                     range);
@@ -364,8 +363,9 @@ public class LocalRangeFinderInput implements Runnable, RangeFinderAction,
                                     hae),
                             GeoPointMetaData.CALCULATED,
                             GeoPointMetaData.CALCULATED);
-                    ((Marker) item).setPoint(tpWithAlt);
-
+                    marker.setPoint(tpWithAlt);
+                    if (!stopped)
+                        DragMarkerHelper.getInstance().updateWidget(marker);
                 }
             }
         }
@@ -386,7 +386,7 @@ public class LocalRangeFinderInput implements Runnable, RangeFinderAction,
                     .createOrUpdateRABLine(spiUID + ".rb",
                             start, end, false);
             if (rb == null) {
-                Log.e(TAG, "error occured during creation of arrow");
+                Log.e(TAG, "error occurred during creation of arrow");
                 return;
             }
             rb.setType("rb");
@@ -394,11 +394,6 @@ public class LocalRangeFinderInput implements Runnable, RangeFinderAction,
 
             rb.setMetaBoolean("nonremovable", true);
             rb.setMetaBoolean("addToObjList", false);
-
-            rb.setBearingUnits(Angle.DEGREE);
-            rb.setNorthReference(NorthReference.MAGNETIC);
-            //rb.setBearingUnits(_bearingUnits);
-            //rb.setNorthReference(_northReference);
 
             final MapGroup _linkGroup = mapView.getRootGroup().findMapGroup(
                     "Range & Bearing");
@@ -645,7 +640,9 @@ public class LocalRangeFinderInput implements Runnable, RangeFinderAction,
                     HintDialogHelper.showHint(
                             context,
                             context.getString(R.string.tool_text30),
-                            context.getString(R.string.tool_text31),
+                            ResourceUtil.getString(context,
+                                    R.string.civ_tool_text31,
+                                    R.string.tool_text31),
                             "lrf_menu");
                 }
             });

@@ -5,6 +5,7 @@ import com.atakmap.android.maps.MapView;
 import com.atakmap.app.preferences.PreferenceControl;
 import com.atakmap.comms.TAKServerSerializer;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
 
 import org.json.JSONObject;
@@ -32,7 +33,7 @@ public class JSONPreferenceControl {
     // Used for removing sensitive information from server configs and preferences
     public static final String SAVE_MODIFIED = "__saveModified";
 
-    private static JSONPreferenceControl instance = new JSONPreferenceControl();
+    private static final JSONPreferenceControl instance = new JSONPreferenceControl();
 
     public static JSONPreferenceControl getInstance() {
         return instance;
@@ -111,21 +112,13 @@ public class JSONPreferenceControl {
             boolean readOnly) {
 
         // Read preferences from file
-        JSONObject root = null;
-        FileReader fr = null;
+        JSONObject root;
         try {
-            fr = new FileReader(file);
             root = new JSONObject(new String(FileSystemUtils.read(file),
                     FileSystemUtils.UTF8_CHARSET));
         } catch (Exception e) {
             Log.e(TAG, "Failed to read preferences from file: " + file, e);
             return false;
-        } finally {
-            try {
-                if (fr != null)
-                    fr.close();
-            } catch (Exception ignore) {
-            }
         }
 
         // Load from JSON
@@ -161,23 +154,15 @@ public class JSONPreferenceControl {
 
     public static boolean writeJSONFile(File file, JSONObject root) {
         File dir = file.getParentFile();
-        if (!dir.exists() && !dir.mkdirs()) {
+        if (!IOProviderFactory.exists(dir) && !IOProviderFactory.mkdirs(dir)) {
             Log.d(TAG, "Failed to create directory: " + dir);
             return false;
         }
-        FileWriter fw = null;
-        try {
-            fw = new FileWriter(file);
+        try (FileWriter fw = IOProviderFactory.getFileWriter(file)) {
             fw.write(root.toString(2));
         } catch (Exception e) {
             Log.e(TAG, "Failed to write preferences to file: " + file, e);
             return false;
-        } finally {
-            try {
-                if (fw != null)
-                    fw.close();
-            } catch (Exception ignore) {
-            }
         }
         return true;
     }

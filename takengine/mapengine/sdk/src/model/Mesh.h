@@ -29,9 +29,11 @@ namespace TAK {
                 TEDM_Triangles,
                 TEDM_TriangleStrip,
                 TEDM_Points,
+                TEDM_Lines,
+                TEDM_LineStrip,
             };
 
-            class Mesh
+            class ENGINE_API Mesh
             {
             public :
                 virtual ~Mesh() NOTHROWS = 0;

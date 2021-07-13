@@ -3,14 +3,14 @@ package com.atakmap.map;
 
 import com.atakmap.util.Collections2;
 
-import java.lang.ref.WeakReference;
 import java.util.Set;
 
 public class MockSurface implements RenderSurface {
     int width;
     int height;
     double dpi;
-    Set<OnSizeChangedListener> listeners = Collections2.newIdentityHashSet();
+    final Set<OnSizeChangedListener> listeners = Collections2
+            .newIdentityHashSet();
 
     public MockSurface(int width, int height, double dpi) {
         this.width = width;

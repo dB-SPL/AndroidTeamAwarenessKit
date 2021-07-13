@@ -10,7 +10,9 @@ import com.atakmap.android.util.ATAKUtilities;
 import com.atakmap.android.wfs.WFSImporter;
 import com.atakmap.app.R;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.spatial.file.DrwFileDatabase;
+import com.atakmap.spatial.file.GMLSpatialDb;
 import com.atakmap.spatial.file.GpxFileSpatialDb;
 import com.atakmap.spatial.file.KmlFileSpatialDb;
 import com.atakmap.spatial.file.LptFileDatabase;
@@ -92,6 +94,9 @@ public class ResourceFile implements Parcelable {
         APK("application/vnd.android.package-archive",
                 "apk",
                 "asset://icons/android_app.png"),
+        GML(GMLSpatialDb.GML_FILE_MIME_TYPE,
+                "gml",
+                "asset://icons/esri.png"),
         GPX(GpxFileSpatialDb.GPX_FILE_MIME_TYPE,
                 "gpx",
                 "asset://icons/gpx.png"),
@@ -280,6 +285,6 @@ public class ResourceFile implements Parcelable {
             return 0;
 
         File file = new File(mFilePath);
-        return file.length();
+        return IOProviderFactory.length(file);
     }
 }

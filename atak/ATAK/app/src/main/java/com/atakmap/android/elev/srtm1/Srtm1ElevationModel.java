@@ -2,25 +2,22 @@
 package com.atakmap.android.elev.srtm1;
 
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
+import com.atakmap.coremap.locale.LocaleUtil;
 import com.atakmap.coremap.log.Log;
-
 import com.atakmap.coremap.maps.conversion.EGM96;
 import com.atakmap.coremap.maps.coords.GeoPoint;
+import com.atakmap.coremap.maps.coords.GeoPointMetaData;
+import com.atakmap.util.zip.ZipEntry;
+import com.atakmap.util.zip.ZipFile;
 
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.text.DecimalFormat;
-
-import com.atakmap.coremap.locale.LocaleUtil;
-import com.atakmap.coremap.maps.coords.GeoPointMetaData;
-
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipFile;
 
 public class Srtm1ElevationModel {
 
@@ -65,12 +62,12 @@ public class Srtm1ElevationModel {
         for (String a_rootPath : _rootPath) {
 
             File file = new File(a_rootPath + fileName);
-            if (file.exists()) {
+            if (IOProviderFactory.exists(file)) {
                 return _fromHgtFile(file, latitude, longitude);
             }
 
             file = new File(a_rootPath + fileName + ".zip");
-            if (file.exists()) {
+            if (IOProviderFactory.exists(file)) {
                 return _fromZippedHgtFile(file, fileName, latitude, longitude);
             }
         }
@@ -100,21 +97,11 @@ public class Srtm1ElevationModel {
     private double _fromHgtFile(File file, double latitude, double longitude) {
 
         double result = Double.NaN;
-        FileInputStream fis = null;
 
-        try {
-            fis = new FileInputStream(file);
+        try (FileInputStream fis = IOProviderFactory.getInputStream(file)) {
             result = _getHeightFromInputStream(fis, latitude, longitude);
-        } catch (FileNotFoundException e) {
+        } catch (IOException e) {
             Log.e(TAG, "error: ", e);
-        } finally {
-            if (fis != null) {
-                try {
-                    fis.close();
-                } catch (IOException e) {
-                    Log.e(TAG, "error: ", e);
-                }
-            }
         }
 
         return result;

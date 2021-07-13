@@ -29,7 +29,7 @@ public class ZMistView extends LinearLayout {
 
     Map<Integer, Object> _zMists;
 
-    private Context _context;
+    private final Context _context;
     private PointMapItem _marker;
     private MapView _mapView;
 
@@ -157,7 +157,7 @@ public class ZMistView extends LinearLayout {
         if (_marker != null) {
             Map<String, Object> zMistsMap = _marker.getMetaMap("zMists");
             if (zMistsMap != null) {
-                List keys = new ArrayList(zMistsMap.keySet());
+                List<String> keys = new ArrayList<>(zMistsMap.keySet());
                 //need to sort the keys
                 Collections.sort(keys);
                 for (Object o : keys) {

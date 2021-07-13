@@ -27,7 +27,7 @@ import javax.crypto.spec.SecretKeySpec;
 // Source: http://stackoverflow.com/questions/4551263/how-can-i-convert-a-string-to-a-secretkey/8828196#8828196
 class EncryptionUtils {
     private static final String TAG = "EncryptionUtils";
-    private static final String cipherOptions = "AES/CBC/PKCS5Padding";
+    private static final String cipherOptions = "AES/GCM/PKCS5Padding";
     private static final String symKeyAlgorithm = "AES";
     private static final String prng = "SHA1PRNG";
 

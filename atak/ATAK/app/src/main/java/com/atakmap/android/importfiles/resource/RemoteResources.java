@@ -1,6 +1,7 @@
 
 package com.atakmap.android.importfiles.resource;
 
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
 
 import org.simpleframework.xml.Element;
@@ -9,6 +10,8 @@ import org.simpleframework.xml.Root;
 import org.simpleframework.xml.Serializer;
 
 import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -58,15 +61,19 @@ public class RemoteResources {
      */
     public static RemoteResources load(File file, Serializer serializer) {
         RemoteResources resources = null;
-        try {
-            resources = serializer.read(RemoteResources.class, file);
+        try (InputStream fis = IOProviderFactory.getInputStream(file)) {
+            resources = serializer.read(RemoteResources.class, fis);
             Log.d(TAG,
                     "Loaded " + resources.getResources().size()
                             + " resources from: "
                             + file.getAbsolutePath());
-            // TODO remove logging after testing
-            // for(RemoteResource r : resources.getResources())
-            // Log.d(TAG, "Loaded " + r.toString());
+            // Hook child up to parent
+            for (RemoteResource r : resources.getResources()) {
+                if (r.hasChildren()) {
+                    for (RemoteResource child : r.getChildren())
+                        child.setParent(r);
+                }
+            }
         } catch (Exception e) {
             Log.e(TAG, "Failed to load resources: " + file.getAbsolutePath(),
                     e);
@@ -82,13 +89,14 @@ public class RemoteResources {
      * @return boolean true is serialization was successful.
      */
     public boolean save(File file, Serializer serializer) {
-        if (!file.exists() && !file.getParentFile().exists()
-                && !file.getParentFile().mkdirs()) {
+        if (!IOProviderFactory.exists(file)
+                && !IOProviderFactory.exists(file.getParentFile())
+                && !IOProviderFactory.mkdirs(file.getParentFile())) {
             Log.w(TAG, "Failed to create " + file.getAbsolutePath());
             return false;
         }
-        try {
-            serializer.write(this, file);
+        try (FileOutputStream fos = IOProviderFactory.getOutputStream(file)) {
+            serializer.write(this, fos);
             Log.d(TAG, "save " + getResources().size() + " resources to: "
                     + file.getAbsolutePath());
             return true;

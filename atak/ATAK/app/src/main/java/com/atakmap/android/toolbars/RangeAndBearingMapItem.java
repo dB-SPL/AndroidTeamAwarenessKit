@@ -9,6 +9,7 @@ import android.graphics.Color;
 import android.os.Bundle;
 import android.preference.PreferenceManager;
 
+import com.atakmap.android.dropdown.DropDownReceiver;
 import com.atakmap.android.bloodhound.ui.BloodHoundHUD;
 import com.atakmap.android.maps.MapEventDispatcher;
 import com.atakmap.app.R;
@@ -559,7 +560,7 @@ public class RangeAndBearingMapItem extends Arrow implements
 
     @Override
     public void persist(MapEventDispatcher dispatcher, Bundle extras,
-            Class clazz) {
+            Class<?> clazz) {
         // We shouldn't persist the line before it's finished being constructed
         if (_initializing)
             return;
@@ -672,8 +673,8 @@ public class RangeAndBearingMapItem extends Arrow implements
       * @return userList
       */
     public static List<RangeAndBearingMapItem> getUsers(PointMapItem point) {
-        Collection<MapItem> rabItems = RangeAndBearingMapComponent.getGroup()
-                .getItems();
+        Collection<MapItem> rabItems;
+        rabItems = RangeAndBearingCompat.getGroup().getItems();
         List<RangeAndBearingMapItem> rabMapItems = new ArrayList<>();
         RangeAndBearingMapItem other;
         for (MapItem m : rabItems) {
@@ -828,15 +829,17 @@ public class RangeAndBearingMapItem extends Arrow implements
     @Override
     public void onPointChanged(PointMapItem item) {
         if (item != null) {
-            if (_pt1 == null || _pt2 == null) {
+            final PointMapItem lPt1 = _pt1;
+            final PointMapItem lPt2 = _pt2;
+            if (lPt1 == null || lPt2 == null) {
                 Log.w(TAG, "Called onPointChanged with null points.");
                 return;
             }
-            _point1 = _pt1.getGeoPointMetaData();
-            _point2 = _pt2.getGeoPointMetaData();
+            _point1 = lPt1.getGeoPointMetaData();
+            _point2 = lPt2.getGeoPointMetaData();
             _range = _point1.get().distanceTo(_point2.get());
             _slantRange = DistanceCalculations.calculateSlantRange(
-                    _pt1.getPoint(), _pt2.getPoint());
+                    lPt1.getPoint(), lPt2.getPoint());
 
             if (!Double.isNaN(_slantRange)) {
                 // CAH 
@@ -1198,7 +1201,7 @@ public class RangeAndBearingMapItem extends Arrow implements
     }
 
     @Override
-    public boolean isSupported(Class target) {
+    public boolean isSupported(Class<?> target) {
         return CotEvent.class.equals(target) ||
                 Folder.class.equals(target) ||
                 KMZFolder.class.equals(target) ||
@@ -1208,7 +1211,7 @@ public class RangeAndBearingMapItem extends Arrow implements
     }
 
     @Override
-    public Object toObjectOf(Class target, ExportFilters filters) {
+    public Object toObjectOf(Class<?> target, ExportFilters filters) {
         if (filters != null && filters.filter(this))
             return null;
 
@@ -1233,9 +1236,9 @@ public class RangeAndBearingMapItem extends Arrow implements
      * Code snippet to add a listener to watch for changes to meta booleans for the R+B mapitem.
      */
 
-    private RangeAndBearingDropDown _onBooleanChanged = null;
+    private DropDownReceiver _onBooleanChanged = null;
 
-    public void addMetaBooleanListener(RangeAndBearingDropDown listener) {
+    public void addMetaBooleanListener(DropDownReceiver listener) {
         _onBooleanChanged = listener;
     }
 
@@ -1243,8 +1246,9 @@ public class RangeAndBearingMapItem extends Arrow implements
     public void setMetaBoolean(String key, boolean value) {
         boolean changed = super.getMetaBoolean(key, !value) != value;
         super.setMetaBoolean(key, value);
-        if (changed && _onBooleanChanged != null)
-            _onBooleanChanged.updateUnits();
+        if (changed && _onBooleanChanged != null) {
+            RangeAndBearingCompat.updateDropdownUnits(_onBooleanChanged);
+        }
     }
 
     /**

@@ -171,6 +171,8 @@ namespace TAK {
 			 */
 			class Worker {
 			public:
+				ENGINE_API Worker() NOTHROWS;
+
 				ENGINE_API virtual ~Worker() NOTHROWS;
 
 				/**
@@ -179,6 +181,10 @@ namespace TAK {
 				 * @param work the work to be scheduled
 				 */
 				ENGINE_API virtual TAKErr scheduleWork(std::shared_ptr<Work> work) NOTHROWS = 0;
+
+			private:
+				friend ENGINE_API uint64_t Worker_getWorkerId(const Worker& worker) NOTHROWS;
+				uint64_t worker_id_;
 			};
 
 			/**
@@ -204,6 +210,30 @@ namespace TAK {
 				ENGINE_API virtual TAKErr interrupt() NOTHROWS = 0;
 			};
 
+			/**
+			 * Get the ID of the worker (0 is not a valid ID)
+			 */
+			ENGINE_API uint64_t Worker_getWorkerId(const Worker& worker) NOTHROWS;
+
+			/**
+			 * Get the worker ID of the current executing worker (0 is not a valid ID).
+			 */
+			ENGINE_API uint64_t Worker_getCurrentWorkerId() NOTHROWS;
+
+			/**
+			 *
+			 */
+			ENGINE_API TAKErr Worker_allocWorkerLocalStorageSlot(size_t* result) NOTHROWS;
+
+			/**
+			 *
+			 */
+			ENGINE_API TAKErr Worker_getWorkerLocalStorage(void** ptr, size_t slot) NOTHROWS;
+
+			/**
+			 *
+			 */
+			ENGINE_API TAKErr Worker_setWorkerLocalStorage(size_t slot, void* ptr) NOTHROWS;
 
 			/**
 			 * Create a worker backed by a single thread
@@ -214,6 +244,24 @@ namespace TAK {
 			 */
 			ENGINE_API TAKErr Worker_createThread(SharedWorkerPtr &worker) NOTHROWS;
 			
+			/**
+			 * Create a worker where every scheduled task overrides the previous. 
+			 * Any ongoing previously scheduled task is prempted with TE_Canceled and a 
+			 * task number (starting at zero) is incremented. The address of the task
+			 * number value can be used to check against for detecting cancelation in
+			 * running task code.
+			 * 
+			 * NOTE: the task_num of the first scheduled task is 1 and incremented
+			 * on each call to scheduleWork. This value can be tracked in parallel 
+			 * by scheduling code. The task_num_address is a valid address as long a 
+			 * pointer (SharedWorkerPtr) to the worker is held. There is no need to 
+			 * read the task_num_address value atomically because ANY change indicates
+			 * cancelation.
+			 */
+			ENGINE_API TAKErr Worker_createOverrideTasker(SharedWorkerPtr& result,
+				const uint64_t** task_num_address,
+				const SharedWorkerPtr& dest_worker) NOTHROWS;
+
 			/**
 			 * Create a fixed thread pool worker
 			 *
@@ -247,13 +295,13 @@ namespace TAK {
 			 * use this for tasks that block and wait on things (like IO), or very short lived non-taxing
 			 * tasks.
 			 */
-			ENGINE_API SharedWorkerPtr GeneralWorkers_flex() NOTHROWS;
+			ENGINE_API const SharedWorkerPtr& GeneralWorkers_flex() NOTHROWS;
 
 			/**
 			 * A single thread always ready. It is good to use this for tasks that must be serialized, or
 			 * expensive tasks when GeneralWorkers_cpu() chokes out performance too much.
 			 */
-			ENGINE_API SharedWorkerPtr GeneralWorkers_single() NOTHROWS;
+			ENGINE_API const SharedWorkerPtr& GeneralWorkers_single() NOTHROWS;
 
 			/**
 			 * General purpose Worker for handling more expensive computation type tasks that are
@@ -261,7 +309,7 @@ namespace TAK {
 			 * doing other work. Generally, this is a fixed thread-pool with the same number of threads
 			 * as CPU cores.
 			 */
-			ENGINE_API SharedWorkerPtr GeneralWorkers_cpu() NOTHROWS;
+			ENGINE_API const SharedWorkerPtr& GeneralWorkers_cpu() NOTHROWS;
 
 			/**
 			 * Create a new thread for each task.
@@ -271,7 +319,7 @@ namespace TAK {
 			/**
 			 * Do the task immediately within the context it arrives.
 			 */
-			ENGINE_API SharedWorkerPtr GeneralWorkers_immediate() NOTHROWS;
+            ENGINE_API const SharedWorkerPtr& GeneralWorkers_immediate() NOTHROWS;
 		}
 	}
 }

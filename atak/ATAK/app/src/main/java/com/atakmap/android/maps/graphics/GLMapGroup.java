@@ -3,17 +3,11 @@ package com.atakmap.android.maps.graphics;
 
 import android.util.Pair;
 
-import com.atakmap.android.editableShapes.GLMultipolyline;
-import com.atakmap.android.maps.AxisOfAdvance;
 import com.atakmap.android.maps.CrumbTrail;
 import com.atakmap.android.maps.Doghouse;
-import com.atakmap.android.maps.Ellipse;
 import com.atakmap.android.maps.MapItem;
 import com.atakmap.android.maps.MetaMapPoint;
 import com.atakmap.android.maps.MetaShape;
-import com.atakmap.android.maps.MultiPolyline;
-import com.atakmap.android.maps.Polyline;
-import com.atakmap.android.maps.SimpleRectangle;
 import com.atakmap.android.maps.SensorFOV;
 import com.atakmap.android.maps.graphics.widgets.GLAngleOverlay;
 import com.atakmap.android.maps.graphics.widgets.GLAutoSizeAngleOverlay;
@@ -37,7 +31,7 @@ public final class GLMapGroup {
     }
 
     private static Class lookupGLClass(Class itemClass) {
-        Class glClass = null;
+        Class<?> glClass = null;
 
         try {
             String packageName = itemClass.getPackage().getName();
@@ -82,7 +76,7 @@ public final class GLMapGroup {
     }
 
     static final Map<Class<? extends MapItem>, Class<? extends GLMapItem>> glClasses = new HashMap<>();
-    static final Map<Class<? extends GLMapItem>, Constructor> glCtors = new HashMap<>();
+    static final Map<Class<? extends GLMapItem>, Constructor<?>> glCtors = new HashMap<>();
 
     public final static GLMapItemSpi2 DEFAULT_GLMAPITEM_SPI2 = new GLMapItemSpi2() {
 
@@ -97,15 +91,8 @@ public final class GLMapGroup {
             final MapRenderer surface = arg.first;
             final MapItem item = arg.second;
 
-            if (item instanceof Doghouse)
-                return new GLDogHouse(surface, (Doghouse) item);
-            else if (item instanceof SensorFOV)
+            if (item instanceof SensorFOV)
                 return new GLSensorFOV(surface, (SensorFOV) item);
-            else if (item instanceof AngleOverlayShape)
-                return new GLAngleOverlay(surface, (AngleOverlayShape) item);
-            else if (item instanceof AutoSizeAngleOverlayShape)
-                return new GLAutoSizeAngleOverlay(surface,
-                        (AutoSizeAngleOverlayShape) item);
             else if (item instanceof MetaMapPoint || item instanceof MetaShape
                     || item instanceof CrumbTrail)
                 // Meta items don't have a graphical representation themselves, since they manage
@@ -141,7 +128,7 @@ public final class GLMapGroup {
 
             // If there is a GL class, instantiate it
             if (glClass != null) {
-                Constructor ctor = glCtors.get(glClass);
+                Constructor<?> ctor = glCtors.get(glClass);
                 if (ctor == null) {
                     ctor = ConstructorUtils.getMatchingAccessibleConstructor(
                             glClass,

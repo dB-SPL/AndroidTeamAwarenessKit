@@ -3,10 +3,11 @@ package com.atakmap.coremap.maps.time;
 
 import java.io.File;
 import java.io.FileNotFoundException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.io.UnsupportedEncodingException;
 import java.io.PrintWriter;
 import java.io.IOException;
-import java.io.FileOutputStream;
 import java.io.OutputStreamWriter;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
@@ -19,6 +20,7 @@ import android.os.Parcel;
 import android.os.Parcelable;
 
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.locale.LocaleUtil;
 import com.atakmap.coremap.log.Log;
 
@@ -302,33 +304,28 @@ public class CoordinatedTime implements Parcelable {
             // XXX Designate for refactoring. Should happen higher up?
             Log.e(TAG, msg);
             if (directory != null) {
-                if (!directory.exists()) {
-                    if (!directory.mkdirs()) {
+                if (!IOProviderFactory.exists(directory)) {
+                    if (!IOProviderFactory.mkdirs(directory)) {
                         Log.w(TAG, "Failed to create: " + directory);
                     }
                 }
 
-                PrintWriter w = null;
-                OutputStreamWriter osw = null;
-                try {
-                    w = new PrintWriter(osw = new OutputStreamWriter(
-                            new FileOutputStream(new File(directory,
-                                    "bad_time.txt"), true),
-                            FileSystemUtils.UTF8_CHARSET));
+                try (OutputStream is = IOProviderFactory
+                        .getOutputStream(new File(directory,
+                                "bad_time.txt"), true);
+                        OutputStreamWriter osw = new OutputStreamWriter(
+                                is, FileSystemUtils.UTF8_CHARSET);
+                        PrintWriter w = new PrintWriter(osw)) {
                     w.append(msg).append("\r\n");
                     e.printStackTrace(w);
                 } catch (FileNotFoundException e1) {
                     Log.e(TAG,
                             "File not found while attempting to write bad_time.txt",
                             e1);
-                } finally {
-                    if (w != null)
-                        w.close();
-                    if (osw != null)
-                        try {
-                            osw.close();
-                        } catch (IOException ignored) {
-                        }
+                } catch (IOException e2) {
+                    Log.e(TAG,
+                            "Encountered IO issue while attempting to write bad_time.txt",
+                            e2);
                 }
             }
         }

@@ -344,7 +344,7 @@ public class MapOverlayParent extends AbstractMapOverlay2 {
         }
 
         @Override
-        public boolean isSupported(Class target) {
+        public boolean isSupported(Class<?> target) {
             return Folder.class.equals(target) ||
                     KMZFolder.class.equals(target) ||
                     MissionPackageExportWrapper.class.equals(target) ||
@@ -353,7 +353,7 @@ public class MapOverlayParent extends AbstractMapOverlay2 {
         }
 
         @Override
-        public Object toObjectOf(Class target, ExportFilters filters)
+        public Object toObjectOf(Class<?> target, ExportFilters filters)
                 throws FormatNotSupportedException {
             if (super.getChildCount() < 1 || !isSupported(target)) {
                 //nothing to export
@@ -539,6 +539,20 @@ public class MapOverlayParent extends AbstractMapOverlay2 {
                     iconUri, order, alwaysVisible);
             mapView.getMapOverlayManager().addOverlay(parent);
             return parent;
+        } else if (!(existing instanceof MapOverlayParent)) {
+            Log.w(TAG, "Overlay already exists, but not a MapOverlayParent: "
+                    + id);
+            return null;
+        } else {
+            //Log.d(TAG, "MapOverlayParent already exists: " + id)
+            return (MapOverlayParent) existing;
+        }
+    }
+
+    public static MapOverlayParent getParent(MapView mapView, String id) {
+        MapOverlay existing = mapView.getMapOverlayManager().getOverlay(id);
+        if (existing == null) {
+            return null;
         } else if (!(existing instanceof MapOverlayParent)) {
             Log.w(TAG, "Overlay already exists, but not a MapOverlayParent: "
                     + id);

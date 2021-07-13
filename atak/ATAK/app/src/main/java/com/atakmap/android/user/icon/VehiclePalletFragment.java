@@ -26,7 +26,6 @@ import com.atakmap.android.gui.ColorPalette.OnColorSelectedListener;
 import com.atakmap.android.ipc.AtakBroadcast;
 import com.atakmap.android.maps.MapItem;
 import com.atakmap.android.maps.MapView;
-import com.atakmap.android.maps.Marker;
 import com.atakmap.android.toolbar.Tool;
 import com.atakmap.android.toolbar.ToolManagerBroadcastReceiver;
 import com.atakmap.android.user.CustomNamingView;
@@ -207,6 +206,7 @@ public class VehiclePalletFragment extends Fragment implements
         }
         vs.setup(_selectedType, name, gp, 0, true);
         vs.setColor(color);
+        vs.updateOffscreenInterest();
         vs.save();
         return vs;
     }
@@ -226,7 +226,7 @@ public class VehiclePalletFragment extends Fragment implements
             String blockName;
         }
 
-        private Context _context;
+        private final Context _context;
         private final List<String> _blocks = new ArrayList<>();
 
         VehicleBlockAdapter(Context c) {

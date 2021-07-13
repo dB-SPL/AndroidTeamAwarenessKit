@@ -1,10 +1,9 @@
 package com.atakmap.map.layer.raster.drg;
 
-import android.graphics.Rect;
 import android.opengl.GLES30;
 
-import com.atakmap.coremap.maps.coords.GeoBounds;
 import com.atakmap.coremap.maps.coords.GeoPoint;
+import com.atakmap.map.gdal.GdalLibrary;
 import com.atakmap.map.layer.raster.DatasetProjection2;
 import com.atakmap.map.layer.raster.gdal.GdalDatasetProjection2;
 import com.atakmap.map.layer.raster.gdal.GdalGraphicUtils;
@@ -58,7 +57,7 @@ public final class DRGTileReader extends TileReader {
             Dataset dataset = null;
             DatasetProjection2 proj = null;
             try {
-                dataset = gdal.Open(f.getAbsolutePath());
+                dataset = GdalLibrary.openDatasetFromFile(f);
                 if(dataset == null)
                     return null;
                 if(tileWidth <= 0)
@@ -67,7 +66,7 @@ public final class DRGTileReader extends TileReader {
                     tileHeight = dataset.GetRasterBand(1).GetBlockYSize();
                 impl = new GdalTileReader(dataset, uri, tileWidth, tileHeight, cacheUri, asyncIO);
                 proj = GdalDatasetProjection2.getInstance(dataset);
-            } catch(Throwable t) {}
+            } catch(Throwable ignored) {}
             if(impl == null)
                 return null;
             if(proj == null)

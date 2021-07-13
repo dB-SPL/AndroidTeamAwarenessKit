@@ -24,6 +24,8 @@ namespace TAK {
                 GLuint aTexCoords;
                 GLuint aVertexCoords;
                 GLuint aNormals;
+
+                friend TAK::Engine::Util::TAKErr Shader_get(std::shared_ptr<const Shader2>&, const TAK::Engine::Core::RenderContext&, const RenderAttributes& attrs) NOTHROWS;
             };
 
             class ENGINE_API Shader
@@ -53,7 +55,7 @@ namespace TAK {
                 std::string vsh_;
                 std::string fsh_;
 
-                friend ENGINE_API void Shader_get(std::shared_ptr<const Shader> &, const TAK::Engine::Core::RenderContext &, const RenderAttributes &attrs) NOTHROWS;
+                friend void Shader_get(std::shared_ptr<const Shader> &, const TAK::Engine::Core::RenderContext &, const RenderAttributes &attrs) NOTHROWS;
             };
 
             /**
@@ -63,7 +65,11 @@ namespace TAK {
                 * @param flags
                 * @return
                 */
-            ENGINE_API void Shader_get(std::shared_ptr<const Shader> &value, const TAK::Engine::Core::RenderContext &ctx, const RenderAttributes &attrs) NOTHROWS;
+            void Shader_get(std::shared_ptr<const Shader> &value, const TAK::Engine::Core::RenderContext &ctx, const RenderAttributes &attrs) NOTHROWS;
+
+
+            TAK::Engine::Util::TAKErr Shader_get(std::shared_ptr<const Shader2>&, const TAK::Engine::Core::RenderContext& ctx, const RenderAttributes& attrs) NOTHROWS;
+            TAK::Engine::Util::TAKErr Shader_compile(std::shared_ptr<const Shader2> &result, const TAK::Engine::Core::RenderContext& ctx, const char* vert, const char* frag) NOTHROWS;
         }
     }
 }

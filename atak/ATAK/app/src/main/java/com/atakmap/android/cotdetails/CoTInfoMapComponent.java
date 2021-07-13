@@ -3,25 +3,27 @@ package com.atakmap.android.cotdetails;
 
 import android.content.Context;
 import android.content.Intent;
-import android.os.FileObserver;
 
 import com.atakmap.android.attachment.AttachmentBroadcastReceiver;
 import com.atakmap.android.attachment.AttachmentGalleryProvider;
 import com.atakmap.android.attachment.AttachmentMapOverlay;
 import com.atakmap.android.attachment.export.AttachmentExportMarshal;
+import com.atakmap.android.cotdetails.sensor.SensorDetailsReceiver;
 import com.atakmap.android.data.URIContentManager;
 import com.atakmap.android.dropdown.DropDownMapComponent;
+import com.atakmap.os.FileObserver;
 import com.atakmap.android.importexport.ExporterManager;
 import com.atakmap.android.ipc.AtakBroadcast.DocumentedIntentFilter;
 import com.atakmap.android.ipc.DocumentedExtra;
 import com.atakmap.android.maps.MapEvent;
 import com.atakmap.android.maps.MapEventDispatcher;
 import com.atakmap.android.maps.MapItem;
-import com.atakmap.android.maps.MapOverlayManager;
 import com.atakmap.android.maps.MapView;
 import com.atakmap.android.util.AttachmentManager;
+import com.atakmap.annotations.DeprecatedApi;
 import com.atakmap.app.R;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
 
 import java.io.File;
@@ -39,12 +41,14 @@ public class CoTInfoMapComponent extends DropDownMapComponent {
 
     private static final String TAG = "CoTInfoMapComponent";
 
-    private CoTInfoBroadcastReceiver cibr;
+    protected CoTInfoBroadcastReceiver cibr;
+    private SensorDetailsReceiver sensorReceiver;
     private AttachmentBroadcastReceiver abr;
     private AttachmentMapOverlay _overlay;
     private AttachmentGalleryProvider _provider;
 
     private MapView mapView;
+    private AttachmentWatcher attachmentWatcher;
     private FileObserver fObserver;
     private final Map<String, MapItem> markerAttachment = new HashMap<>();
 
@@ -68,7 +72,6 @@ public class CoTInfoMapComponent extends DropDownMapComponent {
                                 "the unique identifier for the marker to be used when opening up the cot information view")
                 });
         filter.addAction("com.atakmap.android.cotdetails.COTINFO_SETTYPE");
-        filter.addAction("com.atakmap.android.cotdetails.SENSORDETAILS");
         registerDropDownReceiver(cibr, filter);
 
         filter = new DocumentedIntentFilter();
@@ -77,12 +80,15 @@ public class CoTInfoMapComponent extends DropDownMapComponent {
         filter.addAction(AttachmentBroadcastReceiver.GALLERY);
         registerDropDownReceiver(abr, filter);
 
+        sensorReceiver = new SensorDetailsReceiver(view);
+        registerDropDownReceiver(sensorReceiver,
+                sensorReceiver.getIntentFilter());
+
         _instance = this;
 
         //now that _instance is set, create attachment overlay
         _overlay = new AttachmentMapOverlay(view);
-        MapOverlayManager overlayManager = view.getMapOverlayManager();
-        overlayManager.addOverlay(_overlay);
+        addOverlay(view, _overlay);
 
         URIContentManager.getInstance().registerProvider(
                 _provider = new AttachmentGalleryProvider(view));
@@ -93,6 +99,7 @@ public class CoTInfoMapComponent extends DropDownMapComponent {
                 R.drawable.camera,
                 AttachmentExportMarshal.class);
         setupWatcher();
+
     }
 
     static public CoTInfoMapComponent getInstance() {
@@ -111,7 +118,7 @@ public class CoTInfoMapComponent extends DropDownMapComponent {
                 final File dir = FileSystemUtils.getItem("attachments");
                 File f = new File(dir,
                         FileSystemUtils.sanitizeFilename(mi.getUID()));
-                if (f.exists() && added) {
+                if (IOProviderFactory.exists(f) && added) {
                     addAttachment(mi);
                 } else {
                     removeAttachment(mi);
@@ -121,11 +128,11 @@ public class CoTInfoMapComponent extends DropDownMapComponent {
     }
 
     private void setupWatcher() {
-        AttachmentWatcher aw = new AttachmentWatcher();
+        attachmentWatcher = new AttachmentWatcher();
         mapView.getMapEventDispatcher().addMapEventListener(
-                MapEvent.ITEM_ADDED, aw);
+                MapEvent.ITEM_ADDED, attachmentWatcher);
         mapView.getMapEventDispatcher().addMapEventListener(
-                MapEvent.ITEM_REMOVED, aw);
+                MapEvent.ITEM_REMOVED, attachmentWatcher);
 
         fObserver = new FileObserver(FileSystemUtils.getItem("attachments")
                 .toString()) {
@@ -156,9 +163,10 @@ public class CoTInfoMapComponent extends DropDownMapComponent {
 
     /**
      * @return markers with attachments as MapItems
-     * Deprecated - Use {@link AttachmentManager#findAttachmentItems} instead
+     * @deprecated - Use {@link AttachmentManager#findAttachmentItems} instead
      */
     @Deprecated
+    @DeprecatedApi(since = "4.1", forRemoval = true, removeAt = "4.4")
     public MapItem[] getMarkersWithAttachments() {
 
         synchronized (markerAttachment) {
@@ -184,19 +192,32 @@ public class CoTInfoMapComponent extends DropDownMapComponent {
 
     @Override
     protected void onDestroyImpl(Context context, MapView view) {
+        // cleans up all receivers and overlays
         super.onDestroyImpl(context, view);
 
         if (cibr != null) {
             cibr.dispose();
+            cibr = null;
         }
 
         if (abr != null) {
             abr.dispose();
+            abr = null;
         }
-        if (fObserver != null)
+        if (attachmentWatcher != null) {
+            mapView.getMapEventDispatcher().removeMapEventListener(
+                    MapEvent.ITEM_ADDED, attachmentWatcher);
+            mapView.getMapEventDispatcher().removeMapEventListener(
+                    MapEvent.ITEM_REMOVED, attachmentWatcher);
+            attachmentWatcher = null;
+        }
+        if (fObserver != null) {
             fObserver.stopWatching();
+            fObserver = null;
+        }
 
         URIContentManager.getInstance().unregisterProvider(_provider);
+        ExporterManager.unregisterExporter(context.getString(R.string.media));
     }
 
     private void addAttachment(MapItem item) {

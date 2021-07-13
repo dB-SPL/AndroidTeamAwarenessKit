@@ -18,6 +18,7 @@ import java.util.TreeMap;
 import java.util.TreeSet;
 
 
+import com.atakmap.annotations.DeprecatedApi;
 import com.atakmap.coremap.maps.coords.DistanceCalculations;
 
 
@@ -27,8 +28,6 @@ import android.opengl.GLES30;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.coremap.maps.coords.GeoPoint;
 import com.atakmap.lang.Unsafe;
-import com.atakmap.map.Interop;
-import com.atakmap.map.layer.raster.DatasetDescriptor;
 import com.atakmap.map.layer.raster.DatasetProjection2;
 import com.atakmap.map.layer.raster.DefaultDatasetProjection2;
 import com.atakmap.map.layer.raster.ImageInfo;
@@ -38,7 +37,6 @@ import com.atakmap.map.layer.raster.RasterDataAccess2;
 import com.atakmap.map.layer.raster.gdal.GdalGraphicUtils;
 import com.atakmap.map.layer.raster.gdal.GdalTileReader;
 import com.atakmap.map.layer.raster.osm.OSMUtils;
-import com.atakmap.map.layer.raster.tilematrix.opengl.GLTiledLayerCore;
 import com.atakmap.map.layer.raster.tilereader.TileReader;
 import com.atakmap.map.layer.raster.tilereader.TileReaderFactory;
 import com.atakmap.map.opengl.GLAntiMeridianHelper;
@@ -51,7 +49,6 @@ import com.atakmap.opengl.GLES20FixedPipeline;
 import com.atakmap.opengl.GLTexture;
 import com.atakmap.opengl.GLTextureCache;
 import com.atakmap.opengl.GLWireFrame;
-import com.atakmap.opengl.Shader;
 import com.atakmap.util.Collections2;
 import com.atakmap.util.ConfigOptions;
 import com.atakmap.util.Disposable;
@@ -60,8 +57,12 @@ import com.atakmap.math.MathUtils;
 import com.atakmap.math.PointD;
 import com.atakmap.math.RectD;
 import com.atakmap.math.Rectangle;
-import com.atakmap.util.ResourcePool;
 
+/**
+ * @deprecated use {@link GLQuadTileNode3}
+ */
+@Deprecated
+@DeprecatedApi(since = "4.1", forRemoval = true, removeAt = "4.4")
 public class GLQuadTileNode2 implements
                                     GLResolvableMapRenderable,
                                     TileReader.AsynchronousReadRequestListener,
@@ -857,8 +858,12 @@ public class GLQuadTileNode2 implements
                 this.core.unwrap,
                 360d / (1L<<OSMUtils.mapnikTileLevel(view.drawMapResolution)));
 
-        if (numRois < 1) // no intersection
+        if (numRois < 1) { // no intersection
+            // cull any nodes that weren't touched this pump
+            if(!view.multiPartPass)
+                cull(view.renderPump);
             return;
+        }
 
         final double scale = (this.core.gsd / view.drawMapResolution);
 
@@ -916,8 +921,7 @@ public class GLQuadTileNode2 implements
                             (long) (Math.ceil(roi.right) - (long) roi.left),
                             (long) (Math.ceil(roi.bottom) - (long) roi.top),
                             poiX,
-                            poiY,
-                            ((i+1) == numRois));
+                            poiY);
 
                     // ROIS -- West is always second, reset the POI
                     if(view.drawLng > 0d)
@@ -940,6 +944,31 @@ public class GLQuadTileNode2 implements
         }
 
         //Log.v(TAG, "Tiles this frame: " + core.tilesThisFrame);
+
+        // cull any undrawn
+        if(!view.multiPartPass)
+            cull(view.renderPump);
+    }
+
+
+    private void cull(final int pump) {
+        if(this.lastTouch != pump) {
+            if(this != this.root)
+                this.release();
+            else
+                this.abandon();
+        } else if(this.children != null){
+            for(int i = 0; i < this.children.length; i++) {
+                if(this.children[i] == null)
+                    continue;
+                if(this.children[i].lastTouch != pump) {
+                    this.children[i].release();
+                    this.children[i] = null;
+                } else {
+                    this.children[i].cull(pump);
+                }
+            }
+        }
     }
 
     protected boolean shouldResolve() {
@@ -1191,9 +1220,6 @@ public class GLQuadTileNode2 implements
             this.state = State.UNRESOLVED;
         }
 
-        // abandon the children before drawing ourself
-        this.abandon();
-
         if (this.state == State.UNRESOLVED) {
             super_resolveTexture();
         }
@@ -1223,8 +1249,9 @@ public class GLQuadTileNode2 implements
      * @param srcW The width of the source region to be rendered (unscaled)
      * @param srcH The height of the source region to be rendered (unscaled)
      */
-    private void draw(GLMapView view, int level, long srcX, long srcY, long srcW, long srcH, long poiX, long poiY, boolean cull) {
+    private void draw(GLMapView view, int level, long srcX, long srcY, long srcW, long srcH, long poiX, long poiY) {
         this.view = view;
+        this.lastTouch = view.currentPass.renderPump;
 
         // dynamically refine level based on expected nominal resolution for tile as rendered
         final double tileGsd = GLMapView.estimateResolution(view, maxLat, minLng, minLat, maxLng, null);
@@ -1235,10 +1262,7 @@ public class GLQuadTileNode2 implements
         }
 
         if (this.level == level) {
-            final boolean abandon = (this.texture == null);
             this.drawImpl(view);
-            if (abandon && (this.texture != null))
-                this.abandon();
         } else if (this.level > level) {
             boolean unresolvedChildren = false;
             if(this.core.tileReader.isMultiResolution()) {
@@ -1304,20 +1328,6 @@ public class GLQuadTileNode2 implements
             final boolean right = (srcX < Math.min(tileMaxSrcX, limitX)) && (maxSrcX > Math.max(tileMidSrcX, 0));
             final boolean lower = (srcY < Math.min(tileMaxSrcY, limitY)) && (maxSrcY > Math.max(tileMidSrcY, 0));
 
-            // orphan all children that are not visible
-            Iterator<GLQuadTileNode2> orphanIter;
-            if(cull) {
-                Set<GLQuadTileNode2> orphans = this.orphan(view.drawVersion,
-                                                           !(upper && left),
-                                                           !(upper & right),
-                                                           !(lower && left),
-                                                           !(lower && right));
-
-                orphanIter = orphans.iterator();
-            } else {
-                orphanIter = Collections2.<GLQuadTileNode2>emptyIterator();
-            }
-
             final boolean[] visibleChildren = new boolean[]{
                     (upper && left),
                     (upper && right),
@@ -1328,12 +1338,8 @@ public class GLQuadTileNode2 implements
             int visCount = 0;
             for (int i = 0; i < this.children.length; i++) {
                 if (visibleChildren[i]) {
-                    if(this.children[i] == null) {
-                        if (orphanIter.hasNext())
-                            this.adopt(i, orphanIter.next());
-                        else
-                            this.children[i] = this.createChild(i);
-                    }
+                    if(this.children[i] == null)
+                        this.children[i] = this.createChild(i);
                     // XXX - overdraw above is emitting 0 dimension children
                     //       causing subsequent FBO failure. implementing
                     //       quickfix to exclude empty children
@@ -1341,14 +1347,9 @@ public class GLQuadTileNode2 implements
                     if(!visibleChildren[i])
                         continue;
 
-                    this.children[i].lastTouch = view.drawVersion;
                     visCount++;
                 }
             }
-
-            // release any unused orphans
-            while (orphanIter.hasNext())
-                orphanIter.next().release();
 
             // there are no visible children. this node must have been selected
             // for overdraw -- draw it and return
@@ -1356,9 +1357,7 @@ public class GLQuadTileNode2 implements
                 this.isOverdraw = true;
                 this.drawImpl(view);
                 return;
-            } else if(!cull) {
-                // if this is not the 'cull' pass and we have not performed
-                // overdraw
+            } else {
                 this.isOverdraw = false;
             }
 
@@ -1366,7 +1365,7 @@ public class GLQuadTileNode2 implements
             // tile data, cancel request
             if (!unresolvedChildren &&
                 this.currentRequest != null &&
-                (cull && !this.isOverdraw)) {
+                !this.isOverdraw) {
 
                 this.currentRequest.cancel();
                 this.currentRequest = null;
@@ -1391,7 +1390,7 @@ public class GLQuadTileNode2 implements
                                                poiX, poiY)) {
 
                             this.children[i].verticesInvalid = this.verticesInvalid;
-                            this.children[i].draw(view, level, srcX, srcY, srcW, srcH, poiX, poiY, cull);
+                            this.children[i].draw(view, level, srcX, srcY, srcW, srcH, poiX, poiY);
 
                             // already drawn
                             visibleChildren[i] = false;
@@ -1419,13 +1418,13 @@ public class GLQuadTileNode2 implements
                 final int i = GLQuadTileNode3.POI_ITERATION_BIAS[(iterOffset*4)+j];
                 if (visibleChildren[i]) {
                     this.children[i].verticesInvalid = this.verticesInvalid;
-                    this.children[i].draw(view, level, srcX, srcY, srcW, srcH, poiX, poiY, cull);
+                    this.children[i].draw(view, level, srcX, srcY, srcW, srcH, poiX, poiY);
                     visibleChildren[i] = false;
                 }
             }
 
             // if no one is borrowing from us, release our texture
-            if (this.borrowers.isEmpty() && this.texture != null && !unresolvedChildren && (cull && !this.isOverdraw))
+            if (this.borrowers.isEmpty() && this.texture != null && !unresolvedChildren && !this.isOverdraw)
                 this.releaseTexture();
         } else {
             throw new IllegalStateException();
@@ -1662,8 +1661,8 @@ public class GLQuadTileNode2 implements
         GLES20FixedPipeline.glDisableClientState(GLES20FixedPipeline.GL_VERTEX_ARRAY);
 
          com.atakmap.opengl.GLText _titleText = com.atakmap.opengl.GLText.getInstance(com.atakmap.map.AtakMapView.getDefaultTextFormat());
-         view.scratch.pointD.x = this.tileSrcX+this.tileSrcWidth/2;
-         view.scratch.pointD.y = this.tileSrcY+this.tileSrcHeight/2;
+         view.scratch.pointD.x = this.tileSrcX+this.tileSrcWidth/2f;
+         view.scratch.pointD.y = this.tileSrcY+this.tileSrcHeight/2f;
          this.core.imprecise.imageToGround(view.scratch.pointD, view.scratch.geo);
          view.forward(view.scratch.geo, view.scratch.pointF);
          GLES20FixedPipeline.glPushMatrix();
@@ -1690,36 +1689,6 @@ public class GLQuadTileNode2 implements
         this.children[idx].set((this.tileColumn * 2) + (idx % 2), (this.tileRow * 2) + (idx / 2),
                 this.level - 1);
         this.children[idx].parent = this;
-    }
-
-    /**
-     * Orphans the specified children.
-     *
-     * @param upperLeft <code>true</code> to orphan the upper-left child
-     * @param upperRight <code>true</code> to orphan the upper-right child
-     * @param lowerLeft <code>true</code> to orphan the lower-left child
-     * @param lowerRight <code>true</code> to orphan the lower-right child
-     * @return The orphaned children
-     */
-    private Set<GLQuadTileNode2> orphan(long drawVersion, boolean upperLeft, boolean upperRight,
-            boolean lowerLeft, boolean lowerRight) {
-        Set<GLQuadTileNode2> retval = new TreeSet<GLQuadTileNode2>(ORPHANING_COMPARATOR);
-
-        final boolean[] shouldOrphan = new boolean[]{
-                upperLeft,
-                upperRight,
-                lowerLeft,
-                lowerRight,
-        };
-
-        for (int i = 0; i < this.children.length; i++) {
-            if (shouldOrphan[i] && this.children[i] != null && this.children[i].lastTouch != drawVersion) {
-                retval.add(this.children[i]);
-                this.children[i].parent = null;
-                this.children[i] = null;
-            }
-        }
-        return retval;
     }
 
     /**
@@ -1962,7 +1931,7 @@ public class GLQuadTileNode2 implements
         if (current == null || current.id != id)
             return;
 
-        final int transferSize = dstW*dstH*core.tileReader.getPixelSize();
+        final int transferSize = GdalGraphicUtils.getBufferSize(glTexFormat, glTexType, dstW, dstH);
         ByteBuffer transferBuffer = transferBuffer = GLQuadTileNode3.transferBuffers.get();
         if(transferBuffer == null || transferBuffer.capacity() < transferSize) {
             Unsafe.free(transferBuffer);
@@ -2533,7 +2502,7 @@ public class GLQuadTileNode2 implements
                         if (this.queue.size() < 1) {
                             try {
                                 this.syncOn.wait();
-                            } catch (InterruptedException e) {
+                            } catch (InterruptedException ignored) {
                             }
                             continue;
                         }
@@ -2607,6 +2576,7 @@ public class GLQuadTileNode2 implements
      * @deprecated to be removed without replacement; use {@link GLQuadTileNode3}
      */
     @Deprecated
+    @DeprecatedApi(since="4.1", forRemoval = true, removeAt = "4.4")
     protected static class NodeCore extends com.atakmap.map.layer.raster.tilereader.opengl.NodeCore {
         private NodeCore(String type,
                          Initializer init,
@@ -2634,6 +2604,11 @@ public class GLQuadTileNode2 implements
     
     /**************************************************************************/
 
+    /**
+     * @deprecated to be removed without replacement; use {@link GLQuadTileNode3}
+     */
+    @Deprecated
+    @DeprecatedApi(since="4.1", forRemoval = true, removeAt = "4.4")
     public static interface Initializer {
         public static class Result {
             public TileReader reader;
@@ -2646,6 +2621,11 @@ public class GLQuadTileNode2 implements
         public void dispose(Result result);
     }
 
+    /**
+     * @deprecated to be removed without replacement; use {@link GLQuadTileNode3}
+     */
+    @Deprecated
+    @DeprecatedApi(since="4.1", forRemoval = true, removeAt = "4.4")
     public final static Initializer DEFAULT_INIT = new Initializer() {
         @Override
         public Result init(ImageInfo info, TileReaderFactory.Options opts) {

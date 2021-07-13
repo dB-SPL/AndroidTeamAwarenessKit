@@ -9,6 +9,7 @@ import com.atakmap.android.gui.ImportFileBrowserDialog;
 import com.atakmap.app.R;
 import com.atakmap.app.preferences.PreferenceControl;
 import com.atakmap.comms.http.HttpUtil;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.coremap.xml.XMLUtils;
 import com.atakmap.net.AtakAuthenticationCredentials;
@@ -19,9 +20,8 @@ import org.w3c.dom.NodeList;
 
 import java.io.BufferedReader;
 import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileNotFoundException;
 import java.io.FileWriter;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.util.ArrayList;
@@ -36,8 +36,6 @@ import javax.xml.transform.Transformer;
 import javax.xml.transform.TransformerFactory;
 import javax.xml.transform.dom.DOMSource;
 import javax.xml.transform.stream.StreamResult;
-
-import javax.xml.XMLConstants;
 
 /**
  * Sorts ATAK Preferences Files
@@ -58,7 +56,7 @@ public class ImportPrefSort extends ImportInternalSDResolver {
 
     private final Context _context;
 
-    private List<String> entrysToDelete = Arrays.asList(
+    private final List<String> entrysToDelete = Arrays.asList(
             AtakAuthenticationCredentials.TYPE_clientPassword,
             AtakAuthenticationCredentials.TYPE_caPassword,
             "certificateLocation",
@@ -80,9 +78,9 @@ public class ImportPrefSort extends ImportInternalSDResolver {
             return false;
 
         // it is a .pref, now lets see if content inspection passes
-        try {
-            return isPreference(new FileInputStream(file));
-        } catch (FileNotFoundException e) {
+        try (InputStream is = IOProviderFactory.getInputStream(file)) {
+            return isPreference(is);
+        } catch (IOException e) {
             Log.e(TAG, "Failed to match Pref file: " + file.getAbsolutePath(),
                     e);
             return false;
@@ -162,62 +160,92 @@ public class ImportPrefSort extends ImportInternalSDResolver {
         try {
             // iterate over all prefs files that need to be scrubbed
             for (String prefsFile : prefFilesToCleanup) {
+                Document doc = parseDocumentFromFile(prefsFile);
+                updatePreferenceDocument(doc);
+                writeDocumentToFile(doc, prefsFile);
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Exception in finalizeImport!", e);
+        }
+    }
 
-                // read the prefs file into a document
-                DocumentBuilderFactory dbf = XMLUtils
-                        .getDocumenBuilderFactory();
+    /**
+     * Parse XML document from file at the given path.
+     *
+     * @param filePath The path of the xml file
+     * @return the xml Document parsed from the file
+     */
+    private Document parseDocumentFromFile(String filePath) throws Exception {
+        DocumentBuilderFactory dbf = XMLUtils.getDocumenBuilderFactory();
+        DocumentBuilder db = dbf.newDocumentBuilder();
 
-                DocumentBuilder db = dbf.newDocumentBuilder();
-                File configFile = new File(prefsFile);
-                Document doc = db.parse(configFile);
+        File configFile = new File(filePath);
+        Document doc;
+        try (InputStream is = IOProviderFactory.getInputStream(configFile)) {
+            doc = db.parse(is);
+        }
+        return doc;
+    }
 
-                //
-                // navigate the dom and iterate over all entries in the app_preferences section
-                //
-                Node root = doc.getDocumentElement();
-                NodeList preferences = root.getChildNodes();
-                for (int i = 0; i < preferences.getLength(); i++) {
-                    Node preference = preferences.item(i);
-                    if (preference.getNodeName().equals("preference")) {
-                        String name = preference.getAttributes()
-                                .getNamedItem("name").getNodeValue();
-                        if (name.equals("com.atakmap.app_preferences") ||
-                                name.equals("cot_streams")) {
-                            NodeList items = preference.getChildNodes();
-                            for (int j = items.getLength() - 1; j >= 0; j--) {
-                                Node entry = items.item(j);
-                                if (entry.getNodeName().equals("entry")) {
-                                    String key = entry.getAttributes()
-                                            .getNamedItem("key").getNodeValue();
+    /**
+     * Navigate the dom and iterate over all entries in the app_preferences section.
+     * Remove any entries from our watchlist.
+     *
+     * @param doc The document to update
+     */
+    private void updatePreferenceDocument(Document doc) {
+        //
+        //
+        //
+        Node root = doc.getDocumentElement();
+        NodeList preferences = root.getChildNodes();
+        for (int i = 0; i < preferences.getLength(); i++) {
+            Node preference = preferences.item(i);
+            if (preference.getNodeName().equals("preference")) {
+                String name = preference.getAttributes()
+                        .getNamedItem("name").getNodeValue();
+                if (name.equals("com.atakmap.app_preferences") ||
+                        name.equals("cot_streams")) {
+                    NodeList items = preference.getChildNodes();
+                    for (int j = items.getLength() - 1; j >= 0; j--) {
+                        Node entry = items.item(j);
+                        if (entry.getNodeName().equals("entry")) {
+                            String key = entry.getAttributes()
+                                    .getNamedItem("key").getNodeValue();
 
-                                    // remove any entries on our watch list
-                                    // iterate over each entryToDelete and see if the current
-                                    // key contains the watch list entry. we do the
-                                    // contains test to find substring matches in the cot_streams
-                                    // prefs which have their stream index as their suffix
-                                    for (String entryToDelete : entrysToDelete) {
-                                        if (key.contains(entryToDelete)) {
-                                            preference.removeChild(entry);
-                                            break;
-                                        }
-                                    }
+                            // remove any entries on our watch list
+                            // iterate over each entryToDelete and see if the current
+                            // key contains the watch list entry. we do the
+                            // contains test to find substring matches in the cot_streams
+                            // prefs which have their stream index as their suffix
+                            for (String entryToDelete : entrysToDelete) {
+                                if (key.contains(entryToDelete)) {
+                                    preference.removeChild(entry);
+                                    break;
                                 }
                             }
                         }
                     }
                 }
-
-                // write the modified prefs back out
-                DOMSource source = new DOMSource(doc);
-                FileWriter writer = new FileWriter(new File(prefsFile));
-                StreamResult result = new StreamResult(writer);
-                TransformerFactory transformerFactory = XMLUtils
-                        .getTransformerFactory();
-                Transformer transformer = transformerFactory.newTransformer();
-                transformer.transform(source, result);
             }
-        } catch (Exception e) {
-            Log.e(TAG, "Exception in finalizeImport!", e);
+        }
+    }
+
+    /**
+     * Write XML document to file at the given path.
+     * @param doc the document to write
+     * @param filePath the file to write to
+     */
+    private void writeDocumentToFile(Document doc, String filePath)
+            throws Exception {
+        try (FileWriter writer = IOProviderFactory
+                .getFileWriter(new File(filePath))) {
+            DOMSource source = new DOMSource(doc);
+            StreamResult result = new StreamResult(writer);
+            TransformerFactory transformerFactory = XMLUtils
+                    .getTransformerFactory();
+            Transformer transformer = transformerFactory.newTransformer();
+            transformer.transform(source, result);
         }
     }
 

@@ -36,7 +36,7 @@ public class BloodHoundHUD extends TextWidget
 
     private BloodHoundTool _bloodhoundTool;
 
-    private LinearLayoutWidget layoutWidget;
+    private final LinearLayoutWidget layoutWidget;
 
     public void setToolbarButton(BloodHoundTool button) {
         _bloodhoundTool = button;
@@ -126,7 +126,7 @@ public class BloodHoundHUD extends TextWidget
 
     @Override
     public void onMapWidgetLongPress(MapWidget widget) {
-        // if (timerTask != null)
-        //    timerTask.setDismissed(true);
+        if (_bloodhoundTool != null)
+            _bloodhoundTool.dismissTimer();
     }
 }

@@ -14,7 +14,7 @@ import org.w3c.dom.NamedNodeMap;
 import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
 import org.xml.sax.SAXException;
-import javax.xml.XMLConstants;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Map;
@@ -39,13 +39,8 @@ public class WidgetBackground {
 
         // InputStream in = cfgRes.resolveInputStream(bgPath);
         Uri bgUri = Uri.parse(bgUriString);
-        InputStream in = config.getMapAssets().getInputStream(bgUri);
-        try {
+        try (InputStream in = config.getMapAssets().getInputStream(bgUri)) {
             bg = _parseBackgroundXml(config, in);
-        } finally {
-            if (in != null) {
-                in.close();
-            }
         }
         return bg;
     }

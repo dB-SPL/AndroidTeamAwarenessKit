@@ -16,6 +16,7 @@ import com.atakmap.android.maps.MapGroup;
 import com.atakmap.android.util.NotificationIdRecycler;
 import com.atakmap.android.util.NotificationUtil;
 import com.atakmap.app.R;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.comms.CommsMapComponent.ImportResult;
 import com.atakmap.map.layer.feature.DataSourceFeatureDataStore;
@@ -86,6 +87,10 @@ public abstract class SpatialDbContentSource implements Importer {
         this.notifyUserAfterImport = true;
     }
 
+    public final DataSourceFeatureDataStore getDatabase() {
+        return this.database;
+    }
+
     /**
      * Dispose the importer - to be called when the map component is destroyed
      */
@@ -108,7 +113,7 @@ public abstract class SpatialDbContentSource implements Importer {
      * @return The group name for the content.
      */
     public final String getGroupName() {
-        return this.groupName.toUpperCase(LocaleUtil.getCurrent());
+        return this.groupName;
     }
 
     /**
@@ -243,9 +248,9 @@ public abstract class SpatialDbContentSource implements Importer {
      *         {@link #PROCESS_REJECT}.
      */
     public int processAccept(File f, int depth) {
-        if (f.isFile() && f.canRead())
+        if (IOProviderFactory.isFile(f) && IOProviderFactory.canRead(f))
             return PROCESS_ACCEPT;
-        else if (f.isDirectory())
+        else if (IOProviderFactory.isDirectory(f))
             return PROCESS_RECURSE;
         else
             return PROCESS_REJECT;
@@ -353,18 +358,6 @@ public abstract class SpatialDbContentSource implements Importer {
                             "Failed Import: " + file.getName(), null, null,
                             true);
 
-                }
-            } else {
-                if (success) {
-                    //TODO add a pending intent to zoom/focus on data when notification is clicked
-                    NotificationUtil.getInstance().postNotification(
-                            getNotificationId(),
-                            getIconId(), NotificationUtil.WHITE,
-                            "Imported " + getContentType() + " file ",
-                            " Imported: " + file.getName(),
-                            "Imported " + getContentType() + " file: "
-                                    + file.getName(),
-                            i, true);
                 }
             }
             if (success && zoomToFile)

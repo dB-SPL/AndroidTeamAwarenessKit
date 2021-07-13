@@ -9,6 +9,7 @@ import androidx.fragment.app.FragmentActivity;
 import androidx.fragment.app.FragmentManager;
 import android.util.DisplayMetrics;
 import android.view.View;
+import android.widget.ImageButton;
 import android.widget.Toast;
 
 import com.atakmap.android.drawing.tools.TelestrationTool;
@@ -29,6 +30,8 @@ import com.atakmap.coremap.log.Log;
 import com.atakmap.coremap.maps.assets.Icon;
 import com.atakmap.coremap.maps.coords.GeoPoint;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 public abstract class DropDownReceiver extends BroadcastReceiver {
@@ -39,6 +42,7 @@ public abstract class DropDownReceiver extends BroadcastReceiver {
     private static final double FIVE_TWELFTHS_SCREEN = 5d / 12d;
     private static final double THIRD_SCREEN = 1d / 3d;
     private static final double THREE_EIGHTHS_SCREEN = 3d / 8d;
+    private static final double SEVEN_SIXTEENTH_SCREEN = 7d / 16d;
     private static final double HALF_SCREEN = 1d / 2d;
     private static final double FIVE_EIGHTHS_SCREEN = 5d / 8d;
     private static final double TWO_THIRDS_SCREEN = 2d / 3d;
@@ -48,6 +52,7 @@ public abstract class DropDownReceiver extends BroadcastReceiver {
     public static final double FIVE_TWELFTHS_WIDTH = FIVE_TWELFTHS_SCREEN;
     public static final double THIRD_WIDTH = THIRD_SCREEN;
     public static final double THREE_EIGHTHS_WIDTH = THREE_EIGHTHS_SCREEN;
+    public static final double SEVEN_SIXTEENTH_WIDTH = SEVEN_SIXTEENTH_SCREEN;
     public static final double HALF_WIDTH = HALF_SCREEN;
     public static final double FIVE_EIGTHS_WIDTH = FIVE_EIGHTHS_SCREEN;
     public static final double TWO_THIRDS_WIDTH = TWO_THIRDS_SCREEN;
@@ -475,6 +480,7 @@ public abstract class DropDownReceiver extends BroadcastReceiver {
             final OnStateListener stateListener) {
 
         getMapView().post(new Runnable() {
+
             @Override
             public void run() {
                 _dropDown = new DropDown(fragment, ignoreBackButton,
@@ -612,7 +618,7 @@ public abstract class DropDownReceiver extends BroadcastReceiver {
      * Action to take when a dropdown is already open under the stack.
      */
     protected void dropDownAlreadyExists() {
-        _mapView.post(new Runnable() {
+        getMapView().post(new Runnable() {
             @Override
             public void run() {
                 Toast.makeText(_mapView.getContext(),
@@ -669,9 +675,9 @@ public abstract class DropDownReceiver extends BroadcastReceiver {
     final protected boolean _showDropDown() {
         int side;
         if (_dropDown.getSide() == DropDown.DropDownSide.RIGHT_SIDE) {
-            side = com.atakmap.app.R.id.right_side_panel_container;
+            side = R.id.right_side_panel_container;
         } else {
-            side = com.atakmap.app.R.id.main_map_container;
+            side = R.id.left_side_panel_container;
         }
 
         boolean success = fragmentReplaceTransaction(side,
@@ -862,6 +868,10 @@ public abstract class DropDownReceiver extends BroadcastReceiver {
      */
     protected void setSelected(final MapItem m, final String icon) {
         setSelected(m, icon, true);
+    }
+
+    protected void setSelected(MapItem item) {
+        setSelected(item, "asset:/icons/outline.png");
     }
 
     private void showSelection(final boolean visible) {

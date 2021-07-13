@@ -188,12 +188,14 @@ public class ProductInformationWizard {
      */
     private void process(final ProductInformation[] products, final int index) {
         Log.d(TAG, "process size: " + products.length + ", index: " + index);
-        if (products.length == 0)
+        if (products.length == 0) {
+            _handler.postProcess();
             return;
+        }
 
         final ProductInformation product = products[index];
 
-        String message = _wizardText + " " +  product.getSimpleName();
+        String message = _wizardText + " " + product.getSimpleName();
         if (index > 0) {
             message = "Wait for previous step to complete. " + message;
         }
@@ -245,8 +247,7 @@ public class ProductInformationWizard {
 
         Drawable icon = product.getIcon();
         if (icon != null) {
-            dialog.setIcon(AppMgmtUtils.scaleImage(_context, icon,
-                    48));
+            dialog.setIcon(AppMgmtUtils.getDialogIcon(_context, icon));
         } else {
             dialog.setIcon(com.atakmap.android.util.ATAKConstants.getIconId());
         }

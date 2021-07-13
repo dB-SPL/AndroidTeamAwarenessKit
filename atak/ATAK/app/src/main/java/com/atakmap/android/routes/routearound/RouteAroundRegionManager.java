@@ -4,6 +4,7 @@ package com.atakmap.android.routes.routearound;
 import com.atakmap.android.maps.MapItem;
 import com.atakmap.android.maps.MapView;
 import com.atakmap.android.maps.Shape;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
 
 import org.json.JSONArray;
@@ -15,8 +16,8 @@ import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileReader;
-import java.io.FileWriter;
 import java.io.IOException;
+import java.io.Reader;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.locks.Lock;
@@ -30,7 +31,7 @@ public class RouteAroundRegionManager {
     private static RouteAroundRegionManager _instance = null;
     // Note: This is not ideal, because there is not a sub-class of
     // something like "ClosedRegion"
-    private ArrayList<Shape> regions = new ArrayList<Shape>();
+    private ArrayList<Shape> regions = new ArrayList<>();
     private static boolean _isLoaded = false;
     boolean routeAroundGeoFences = false;
 
@@ -89,7 +90,7 @@ public class RouteAroundRegionManager {
         Lock lock = new ReentrantLock();
         lock.lock();
         routeAroundGeoFences = state.routeAroundGeoFences;
-        regions = new ArrayList<Shape>();
+        regions = new ArrayList<>();
         for (String uid : state.regionUids) {
             MapItem mapItem = MapView.getMapView().getMapItem(uid);
             if (mapItem != null)
@@ -116,35 +117,38 @@ public class RouteAroundRegionManager {
      */
     public void restoreManagerStateFromFile(File f)
             throws IOException, JSONException {
-        if (!f.exists()) {
+        if (!IOProviderFactory.exists(f)) {
             return;
         }
         // Read a string from the file
-        BufferedReader reader = new BufferedReader(
-                new FileReader(f.getAbsolutePath()));
-        StringBuilder stringBuilder = new StringBuilder();
-        char[] buffer = new char[10];
-        while (reader.read(buffer) != -1) {
-            stringBuilder.append(new String(buffer));
-            buffer = new char[10];
+        try (Reader r = IOProviderFactory
+                .getFileReader(new File(f.getAbsolutePath()));
+                BufferedReader reader = new BufferedReader(r)) {
+            StringBuilder stringBuilder = new StringBuilder();
+            char[] buffer = new char[10];
+            while (reader.read(buffer) != -1) {
+                stringBuilder.append(new String(buffer));
+                buffer = new char[10];
+            }
+            String rawDoc = stringBuilder.toString();
+
+            JSONObject doc = (JSONObject) new JSONTokener(rawDoc).nextValue();
+            JSONArray regionUidsArray = doc.getJSONArray("regionUids");
+            boolean routeAroundGeoFences = doc
+                    .getBoolean("routeAroundGeoFences");
+
+            ArrayList<String> regionUids = new ArrayList<>();
+
+            for (int i = 0; i < regionUidsArray.length(); i++) {
+                String entry = (String) regionUidsArray.get(i);
+                regionUids.add(entry);
+            }
+            RegionManagerState state = new RegionManagerState(
+                    routeAroundGeoFences,
+                    regionUids);
+            restoreManagerFromState(state);
+            _isLoaded = true;
         }
-        reader.close();
-        String rawDoc = stringBuilder.toString();
-
-        JSONObject doc = (JSONObject) new JSONTokener(rawDoc).nextValue();
-        JSONArray regionUidsArray = doc.getJSONArray("regionUids");
-        boolean routeAroundGeoFences = doc.getBoolean("routeAroundGeoFences");
-
-        ArrayList<String> regionUids = new ArrayList<String>();
-
-        for (int i = 0; i < regionUidsArray.length(); i++) {
-            String entry = (String) regionUidsArray.get(i);
-            regionUids.add(entry);
-        }
-        RegionManagerState state = new RegionManagerState(routeAroundGeoFences,
-                regionUids);
-        restoreManagerFromState(state);
-        _isLoaded = true;
     }
 
     /** Saves the manager state by serializing it to a file
@@ -153,9 +157,10 @@ public class RouteAroundRegionManager {
      */
     public void saveManagerStateToFile(final File f)
             throws IOException, JSONException {
-        if (!f.exists()) {
-            if (f.getParentFile() != null && !f.getParentFile().exists()) {
-                if (!f.getParentFile().mkdirs()) {
+        if (!IOProviderFactory.exists(f)) {
+            if (f.getParentFile() != null
+                    && !IOProviderFactory.exists(f.getParentFile())) {
+                if (!IOProviderFactory.mkdirs(f.getParentFile())) {
                     Log.e(TAG,
                             "could not create directory: " + f.getParentFile());
                 }
@@ -168,14 +173,12 @@ public class RouteAroundRegionManager {
         String serializedState = doc.toString();
 
         // Write the serialized state to a string.
-        BufferedWriter out = new BufferedWriter(
-                new FileWriter(f.getAbsolutePath()));
-        try {
+        try (BufferedWriter out = new BufferedWriter(
+                IOProviderFactory
+                        .getFileWriter(new File(f.getAbsolutePath())))) {
             out.write(serializedState);
         } catch (IOException e) {
             Log.e(TAG, e.getMessage());
-        } finally {
-            out.close();
         }
     }
 }

@@ -15,6 +15,7 @@ import android.os.Bundle;
 import android.util.Pair;
 
 import com.atakmap.android.util.AttachmentManager;
+import com.atakmap.annotations.DeprecatedApi;
 import com.atakmap.coremap.conversions.CoordinateFormat;
 import com.atakmap.coremap.conversions.CoordinateFormatUtilities;
 import com.atakmap.coremap.conversions.Span;
@@ -38,7 +39,10 @@ import com.atakmap.coremap.log.Log;
 import com.atakmap.coremap.maps.assets.Icon;
 import com.atakmap.coremap.maps.coords.GeoPoint;
 import com.atakmap.coremap.maps.coords.GeoPointMetaData;
+import com.atakmap.map.layer.feature.Feature.AltitudeMode;
 import com.atakmap.map.opengl.GLMapSurface;
+import com.atakmap.map.opengl.GLMapView;
+import com.atakmap.math.PointD;
 import com.atakmap.opengl.GLText;
 import com.atakmap.spatial.file.export.GPXExportWrapper;
 import com.atakmap.spatial.file.export.KMZFolder;
@@ -126,7 +130,6 @@ public class Marker extends PointMapItem implements Exportable, Capturable {
     private double _heading = Double.NaN, _speed = Double.NaN; // track property
     private final Rect _hitBounds = new Rect(0, 0, 0, 0);
     private final Rect _textBounds = new Rect(0, 0, 0, 0);
-    private boolean touchable = true;
     private int _textColor = Color.WHITE;
     private int _labelTextSize = (MapView.getDefaultTextFormat() == null) ? 14
             : MapView.getDefaultTextFormat().getFontSize();
@@ -314,14 +317,15 @@ public class Marker extends PointMapItem implements Exportable, Capturable {
             MapView view) {
 
         // if the marker is not touchable, bypass the test ortho hit logic and return false
-        if (!touchable)
+        if (!isTouchable())
             return false;
 
         // XXX - not really ideal to reach down into the renderer, but the hit
         //       test should be totally deferred to the renderer
-        final GeoPoint geo = view.getRenderElevationAdjustedPoint(getPoint());
-        PointF p = view.forward(geo);
-        if (Float.isNaN(p.x) || Float.isNaN(p.y))
+        final GeoPoint geo = getRenderElevationAdjustedPoint(view);
+        PointD p = new PointD(0d, 0d, 0d);
+        view.getSceneModel().forward(geo, p);
+        if (Double.isNaN(p.x) || Double.isNaN(p.y) || p.z >= 1d)
             return false;
 
         p.x -= xpos;
@@ -331,8 +335,38 @@ public class Marker extends PointMapItem implements Exportable, Capturable {
                         && _textBounds.contains((int) p.x, (int) p.y));
     }
 
-    public void setTouchable(final boolean touchable) {
-        this.touchable = touchable;
+    // XXX - copied from MapView. Need to perform below terrain adjustments for
+    //       consistency with `GLMarker2`
+    /** @deprecated should be deferred to renderer */
+    @Deprecated
+    private GeoPoint getRenderElevationAdjustedPoint(final MapView view) {
+        GeoPoint point = getPoint();
+        if (point == null)
+            return point;
+
+        final GLMapView glview = view.getGLSurface().getGLMapView();
+
+        double height = getHeight();
+        AltitudeMode altMode = getAltitudeMode();
+
+        // XXX - not really ideal to reach down into the renderer, but the hit
+        //       test should be totally deferred to the renderer
+        double alt = point.getAltitude();
+        double localEl = glview
+                    .getElevation(point.getLatitude(), point.getLongitude());
+        if (!point.isAltitudeValid() || altMode == AltitudeMode.ClampToGround)
+            alt = localEl;
+        else if (altMode == AltitudeMode.Relative)
+            alt += localEl;
+        if (!Double.isNaN(height))
+            alt += height;
+        if(alt < localEl)
+            alt = localEl;
+        return new GeoPoint(
+                point.getLatitude(),
+                point.getLongitude(),
+                (alt + GLMapView.elevationOffset)
+                        * view.getElevationExaggerationFactor());
     }
 
     /**
@@ -405,6 +439,13 @@ public class Marker extends PointMapItem implements Exportable, Capturable {
             updateTextBounds();
             onSummaryChanged();
         }
+    }
+
+    @Override
+    protected String getRemarksKey() {
+        // Another very special exception for CASEVAC markers
+        return getType().equals("b-r-f-h-c") ? "medline_remarks"
+                : super.getRemarksKey();
     }
 
     /**sets the text size to use for the rendering label
@@ -566,6 +607,11 @@ public class Marker extends PointMapItem implements Exportable, Capturable {
         this.setMetaDouble("maxLabelRenderResolution", d);
     }
 
+    /**
+     * Set whether the marker label is displayed on the map
+     *
+     * @param showLabel True to show the label, false to hide it
+     */
     public void setShowLabel(boolean showLabel) {
         if (showLabel) {
             removeMetaData("hideLabel");
@@ -576,15 +622,31 @@ public class Marker extends PointMapItem implements Exportable, Capturable {
         }
     }
 
-    public int getIconVisibility() {
-        return _iconVisibility;
-    }
-
+    /**
+     * Set the visibility state of the marker icon shown on the map
+     *
+     * States include:
+     * {@link Marker#ICON_VISIBLE} - Icon is visible
+     * {@link Marker#ICON_INVISIBLE} - Icon is invisible but takes up space
+     * {@link Marker#ICON_GONE} - Icon is invisible and does not take up space
+     *
+     * @param visibility Visibility state
+     */
     public void setIconVisibility(int visibility) {
         if (_iconVisibility != visibility) {
             _iconVisibility = visibility;
             onIconChanged();
         }
+    }
+
+    /**
+     * Get the icon visibility state
+     * See {@link #setIconVisibility(int)} for more info
+     *
+     * @return Icon visibility state (ICON_VISIBLE, ICON_INVISIBLE, or ICON_GONE)
+     */
+    public int getIconVisibility() {
+        return _iconVisibility;
     }
 
     public int getStyle() {
@@ -930,7 +992,7 @@ public class Marker extends PointMapItem implements Exportable, Capturable {
     }
 
     @Override
-    public Object toObjectOf(Class target, ExportFilters filters)
+    public Object toObjectOf(Class<?> target, ExportFilters filters)
             throws FormatNotSupportedException {
         if (filters != null && filters.filter(this))
             return null;
@@ -955,7 +1017,7 @@ public class Marker extends PointMapItem implements Exportable, Capturable {
     }
 
     @Override
-    public boolean isSupported(Class target) {
+    public boolean isSupported(Class<?> target) {
         return Folder.class.equals(target) ||
                 KMZFolder.class.equals(target) ||
                 MissionPackageExportWrapper.class.equals(target) ||
@@ -1020,7 +1082,7 @@ public class Marker extends PointMapItem implements Exportable, Capturable {
 
             Point centerPoint = new Point();
             centerPoint.setCoordinates(coord);
-            centerPoint.setAltitudeMode("absolute");
+            centerPoint.setAltitudeMode(KMLUtil.convertAltitudeMode(getAltitudeMode()));
 
             List<Geometry> pointGeomtries = new ArrayList<>();
             pointGeomtries.add(centerPoint);
@@ -1131,7 +1193,7 @@ public class Marker extends PointMapItem implements Exportable, Capturable {
 
             Point centerPoint = new Point();
             centerPoint.setCoordinates(coord);
-            centerPoint.setAltitudeMode("absolute");
+            centerPoint.setAltitudeMode(KMLUtil.convertAltitudeMode(getAltitudeMode()));
 
             List<Geometry> geometryList = new ArrayList<>();
             geometryList.add(centerPoint);
@@ -1336,6 +1398,8 @@ public class Marker extends PointMapItem implements Exportable, Capturable {
         return new GPXExportWrapper(wp);
     }
 
+    @Deprecated
+    @DeprecatedApi(since = "4.1", forRemoval = true, removeAt = "4.4")
     public static Marker toMarker(String json_string) {
         try {
             org.json.JSONObject json = new org.json.JSONObject(json_string);
@@ -1364,6 +1428,8 @@ public class Marker extends PointMapItem implements Exportable, Capturable {
         }
     }
 
+    @Deprecated
+    @DeprecatedApi(since = "4.1", forRemoval = true, removeAt = "4.4")
     public String toJSON() {
         final Map<String, Object> bundle = new HashMap<>();
         setMetaString("geopoint", getPoint().toStringRepresentation());

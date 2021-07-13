@@ -1,7 +1,6 @@
 package com.atakmap.map.layer.feature;
 
 import com.atakmap.coremap.log.Log;
-import com.atakmap.interop.InteropCleaner;
 import com.atakmap.interop.NativePeerManager;
 import com.atakmap.interop.Pointer;
 import com.atakmap.lang.ref.Cleaner;
@@ -73,7 +72,7 @@ public class NativeFeatureDataSource implements FeatureDataSource, Disposable {
             cleaner.clean();
     }
 
-    final static class NativeContent implements FeatureDataSource.Content {
+    public final static class NativeContent implements FeatureDataSource.Content {
         final static String TAG = "NativeContent";
 
         final static NativePeerManager.Cleaner CLEANER = new NativePeerManager.Cleaner() {
@@ -87,7 +86,7 @@ public class NativeFeatureDataSource implements FeatureDataSource, Disposable {
         Pointer pointer;
         Cleaner cleaner;
 
-        NativeContent(Pointer pointer) {
+        public NativeContent(Pointer pointer) {
             cleaner = NativePeerManager.register(this, pointer, rwlock, null, CLEANER);
 
             this.pointer = pointer;

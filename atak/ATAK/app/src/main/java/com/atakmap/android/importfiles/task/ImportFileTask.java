@@ -12,12 +12,15 @@ import android.provider.MediaStore;
 import android.content.DialogInterface;
 import android.widget.TextView;
 
+import com.atakmap.android.gui.TileButtonDialog;
 import com.atakmap.android.image.ImageGalleryReceiver;
 import com.atakmap.android.importfiles.sort.ImportResolver;
 import com.atakmap.android.importfiles.sort.ImportResolver.SortFlags;
+import com.atakmap.android.maps.MapView;
 import com.atakmap.app.R;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
-import com.atakmap.coremap.filesystem.SecureDelete;
+import com.atakmap.coremap.io.IOProvider;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.filesystem.HashingUtils;
 
@@ -89,7 +92,7 @@ public class ImportFileTask extends
 
     public static final int FlagZoomToFile = 1 << 8;
 
-    protected abstract class ProgressUpdate {
+    protected static abstract class ProgressUpdate {
         public abstract void callOnUIThread();
     }
 
@@ -250,7 +253,7 @@ public class ImportFileTask extends
         if (file == null)
             return new Result(String.format(_context.getString(
                     R.string.importmgr_import_file_not_found), filePath));
-        if (!file.exists()) {
+        if (!IOProviderFactory.exists(file)) {
             Log.w(TAG, "Import file not found: " + file.getAbsolutePath());
             return new Result(
                     String.format(_context.getString(
@@ -258,7 +261,7 @@ public class ImportFileTask extends
                             file.getName()));
         }
 
-        boolean isDirectory = file.isDirectory();
+        boolean isDirectory = IOProviderFactory.isDirectory(file);
 
         final List<ImportResolver> matchingSorters = new ArrayList<>();
         for (ImportResolver sorter : sorters) {
@@ -350,7 +353,7 @@ public class ImportFileTask extends
                 sameFile = false;
             }
 
-            if (destPath.exists() && !sameFile) {
+            if (IOProviderFactory.exists(destPath) && !sameFile) {
                 newMD5 = HashingUtils.md5sum(file);
                 // see if we should compare MD5 since file will be overwritten
                 if (checkFlag(FlagSkipDeleteOnMD5Match)) {
@@ -361,17 +364,21 @@ public class ImportFileTask extends
                                         + ", File has not been updated, discarding: "
                                         + file.getAbsolutePath()
                                         + " based on MD5: " + newMD5);
-                        if (!SecureDelete.delete(file))
+                        if (!IOProviderFactory.delete(file,
+                                IOProvider.SECURE_DELETE))
                             Log.w(TAG,
                                     sorter.toString()
                                             + ", Failed to delete un-updated file: "
                                             + file.getAbsolutePath());
                         // sorter matched and we decided not to sort/move, lets return
                         // use extension (except the period) as type
-                        String type = "";
+                        String type;
                         if (!FileSystemUtils.isEmpty(sorter.getExt()))
                             type = sorter.getExt().substring(1)
                                     .toUpperCase(LocaleUtil.getCurrent());
+                        else
+                            type = FileSystemUtils.getExtension(destPath,
+                                    true, false);
                         return new Result(destPath, type, newMD5, sorter);
                     } else {
                         Log.d(TAG,
@@ -450,10 +457,13 @@ public class ImportFileTask extends
                                 + file.getAbsolutePath() + " to "
                                 + destPath.getAbsolutePath());
                 // use extension (except the period) as type
-                String type = "";
+                String type;
                 if (!FileSystemUtils.isEmpty(sorter.getExt()))
                     type = sorter.getExt().substring(1)
                             .toUpperCase(LocaleUtil.getCurrent());
+                else
+                    type = FileSystemUtils.getExtension(destPath,
+                            true, false);
                 return new Result(destPath, type, newMD5, sorter);
             } else
                 Log.w(TAG,
@@ -557,7 +567,7 @@ public class ImportFileTask extends
         // duplicate is found, remove it from candidates so the order
         // of the list doesn't get screwed up.
 
-        List<String> names = new ArrayList<>();
+        Set<String> names = new HashSet<>();
         for (Iterator<ImportResolver> it = candidates.iterator(); it
                 .hasNext();) {
             ImportResolver r = it.next();
@@ -568,7 +578,9 @@ public class ImportFileTask extends
             }
         }
 
-        if (names.size() <= 1) {
+        MapView mv = MapView.getMapView();
+
+        if (names.size() <= 1 || mv == null) {
             // Through deduplication, we've
             // gotten down to only a single
             // option and there isn't any reason to 
@@ -585,42 +597,37 @@ public class ImportFileTask extends
             return;
         }
 
-        new AlertDialog.Builder(_context)
-                .setTitle(
-                        String.format(
-                                _context.getString(
-                                        R.string.importmgr_select_desired_import_method),
-                                file.getName()))
-                .setItems(names.toArray(new String[0]),
-                        new OnClickListener() {
-                            @Override
-                            public void onClick(DialogInterface dialog,
-                                    int which) {
-                                Log.d("ImportFilesTest", "Clicked item: "
-                                        + which);
+        TileButtonDialog d = new TileButtonDialog(mv);
+        for (ImportResolver res : candidates)
+            d.addButton(res.getIcon(), res.getDisplayableName());
+        d.setTitle(R.string.importmgr_select_desired_import_method,
+                file.getName());
+        d.setOnClickListener(new OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+                Log.d("ImportFilesTest", "Clicked item: " + which);
 
-                                if (which != 0) {
-                                    // If the selected resolver is not the first item
-                                    // in the list, move it to the beginning so it will
-                                    // be attempted first.
-                                    ImportResolver selected = candidates
-                                            .get(which);
-                                    candidates.remove(selected);
-                                    candidates.add(0, selected);
-                                }
+                if (which != 0) {
+                    // If the selected resolver is not the first item
+                    // in the list, move it to the beginning so it will
+                    // be attempted first.
+                    ImportResolver selected = candidates
+                            .get(which);
+                    candidates.remove(selected);
+                    candidates.add(0, selected);
+                }
 
-                                _semaphore.release();
-                            }
-                        })
-                .setOnCancelListener(new OnCancelListener() {
-                    @Override
-                    public void onCancel(DialogInterface dialog) {
-                        isCanceled.canceled = true;
-                        _semaphore.release();
-                    }
-
-                })
-                .show();
+                _semaphore.release();
+            }
+        });
+        d.setOnCancelListener(new OnCancelListener() {
+            @Override
+            public void onCancel(DialogInterface dialog) {
+                isCanceled.canceled = true;
+                _semaphore.release();
+            }
+        });
+        d.show(true);
     }
 
     private void promptForOverwrite(File destFile,

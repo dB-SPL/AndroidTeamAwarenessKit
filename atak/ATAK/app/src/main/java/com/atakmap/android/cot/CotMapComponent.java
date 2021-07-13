@@ -56,6 +56,7 @@ import com.atakmap.android.util.ATAKConstants;
 import com.atakmap.android.util.ATAKUtilities;
 import com.atakmap.android.util.NotificationIdRecycler;
 import com.atakmap.android.util.NotificationUtil;
+import com.atakmap.annotations.DeprecatedApi;
 import com.atakmap.app.R;
 import com.atakmap.comms.CommsMapComponent;
 import com.atakmap.comms.CommsMapComponent.ImportResult;
@@ -95,6 +96,7 @@ public class CotMapComponent extends AbstractMapComponent implements
 
     public static final String TAG = "CotMapComponent";
     public static final String PREF_API_SECURE_PORT = "apiSecureServerPort";
+    public static final String PREF_API_UNSECURE_PORT = "apiUnsecureServerPort";
     private final AtomicInteger batteryPct = new AtomicInteger(0);
 
     private Timer _checkStaleTimer = null;
@@ -125,6 +127,8 @@ public class CotMapComponent extends AbstractMapComponent implements
      * Only in place so that SiteExploitation can compile.
      * @deprecated
      */
+    @Deprecated
+    @DeprecatedApi(since = "4.1", forRemoval = true, removeAt = "4.4")
     public ContactListAdapter getContactListAdapter() {
         return contactAdapter;
     }
@@ -436,7 +440,7 @@ public class CotMapComponent extends AbstractMapComponent implements
                 ATAKConstants.getBrand());
         _takvDetail.setAttribute(TakVersionDetailHandler.ATTR_VERSION,
                 TakVersionDetailHandler.getVersion() + "-"
-                        + _context.getString(R.string.app_brand));
+                        + ATAKConstants.getVersionBrand());
         _takvDetail.setAttribute(TakVersionDetailHandler.ATTR_DEVICE,
                 TakVersionDetailHandler.getDeviceDescription());
         _takvDetail.setAttribute(TakVersionDetailHandler.ATTR_OS,
@@ -640,10 +644,10 @@ public class CotMapComponent extends AbstractMapComponent implements
      *
      * @param name is the name of the detail to be handled.
      * @param handler the detailhandler associated with parsing the detail.
-     * @deprecated
-     * Use {@link CotDetailManager#registerHandler(CotDetailHandler)} instead
+     * @deprecated Use {@link CotDetailManager#registerHandler(CotDetailHandler)}
      */
     @Deprecated
+    @DeprecatedApi(since = "4.1", forRemoval = true, removeAt = "4.4")
     public void setMarkerDetailHandler(final String name,
             final MarkerDetailHandler handler) {
         _adapter.setMarkerDetailHandler(name, handler);
@@ -693,13 +697,13 @@ public class CotMapComponent extends AbstractMapComponent implements
         @Override
         public void onReceive(Context context, Intent intent) {
 
-            try { 
-                
+            try {
+
                 int level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
                 int scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, -1);
 
                 batteryPct.set((int) (level * 100 / (double) scale));
-            } catch (Exception ignore) { 
+            } catch (Exception ignore) {
                 Log.e(TAG, "battery intent does not contain any data");
             }
         }
@@ -1066,7 +1070,7 @@ public class CotMapComponent extends AbstractMapComponent implements
 
             //check for changes to server API port
             if (key.equals(PREF_API_SECURE_PORT)
-                    || key.equals("apiUnsecureServerPort")) {
+                    || key.equals(PREF_API_UNSECURE_PORT)) {
                 _setServerPorts(cotPrefs);
             }
         }
@@ -1075,7 +1079,7 @@ public class CotMapComponent extends AbstractMapComponent implements
     private void _setServerPorts(SharedPreferences prefs) {
         int port = 8080;
         try {
-            port = Integer.parseInt(prefs.getString("apiUnsecureServerPort",
+            port = Integer.parseInt(prefs.getString(PREF_API_UNSECURE_PORT,
                     "8080"));
             if (port < 1)
                 port = 8080;
@@ -1084,6 +1088,7 @@ public class CotMapComponent extends AbstractMapComponent implements
             port = 8080;
         }
         SslNetCotPort.setUnsecureServerApiPort(port);
+        CommsMapComponent.getInstance().setMissionPackageHttpPort(port);
 
         port = 8443;
         try {
@@ -1248,6 +1253,8 @@ public class CotMapComponent extends AbstractMapComponent implements
         return _serverListener.getContact(connectString, uid);
     }
 
+    @Deprecated
+    @DeprecatedApi(since = "4.2", forRemoval = true, removeAt = "4.5")
     public String getServerCallsign(String uid) {
         return getServerCallsign(null, uid);
     }

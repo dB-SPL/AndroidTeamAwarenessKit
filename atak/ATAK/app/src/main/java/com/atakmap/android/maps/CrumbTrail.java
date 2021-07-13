@@ -211,6 +211,13 @@ public class CrumbTrail extends MapItem implements FOVFilter.Filterable,
                 this.drawLineToSurface = prefs.getBoolean(
                         "track_line_to_surface",
                         false);
+                // Update all the crumbs in the trail so they're drawn correctly when the
+                // track_line_to_surface setting is modified
+                Crumb crumb = last;
+                while (crumb != null) {
+                    crumb.setDrawLineToSurface(drawLineToSurface);
+                    crumb = crumb.prev;
+                }
                 break;
             case "max_num_bread_tracks":
                 maxCrumbs = prefs.getInt("max_num_bread_tracks",
@@ -279,12 +286,6 @@ public class CrumbTrail extends MapItem implements FOVFilter.Filterable,
             }
             if (rab[0] < threshM)
                 return;
-        } else if (theTarget.getType().equals("self") && !newP.isAltitudeValid()) {
-            // Bandaid fix for ATAK-8373
-            // First GPS point has an altitude of zero for some reason
-            // Now a few releases later the altitude is NaN (ATAK-12958)
-            Log.w(TAG, "Ignoring invalid altitude on first GPS point: " + newP);
-            return;
         }
 
         Crumb crumb;
@@ -482,13 +483,14 @@ public class CrumbTrail extends MapItem implements FOVFilter.Filterable,
     }
 
     @Override
-    public void setVisible(boolean visible) {
-        super.setVisible(visible);
+    protected void onVisibleChanged() {
+        boolean visible = getVisible();
         Crumb c = last;
         while (c != null) {
             c.setVisible(visible);
             c = c.prev;
         }
+        super.onVisibleChanged();
     }
 
     /**

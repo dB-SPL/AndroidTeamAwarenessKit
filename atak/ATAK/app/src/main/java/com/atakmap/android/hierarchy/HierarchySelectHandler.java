@@ -16,7 +16,8 @@ public class HierarchySelectHandler {
         }
     }
 
-    public static void register(Class clazz, HierarchyListUserSelect handler) {
+    public static void register(Class<?> clazz,
+            HierarchyListUserSelect handler) {
         register(clazz.getName(), handler);
     }
 
@@ -26,7 +27,7 @@ public class HierarchySelectHandler {
         }
     }
 
-    public static void unregister(Class clazz) {
+    public static void unregister(Class<?> clazz) {
         unregister(clazz.getName());
     }
 

@@ -3,10 +3,11 @@ package com.atakmap.app;
 
 import com.atakmap.android.location.LocationMapComponent;
 
-import android.os.Build;
 import android.os.Bundle;
 import android.support.util.Base64;
 
+import com.atakmap.coremap.io.IOProvider;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.database.Databases;
 import com.atakmap.net.AtakAuthenticationCredentials;
@@ -29,7 +30,6 @@ import android.app.Activity;
 import com.atakmap.database.CursorIface;
 import com.atakmap.database.DatabaseIface;
 
-import com.atakmap.coremap.filesystem.SecureDelete;
 import com.atakmap.android.ipc.AtakBroadcast;
 import android.content.Intent;
 
@@ -65,21 +65,26 @@ public class ATAKDatabaseHelper {
                         AtakAuthenticationCredentials.TYPE_APK_DOWNLOADER,
                         "com.atakmap.app.v2");
 
+        if (credentials == null)
+            credentials = new AtakAuthenticationCredentials();
+
+
+
         // DB doesn't exist and there is no key; create original key
-        if (!testDb.exists() && (credentials == null
+        if (!IOProviderFactory.exists(testDb) && (credentials == null
                 || FileSystemUtils.isEmpty(credentials.username))) {
 
             changeKeyImpl(context, true, ksl);
             return;
         }
         // DB doesn't exist but we have key; create
-        if (!testDb.exists()) {
+                    if (!IOProviderFactory.exists(testDb)) {
             upgrade(context, ksl);
             return;
         }
 
         // DB exists; check key
-        if (!checkKeyAgainstDatabase(testDb)) {
+        if (IOProviderFactory.isDefault() && !checkKeyAgainstDatabase(testDb)) {
             AlertDialog.Builder ad = new AlertDialog.Builder(context);
             ad.setCancelable(false);
 
@@ -146,12 +151,9 @@ public class ATAKDatabaseHelper {
     }
 
     public static void removeDatabases() {
-        SecureDelete
-                .delete(FileSystemUtils.getItem("Databases/ChatDb2.sqlite"));
-        SecureDelete.delete(
-                FileSystemUtils.getItem("Databases/statesaver2.sqlite"));
-        SecureDelete
-                .delete(FileSystemUtils.getItem("Databases/crumbs2.sqlite"));
+        IOProviderFactory.delete(FileSystemUtils.getItem("Databases/ChatDb2.sqlite"), IOProvider.SECURE_DELETE);
+        IOProviderFactory.delete(FileSystemUtils.getItem("Databases/statesaver2.sqlite"), IOProvider.SECURE_DELETE);
+        IOProviderFactory.delete(FileSystemUtils.getItem("Databases/crumbs2.sqlite"), IOProvider.SECURE_DELETE);
     }
 
     private static void promptForRemoval(final Context context,
@@ -229,7 +231,7 @@ public class ATAKDatabaseHelper {
 
         for (String db : dbs) {
             File ctFile = FileSystemUtils.getItem(db);
-            if (!ctFile.exists())
+            if (!IOProviderFactory.exists(ctFile))
                 return REKEY_FAILED;
         }
 
@@ -398,7 +400,7 @@ public class ATAKDatabaseHelper {
      * @param ctFile the file name for the encrypted database
      */
     public static void encryptDb(final File ptFile, final File ctFile) {
-        if (ptFile.exists() && !ctFile.exists()) {
+        if (IOProviderFactory.exists(ptFile) && !IOProviderFactory.exists(ctFile)) {
 
             DatabaseIface ptDb = Databases.openOrCreateDatabase(
                     ptFile.getAbsolutePath());
@@ -437,20 +439,19 @@ public class ATAKDatabaseHelper {
             ptDb.execute("DETACH DATABASE encrypted", null);
             ptDb.close();
 
-            SecureDelete.delete(ptFile);
+            IOProviderFactory.delete(ptFile, IOProvider.SECURE_DELETE);
 
         }
 
     }
 
     private static boolean checkKeyAgainstDatabase(final File dbFile) {
-        if (dbFile.exists()) {
+        if (IOProviderFactory.exists(dbFile)) {
 
             final String s = "SQLite format 3";
             final byte[] b = new byte[s.length()];
-            FileInputStream fis = null;
-            try {
-                fis = new FileInputStream(dbFile);
+            try (FileInputStream fis = IOProviderFactory
+                    .getInputStream(dbFile)) {
                 final int bytesRead = fis.read(b);
                 if (bytesRead == s.length() && s
                         .equals(new String(b, FileSystemUtils.UTF8_CHARSET))) {
@@ -458,12 +459,6 @@ public class ATAKDatabaseHelper {
                 }
             } catch (Exception ignored) {
                 return false;
-            } finally {
-                try {
-                    if (fis != null)
-                        fis.close();
-                } catch (IOException ignored) {
-                }
             }
 
             DatabaseIface ctDb = Databases.openOrCreateDatabase(

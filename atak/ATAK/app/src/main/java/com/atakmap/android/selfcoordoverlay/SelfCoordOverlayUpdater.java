@@ -1,31 +1,10 @@
 
 package com.atakmap.android.selfcoordoverlay;
 
-import android.content.BroadcastReceiver;
-import android.content.Context;
-
-import com.atakmap.android.ipc.AtakBroadcast.DocumentedIntentFilter;
-import com.atakmap.android.util.SpeedFormatter;
-
-import android.content.SharedPreferences;
-import android.content.SharedPreferences.OnSharedPreferenceChangeListener;
-import android.graphics.Color;
-import android.graphics.Typeface;
-import android.os.Bundle;
-import android.os.SystemClock;
-import android.preference.PreferenceManager;
-import android.view.MotionEvent;
-
-import com.atakmap.android.toolbar.ToolManagerBroadcastReceiver;
-import com.atakmap.android.toolbar.tools.SpecifySelfLocationTool;
-import com.atakmap.android.widgets.LinearLayoutWidget;
-import com.atakmap.android.widgets.RootLayoutWidget;
-import com.atakmap.app.SettingsActivity;
-import com.atakmap.app.preferences.NetworkConnectionPreferenceFragment;
-import com.atakmap.comms.ReportingRate;
-import android.content.Intent;
+import java.text.DecimalFormat;
 
 import com.atakmap.android.ipc.AtakBroadcast;
+import com.atakmap.android.ipc.AtakBroadcast.DocumentedIntentFilter;
 import com.atakmap.android.location.LocationMapComponent;
 import com.atakmap.android.maps.MapEvent;
 import com.atakmap.android.maps.MapEventDispatcher;
@@ -36,32 +15,49 @@ import com.atakmap.android.maps.Marker;
 import com.atakmap.android.maps.PointMapItem;
 import com.atakmap.android.maps.PointMapItem.OnPointChangedListener;
 import com.atakmap.android.menu.MapMenuReceiver;
+import com.atakmap.android.toolbar.ToolManagerBroadcastReceiver;
+import com.atakmap.android.toolbar.tools.SpecifySelfLocationTool;
+import com.atakmap.android.util.ATAKConstants;
 import com.atakmap.android.util.ATAKUtilities;
 import com.atakmap.android.util.AltitudeUtilities;
 import com.atakmap.android.util.NotificationUtil;
+import com.atakmap.android.util.SpeedFormatter;
+import com.atakmap.android.widgets.LinearLayoutWidget;
 import com.atakmap.android.widgets.MapWidget;
 import com.atakmap.android.widgets.MapWidget.OnLongPressListener;
 import com.atakmap.android.widgets.MarkerIconWidget;
+import com.atakmap.android.widgets.RootLayoutWidget;
 import com.atakmap.android.widgets.TextWidget;
 import com.atakmap.app.R;
+import com.atakmap.app.SettingsActivity;
+import com.atakmap.app.preferences.NetworkConnectionPreferenceFragment;
 import com.atakmap.comms.CotStreamListener;
+import com.atakmap.comms.ReportingRate;
 import com.atakmap.comms.app.CotPortListActivity;
 import com.atakmap.coremap.conversions.Angle;
 import com.atakmap.coremap.conversions.AngleUtilities;
 import com.atakmap.coremap.conversions.CoordinateFormat;
 import com.atakmap.coremap.conversions.CoordinateFormatUtilities;
+import com.atakmap.coremap.locale.LocaleUtil;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.coremap.maps.assets.Icon;
-
 import com.atakmap.coremap.maps.coords.Ellipsoid;
 import com.atakmap.coremap.maps.coords.GeoPoint;
 import com.atakmap.coremap.maps.coords.MGRSPoint;
 import com.atakmap.coremap.maps.coords.NorthReference;
 import com.atakmap.util.Disposable;
 
-import java.text.DecimalFormat;
-
-import com.atakmap.coremap.locale.LocaleUtil;
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.Intent;
+import android.content.SharedPreferences;
+import android.content.SharedPreferences.OnSharedPreferenceChangeListener;
+import android.graphics.Color;
+import android.graphics.Typeface;
+import android.os.Bundle;
+import android.os.SystemClock;
+import android.preference.PreferenceManager;
+import android.view.MotionEvent;
 
 public class SelfCoordOverlayUpdater extends CotStreamListener implements
         MapEventDispatcher.MapEventDispatchListener,
@@ -70,9 +66,9 @@ public class SelfCoordOverlayUpdater extends CotStreamListener implements
 
     private static final String TAG = "SelfCoordOverlayUpdater";
     private final MapView _mapView;
-    private static final DecimalFormat _noDecimalFormat = LocaleUtil
+    protected static final DecimalFormat _noDecimalFormat = LocaleUtil
             .getDecimalFormat("0");
-    private final TextWidget _text, _noGpsMessage;
+    protected TextWidget _text, _noGpsMessage;
     private Marker _self;
     private String _toggle;
     private boolean _enlarge;
@@ -80,24 +76,24 @@ public class SelfCoordOverlayUpdater extends CotStreamListener implements
     private boolean _show;
     private boolean _noGps = true;
 
-    private Updater calc;
+    protected Updater calc = null;
 
     private final static int ICON_WIDTH = 32;
     private final static int ICON_HEIGHT = 32;
 
-    private static final int NOTIFICATION_ID = 31576;
+    protected static final int NOTIFICATION_ID = 31576;
 
     /**
      * Display status of TAK server connection
      */
-    private final MarkerIconWidget _connectedButtonWidget;
-    private int _connIcon = 0;
+    protected final MarkerIconWidget _connectedButtonWidget;
+    protected int _connIcon = 0;
 
-    private CoordinateFormat _coordMode;
+    protected CoordinateFormat _coordMode;
     private BroadcastReceiver prirec;
 
-    private final SharedPreferences _prefs;
-    private int _northReference;
+    protected final SharedPreferences _prefs;
+    protected int _northReference;
 
     // long press
     private boolean _isEnlarged = false;
@@ -107,18 +103,18 @@ public class SelfCoordOverlayUpdater extends CotStreamListener implements
     /**
      * Track if we're currently connected
      */
-    private boolean _bConnected;
+    protected boolean _bConnected;
 
     /**
      * We display if at least one TAK Server connection exists on local device
      */
-    private boolean _bAtLeastOneConnection;
+    protected boolean _bAtLeastOneConnection;
 
-    private boolean _streamChanged = false;
+    protected boolean _streamChanged = false;
 
     private BroadcastReceiver selflocrec;
 
-    private SpeedFormatter speedFormatter;
+    protected SpeedFormatter speedFormatter;
 
     @Override
     public void onMapEvent(MapEvent event) {
@@ -166,6 +162,7 @@ public class SelfCoordOverlayUpdater extends CotStreamListener implements
         super(mapView.getContext(), TAG, null);
 
         _mapView = mapView;
+        calc = new Updater();
 
         speedFormatter = SpeedFormatter.getInstance();
 
@@ -242,8 +239,6 @@ public class SelfCoordOverlayUpdater extends CotStreamListener implements
                         updateTextVisibility();
                     }
                 }, selfLocationSpecifiedFilter);
-
-        calc = new Updater();
 
         _instance = this;
     }
@@ -331,7 +326,7 @@ public class SelfCoordOverlayUpdater extends CotStreamListener implements
             return _noGpsMessage;
     }
 
-    private class Updater implements Runnable, Disposable {
+    protected class Updater implements Runnable, Disposable {
         boolean disposed;
         int state;
         final Thread thread;
@@ -399,7 +394,7 @@ public class SelfCoordOverlayUpdater extends CotStreamListener implements
         private GeoPoint cachedPoint;
         private double cachedAltitude;
 
-        private void updateText(Marker item) {
+        protected void updateText(Marker item) {
             // Get the effective instead of desired prefix, so that this overlay also falls back to
             // other location providers
             String prefix = _mapView.getMapData().getString(
@@ -542,9 +537,7 @@ public class SelfCoordOverlayUpdater extends CotStreamListener implements
                 locationStr = "";
 
             final float locationWidth = _format.measureTextWidth(locationStr);
-            final float maxWidth = (callsignWidth > locationWidth)
-                    ? callsignWidth
-                    : locationWidth;
+            final float maxWidth = Math.max(callsignWidth, locationWidth);
 
             final float spaceWidth = _format.measureTextWidth(" ");
 
@@ -660,28 +653,45 @@ public class SelfCoordOverlayUpdater extends CotStreamListener implements
 
         // User tapped self coordinate text - cycle coordinate or pan to self
         else if (widget == _text) {
-            if (_toggle.equals("cyclecoordinate")) {
-                toggleCoorDisplay();
-                calc.change();
-            } else if (_toggle.equals("panto") && _self.getGroup() != null) {
-                // Check if the radial is opened on another map item
-                MapItem mi = MapMenuReceiver.getCurrentItem();
-                if (mi != null && !mi.getUID().equals(_self.getUID())) {
-                    // Hide radial, coordinate info, and un-focus
-                    AtakBroadcast.getInstance().sendBroadcast(new Intent(
-                            MapMenuReceiver.HIDE_MENU));
-                    AtakBroadcast.getInstance().sendBroadcast(new Intent(
-                            "com.atakmap.android.maps.HIDE_DETAILS"));
-                    AtakBroadcast.getInstance().sendBroadcast(
-                            new Intent("com.atakmap.android.maps.UNFOCUS"));
-                }
-                _mapView.getMapController().panTo(_self.getPoint(), true);
+            switch (_toggle) {
+                case "cyclecoordinate":
+                    toggleCoorDisplay();
+                    calc.change();
+                    break;
+                case "panto":
+                    if (_self != null && _self.getGroup() != null) {
+                        // Check if the radial is opened on another map item
+                        final MapItem mi = MapMenuReceiver.getCurrentItem();
+                        if (mi != null && !mi.getUID().equals(_self.getUID())) {
+                            // Hide radial, coordinate info, and un-focus
+                            AtakBroadcast.getInstance()
+                                    .sendBroadcast(new Intent(
+                                            MapMenuReceiver.HIDE_MENU));
+                            AtakBroadcast.getInstance()
+                                    .sendBroadcast(new Intent(
+                                            "com.atakmap.android.maps.HIDE_DETAILS"));
+                            AtakBroadcast.getInstance().sendBroadcast(
+                                    new Intent(
+                                            "com.atakmap.android.maps.UNFOCUS"));
+                        }
+                        // Pan to the self marker without triggering the receiver used
+                        // to reset self lock-on
+                        _mapView.getMapController().panTo(_self.getPoint(),
+                                true,
+                                false);
+                    }
+                    break;
             }
         }
 
         // User tapped network icon - bring up settings
         else if (widget == _connectedButtonWidget) {
-            SettingsActivity.start(NetworkConnectionPreferenceFragment.class);
+            if (connectedButtonWidgetCallback != null) {
+                connectedButtonWidgetCallback.onConnectedButtonWidgetClick();
+            } else {
+                SettingsActivity
+                        .start(NetworkConnectionPreferenceFragment.class);
+            }
         }
     }
 
@@ -694,17 +704,17 @@ public class SelfCoordOverlayUpdater extends CotStreamListener implements
         return false;
     }
 
-    private void updateTextVisibility() {
+    protected void updateTextVisibility() {
         _noGpsMessage.setVisible(_noGps && _visible && _show);
         _text.setVisible(!_noGps && _visible && _show);
     }
 
-    private synchronized int getConnectedDrawable() {
-        return _bConnected ? R.drawable.ic_server_success
-                : R.drawable.ic_server_error;
+    protected synchronized int getConnectedDrawable() {
+        return _bConnected ? ATAKConstants.getServerConnection(true)
+                : ATAKConstants.getServerConnection(false);
     }
 
-    private synchronized NotificationUtil.NotificationColor getConnectedColor() {
+    protected synchronized NotificationUtil.NotificationColor getConnectedColor() {
         return _bConnected ? NotificationUtil.GREEN
                 : NotificationUtil.RED;
     }
@@ -753,7 +763,7 @@ public class SelfCoordOverlayUpdater extends CotStreamListener implements
         _text.setTextFormat(_format);
     }
 
-    private final OnLongPressListener _textLongPressListener = new OnLongPressListener() {
+    protected final OnLongPressListener _textLongPressListener = new OnLongPressListener() {
 
         @Override
         public void onMapWidgetLongPress(MapWidget widget) {
@@ -798,5 +808,21 @@ public class SelfCoordOverlayUpdater extends CotStreamListener implements
         _prefs.edit()
                 .putString("coord_display_pref", _coordMode.getDisplayName())
                 .apply();
+    }
+
+    public interface ConnectedButtonWidgetCallback {
+        void onConnectedButtonWidgetClick();
+    }
+
+    private static ConnectedButtonWidgetCallback connectedButtonWidgetCallback = null;
+
+    /**
+     * Sets a callback that will fire when the connectedButtonWidget is clicked. Allows callers
+     * to implement custom onMapWidgetClick behavior for the connectedButtonWidget.
+     * @param callback the callback to use
+     */
+    public static void setConnectedButtonWidgetCallback(
+            ConnectedButtonWidgetCallback callback) {
+        connectedButtonWidgetCallback = callback;
     }
 }

@@ -6,6 +6,7 @@ import android.content.res.AssetManager;
 
 import com.atakmap.app.R;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
 
 import java.io.File;
@@ -117,8 +118,8 @@ public class BundledProductProvider extends BaseProductProvider {
 
     protected ProductRepository load(boolean bReload) {
         File dir = FileSystemUtils.getItem("support/apks");
-        if (!dir.exists()) {
-            if (!dir.mkdirs()) {
+        if (!IOProviderFactory.exists(dir)) {
+            if (!IOProviderFactory.mkdirs(dir)) {
                 Log.d(TAG, "unable to create support directory: " + dir);
             }
         }
@@ -144,7 +145,7 @@ public class BundledProductProvider extends BaseProductProvider {
     }
 
     /**
-     * Pull specified APK from ATAK APK resources, and place on filesystem
+     * Pull specified APK from ATAK APK resources, and place on filesystem outside of the IO abstraction
      * @param product the product information entry that describes a plugin or tool bundled with
      *                the software.
      * @return the file for the APK

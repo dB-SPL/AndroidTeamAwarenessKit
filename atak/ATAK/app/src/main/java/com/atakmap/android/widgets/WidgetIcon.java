@@ -14,7 +14,7 @@ import org.w3c.dom.NamedNodeMap;
 import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
 import org.xml.sax.SAXException;
-import javax.xml.XMLConstants;
+
 import java.io.IOException;
 import java.io.InputStream;
 import com.atakmap.coremap.locale.LocaleUtil;
@@ -123,11 +123,9 @@ public class WidgetIcon implements Cloneable {
         Uri iconUri = Uri.parse(iconUriString);
         String iconPath = iconUri.getPath();
         if (iconPath.toLowerCase(LocaleUtil.getCurrent()).endsWith(".xml")) {
-            InputStream in = config.getMapAssets().getInputStream(iconUri);
-            try {
+            try (InputStream in = config.getMapAssets()
+                    .getInputStream(iconUri)) {
                 icon = _parseIconXml(config, in);
-            } finally {
-                in.close();
             }
         } else if (iconUriString.startsWith("base64:/")) {
             MapDataRef ref = MapDataRef.parseUri(iconUriString);

@@ -4,14 +4,14 @@
 ////
 ////    DESCRIPTION:    Abstract base class for feature data stores.
 ////
-
+////    AUTHOR(S):      scott           scott_barrett@partech.com
 ////
 ////
 ////    HISTORY:
 ////
 ////      DATE          AUTHOR          COMMENTS
 ////      ------------  --------        --------
-////      Jan 14, 2015
+////      Jan 14, 2015  scott           Created.
 ////
 ////========================================================================////
 ////                                                                        ////
@@ -147,7 +147,7 @@ class ENGINE_API FeatureDataStore
 
 
     ~FeatureDataStore ()
-        throw ()
+        NOTHROWS
       { }
 
     //
@@ -597,7 +597,7 @@ class ENGINE_API FeatureDataStore
     adopt (Feature& feature,
            int64_t featureSetID,
            int64_t featureID)
-        throw ();
+        NOTHROWS;
 
     //
     // Adopts the supplied Feature as a member of this data store.  The Feature
@@ -610,7 +610,7 @@ class ENGINE_API FeatureDataStore
            int64_t featureSetID,
            int64_t featureID,
            unsigned long featureVersion)
-        throw ();
+        NOTHROWS;
 
     //
     // Adopts the supplied FeatureSet as a member of this data store.  The
@@ -620,7 +620,7 @@ class ENGINE_API FeatureDataStore
     adopt (FeatureSet& feature,
            int64_t featureSetID)
         const
-        throw ();
+        NOTHROWS;
 
     //
     // Adopts the supplied FeatureSet as a member of this data store.  The
@@ -631,7 +631,7 @@ class ENGINE_API FeatureDataStore
            int64_t featureSetID,
            unsigned long featureSetVersion)
         const
-        throw ();
+        NOTHROWS;
 
     //
     // Orphans the supplied Feature.  The Feature will have its FeatureSet and
@@ -640,7 +640,7 @@ class ENGINE_API FeatureDataStore
     static
     void
     orphan (Feature& feature)
-        throw ();
+        NOTHROWS;
 
     //
     // Orphans the supplied FeatureSet.  The FeatureSet will have its ID set to
@@ -649,7 +649,7 @@ class ENGINE_API FeatureDataStore
     static
     void
     orphan (FeatureSet& featureSet)
-        throw ();
+        NOTHROWS;
 
 
                                         //====================================//
@@ -683,84 +683,84 @@ class ENGINE_API FeatureDataStore
 
     virtual
     void
-    deleteAllFeaturesImpl (int64_t featureSetID)
+    deleteAllFeaturesImpl (int64_t /*featureSetID*/)
       { }
 
     virtual
     void
-    deleteFeatureImpl (int64_t featureID)
+    deleteFeatureImpl (int64_t /*featureID*/)
       { }
 
     virtual
     void
-    deleteFeatureSetImpl (int64_t featureSetID)
+    deleteFeatureSetImpl (int64_t /*featureSetID*/)
       { }
 
     virtual
     void
-    endBulkModificationImpl (bool successful)
+    endBulkModificationImpl (bool /*successful*/)
       { }
 
     virtual
     Feature*
-    insertFeatureImpl (int64_t featureSetID,
-                       const char* name,                // Not NULL.
+    insertFeatureImpl (int64_t /*featureSetID*/,
+                       const char* /*name*/,            // Not NULL.
                        Geometry*,                       // Not NULL.
                        Style*,                          // May be NULL.
                        const util::AttributeSet&,
-                       bool returnInstance)
+                       bool /*returnInstance*/)
       { return NULL; }
 
     virtual
     FeatureSet*
-    insertFeatureSetImpl (const char* provider,         // Not NULL.
-                          const char* type,             // Not NULL.
-                          const char* name,             // Not NULL.
-                          double minResolution,         // 0.0 means no min.
-                          double maxResolution,         // 0.0 means no max.
-                          bool returnInstance)
+    insertFeatureSetImpl (const char* /*provider*/,     // Not NULL.
+                          const char* /*type*/,         // Not NULL.
+                          const char* /*name*/,         // Not NULL.
+                          double /*minResolution*/,     // 0.0 means no min.
+                          double /*maxResolution*/,     // 0.0 means no max.
+                          bool /*returnInstance*/)
       { return NULL; }
 
     virtual
     void
-    setFeatureSetVisibleImpl (int64_t featureSetID,
-                              bool visible)
+    setFeatureSetVisibleImpl (int64_t /*featureSetID*/,
+                              bool /*visible*/)
       { }
 
     virtual
     void
-    setFeatureVisibleImpl (int64_t featureID,
-                           bool visible)
+    setFeatureVisibleImpl (int64_t /*featureID*/,
+                           bool /*visible*/)
       { }
 
     virtual
     void
-    updateFeatureImpl (int64_t featureID,
+    updateFeatureImpl (int64_t /*featureID*/,
                        const util::AttributeSet&)
       { }
 
     virtual
     void
-    updateFeatureImpl (int64_t featureID,
+    updateFeatureImpl (int64_t /*featureID*/,
                        const Geometry&)
       { }
 
     virtual
     void
-    updateFeatureImpl (int64_t featureID,
-                       const char* featureName)         // Not NULL.
+    updateFeatureImpl (int64_t /*featureID*/,
+                       const char* /*featureName*/)     // Not NULL.
       { }
 
     virtual
     void
-    updateFeatureImpl (int64_t featureID,
+    updateFeatureImpl (int64_t /*featureID*/,
                        const Style&)
       { }
 
     virtual
     void
-    updateFeatureImpl (int64_t featureID,
-                       const char* featureName,         // Not NULL.
+    updateFeatureImpl (int64_t /*featureID*/,
+                       const char* /*featureName*/,     // Not NULL.
                        const Geometry&,
                        const Style&,
                        const util::AttributeSet&)
@@ -768,23 +768,23 @@ class ENGINE_API FeatureDataStore
 
     virtual
     void
-    updateFeatureSetImpl (int64_t featureSetID,
-                          const char* featureSetName)   // Not NULL.
+    updateFeatureSetImpl (int64_t /*featureSetID*/,
+                          const char* /*featureSetName*/)   // Not NULL.
       { }
 
     virtual
     void
-    updateFeatureSetImpl (int64_t featureSetID,
-                          double minResolution,         // 0.0 means no min.
-                          double maxResolution)         // 0.0 means no max.
+    updateFeatureSetImpl (int64_t /*featureSetID*/,
+                          double /*minResolution*/,         // 0.0 means no min.
+                          double /*maxResolution*/)         // 0.0 means no max.
       { }
 
     virtual
     void
-    updateFeatureSetImpl (int64_t featureSetID,
-                          const char* featureSetName,   // Not NULL.
-                          double minResolution,         // 0.0 means no min.
-                          double maxResolution)         // 0.0 means no max.
+    updateFeatureSetImpl (int64_t /*featureSetID*/,
+                          const char* /*featureSetName*/,   // Not NULL.
+                          double /*minResolution*/,         // 0.0 means no min.
+                          double /*maxResolution*/)         // 0.0 means no max.
       { }
 
 
@@ -823,7 +823,7 @@ class FeatureDataStore::BulkTransaction
     BulkTransaction (FeatureDataStore&);        // Begins bulk mod (or balks).
 
     ~BulkTransaction ()                 // Ends bulk mod unless ctor balked.
-        throw ();
+        NOTHROWS;
 
     //
     // The compiler is unable to generate a copy constructor or assignment
@@ -835,7 +835,7 @@ class FeatureDataStore::BulkTransaction
     //
     void
     commit ()
-        throw ()
+        NOTHROWS
       { success = true; }
 
 
@@ -868,7 +868,7 @@ class ENGINE_API FeatureDataStore::FeatureCursor
 
 
     ~FeatureCursor ()
-        throw ()
+        NOTHROWS
       { }
 
     //
@@ -917,7 +917,7 @@ class ENGINE_API FeatureDataStore::FeatureSetCursor
 
 
     ~FeatureSetCursor ()
-        throw ()
+        NOTHROWS
       { }
 
     //
@@ -991,13 +991,13 @@ struct ENGINE_API FeatureDataStore::FeatureQueryParameters
           { }
 
         ~Distance ()
-            throw ()
+            NOTHROWS
           { }
 
         bool
         isValid ()
             const
-            throw () override
+            NOTHROWS override
           { return point.isValid (); }
 
         core::GeoPoint point;
@@ -1008,7 +1008,7 @@ struct ENGINE_API FeatureDataStore::FeatureQueryParameters
       : Order
       {
         ~FeatureSetID ()
-            throw ()
+            NOTHROWS
           { }
       };
 
@@ -1025,7 +1025,7 @@ struct ENGINE_API FeatureDataStore::FeatureQueryParameters
       : Order
       {
         ~GeometryType ()
-            throw ()
+            NOTHROWS
           { }
       };
 
@@ -1040,7 +1040,7 @@ struct ENGINE_API FeatureDataStore::FeatureQueryParameters
       { }
 
     ~FeatureQueryParameters ()
-        throw ()
+        NOTHROWS
       { }
 
     //
@@ -1051,7 +1051,7 @@ struct ENGINE_API FeatureDataStore::FeatureQueryParameters
     bool
     isEmpty ()
         const
-        throw ()
+        NOTHROWS
       {
         return QueryParameters::isEmpty ()
             && featureSetIDs.empty ()
@@ -1105,7 +1105,7 @@ struct ENGINE_API FeatureDataStore::FeatureSetQueryParameters
       { }
 
     ~FeatureSetQueryParameters ()
-        throw ()
+        NOTHROWS
       { }
 
     //
@@ -1116,7 +1116,7 @@ struct ENGINE_API FeatureDataStore::FeatureSetQueryParameters
     bool
     isEmpty ()
         const
-        throw ()
+        NOTHROWS
       { return QueryParameters::isEmpty () && !visibleOnly; }
 
 

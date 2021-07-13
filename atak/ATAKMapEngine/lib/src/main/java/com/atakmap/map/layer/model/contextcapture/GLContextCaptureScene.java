@@ -2,7 +2,9 @@ package com.atakmap.map.layer.model.contextcapture;
 
 import android.graphics.BitmapFactory;
 
+import com.atakmap.annotations.DeprecatedApi;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.coremap.maps.coords.GeoCalculations;
 import com.atakmap.coremap.maps.coords.GeoPoint;
@@ -38,12 +40,12 @@ import com.atakmap.math.PointD;
 import com.atakmap.opengl.Tessellate;
 import com.atakmap.util.ConfigOptions;
 
+import com.atakmap.util.zip.IoUtils;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -57,10 +59,12 @@ import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipFile;
+import com.atakmap.util.zip.ZipEntry;
+import com.atakmap.util.zip.ZipFile;
 
 /** @deprecated PROTOTYPE CODE; SUBJECT TO REMOVAL AT ANY TIME; DO NOT CREATE DIRECT DEPENDENCIES */
+@Deprecated
+@DeprecatedApi(since = "4.1")
 public final class GLContextCaptureScene implements GLMapRenderable2, Controls {
     public final static GLSceneSpi SPI = new GLSceneSpi() {
         @Override
@@ -497,7 +501,7 @@ ebi = System.currentTimeMillis();
 
                 context.requestRefresh();
             } catch(IOException e) {
-                Log.w(TAG, "Failed to initialize model from " + info.uri + " [" + (new File(info.uri)).exists() + "]", e);
+                Log.w(TAG, "Failed to initialize model from " + info.uri + " [" + IOProviderFactory.exists(new File(info.uri)) + "]", e);
             } finally {
                 if(zip != null)
                     try {
@@ -632,7 +636,7 @@ ebi = System.currentTimeMillis();
     }
 
     static TileGrid loadMetadata(File file, ModelInfo info) throws IOException, JSONException {
-        if(!file.exists())
+        if(!IOProviderFactory.exists(file))
             return null;
 
         TileGrid grid = new TileGrid();
@@ -704,8 +708,8 @@ ebi = System.currentTimeMillis();
     }
 
     static void saveMetadata(File file, TileGrid grid) throws IOException, JSONException {
-        if(!file.getParentFile().exists())
-            if (!file.getParentFile().mkdirs()) { 
+        if(!IOProviderFactory.exists(file.getParentFile()))
+            if (!IOProviderFactory.mkdirs(file.getParentFile())) {
                Log.e(TAG, "unable to make the parent directory for: " + file);
             }
 
@@ -763,13 +767,8 @@ ebi = System.currentTimeMillis();
         gridJson.put("tiles", new JSONArray(tileJson));
         metadata.put("TileGrid", gridJson);
 
-        FileOutputStream stream = null;
-        try {
-            stream = new FileOutputStream(file);
+        try (FileOutputStream stream = IOProviderFactory.getOutputStream(file)) {
             FileSystemUtils.write(stream, metadata.toString());
-        } finally {
-            if(stream != null)
-                stream.close();
         }
     }
 
@@ -873,10 +872,10 @@ ebi = System.currentTimeMillis();
                     continue;
                 InputStream stream = null;
                 try {
-                    if (textureUri.contains(".zip"))
+                    if (FileSystemUtils.isZipPath(textureUri))
                         stream = (new ZipVirtualFile(textureUri)).openStream();
                     else
-                        stream = new FileInputStream(textureUri);
+                        stream = IOProviderFactory.getInputStream(new File(textureUri));
                     BitmapFactory.decodeStream(stream, null, opts);
                     if(opts.outWidth > maxWidth)
                         maxWidth = opts.outWidth;
@@ -884,10 +883,7 @@ ebi = System.currentTimeMillis();
                         maxHeight = opts.outHeight;
                 } catch(Throwable ignored) {
                 } finally {
-                    if(stream != null)
-                        try {
-                            stream.close();
-                        } catch(IOException ignored) {}
+                    IoUtils.close(stream);
                 }
             }
         }

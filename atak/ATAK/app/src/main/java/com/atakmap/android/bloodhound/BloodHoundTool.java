@@ -11,6 +11,8 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Point;
 import android.os.Bundle;
+
+import com.atakmap.android.bloodhound.ui.BloodHoundNavWidget;
 import com.atakmap.android.bloodhound.ui.BloodHoundRouteWidget;
 import androidx.annotation.NonNull;
 import androidx.core.app.ActivityCompat;
@@ -42,6 +44,7 @@ import com.atakmap.android.maps.Marker;
 import com.atakmap.android.maps.MetaMapPoint;
 import com.atakmap.android.maps.PointMapItem;
 import com.atakmap.android.overlay.DefaultMapGroupOverlay;
+import com.atakmap.android.routes.Route;
 import com.atakmap.android.routes.RouteMapReceiver;
 import com.atakmap.android.routes.RouteNavigator;
 import com.atakmap.android.toolbar.ButtonTool;
@@ -55,6 +58,7 @@ import com.atakmap.android.util.ATAKUtilities;
 import com.atakmap.android.util.SimpleItemSelectedListener;
 import com.atakmap.app.R;
 import com.atakmap.app.preferences.ToolsPreferenceFragment;
+import com.atakmap.app.system.ResourceUtil;
 import com.atakmap.coremap.conversions.Angle;
 import com.atakmap.coremap.conversions.AngleUtilities;
 import com.atakmap.coremap.conversions.ConversionFactors;
@@ -80,12 +84,11 @@ import java.util.List;
 import java.util.Timer;
 import java.util.TimerTask;
 
-
 /** Handles the toolbar button for bloodhound */
 public class BloodHoundTool extends ButtonTool implements
         ImageButton.OnLongClickListener,
         ActionBarReceiver.ActionBarChangeListener,
-        SharedPreferences.OnSharedPreferenceChangeListener  {
+        SharedPreferences.OnSharedPreferenceChangeListener {
 
     public static final String BLOOD_HOUND = "com.atakmap.android.toolbars.BLOOD_HOUND";
     public static final String TOOL_IDENTIFIER = "com.atakmap.android.toolbars.BloodHoundButtonTool";
@@ -121,13 +124,15 @@ public class BloodHoundTool extends ButtonTool implements
     private boolean running = false;
     private boolean manuallyClosed = true;
 
-    private SimpleSpeedBearingComputer ssc = new SimpleSpeedBearingComputer(30);
+    private final SimpleSpeedBearingComputer ssc = new SimpleSpeedBearingComputer(
+            30);
 
     private String _uid;
 
-    private BloodHoundHUD _bloodHoundHUD;
-    private BloodHoundZoomWidget _zoomWidget;
-    private BloodHoundRouteWidget _routeWidget;
+    private final BloodHoundHUD _bloodHoundHUD;
+    private final BloodHoundZoomWidget _zoomWidget;
+    public final BloodHoundRouteWidget _routeWidget;
+    private final BloodHoundNavWidget _navWidget;
 
     private boolean spinDoNotClear = false;
 
@@ -187,6 +192,8 @@ public class BloodHoundTool extends ButtonTool implements
         _bloodHoundHUD.setToolbarButton(this);
         _zoomWidget = new BloodHoundZoomWidget(mapView, this);
         _routeWidget = new BloodHoundRouteWidget(mapView, this);
+        _navWidget = new BloodHoundNavWidget(mapView, this);
+        _routeWidget.setNavWidget(_navWidget);
 
         _linkGroup = _mapView.getRootGroup().findMapGroup("Pairing Lines");
         if (_linkGroup == null) {
@@ -217,23 +224,10 @@ public class BloodHoundTool extends ButtonTool implements
 
         timer = new Timer();
 
-        try {
-            if (timer != null && timerTask != null) {
-                timerTask.cancel();
-                timer.purge();
-            }
-        } catch (Exception ignored) {
-        }
-
-        timerTask = new FlashTimerTask();
-        if (timer != null) {
-            timer.schedule(timerTask, 300, 300);
-        }
-
         _prefs = new BloodHoundPreferences(mapView);
 
         ToolManagerBroadcastReceiver.getInstance().registerTool(
-                TOOL_IDENTIFIER,  this);
+                TOOL_IDENTIFIER, this);
 
         AtakBroadcast.getInstance().registerReceiver(houndReceiver,
                 new AtakBroadcast.DocumentedIntentFilter(BLOOD_HOUND));
@@ -321,7 +315,8 @@ public class BloodHoundTool extends ButtonTool implements
         Log.d(TAG, "bloodhound setActive:" + running);
         if (_amd != null) {
             _amd.setSelected(active);
-            ActivityCompat.invalidateOptionsMenu((Activity) _mapView.getContext());
+            ActivityCompat
+                    .invalidateOptionsMenu((Activity) _mapView.getContext());
         }
     }
 
@@ -458,6 +453,10 @@ public class BloodHoundTool extends ButtonTool implements
             return true;
         }
         running = true;
+
+        // Disable the nav widget incase it was enabled when the Bloodhound
+        // tool was last closed.
+        _navWidget.disableWidget();
 
         _spiGroup = _mapView.getRootGroup().findMapGroup("SPIs");
 
@@ -612,6 +611,9 @@ public class BloodHoundTool extends ButtonTool implements
         final Spinner spin = view.findViewById(R.id.spinnerItems);
         final TextView spinLabel = view
                 .findViewById(R.id.spinnerItemsLabel);
+        spinLabel.setText(ResourceUtil.getResource(
+                R.string.civ_quick_select_spi, R.string.quick_select_spi));
+
         if (_spiItems.size() > 1) {
             ArrayAdapter<MapItem> adapter = new ArrayAdapter<MapItem>(
                     _mapView.getContext(),
@@ -913,12 +915,22 @@ public class BloodHoundTool extends ButtonTool implements
         }
     };
 
-    /** Starts the bloodhound tool to the given SPI */
-    private void _startBloodhound(MapItem item) {
+    /**
+     * Starts the bloodhound tool for a given MapItem.
+     */
+    private void _startBloodhound(final MapItem item) {
+
+        if (timerTask != null) {
+            timer.purge();
+        }
+
+        timerTask = new FlashTimerTask();
+        timer.schedule(timerTask, 300, 300);
 
         _zoomWidget.setVisible(true);
         _bloodHoundHUD.setLayoutVisible(true);
         _routeWidget.setVisible(true);
+        _navWidget.setVisible(true);
 
         _spiItem = (PointMapItem) item;
         _uid = _spiItem.getUID();
@@ -998,9 +1010,13 @@ public class BloodHoundTool extends ButtonTool implements
                         }
 
                         linkListener.line.dispose();
-                        RouteMapReceiver.getInstance().getRouteGroup()
-                                .removeItem(_link.route);
-                        _link.route.dispose();
+
+                        if (_link != null) {
+                            RouteMapReceiver.getInstance().getRouteGroup()
+                                    .removeItem(_link.route);
+                            _link.route.dispose();
+                            _link = null;
+                        }
 
                         if (_startItem != null) {
                             _startItem
@@ -1013,7 +1029,6 @@ public class BloodHoundTool extends ButtonTool implements
                                 ((Marker) _startItem)
                                         .removeOnTrackChangedListener(
                                                 _trackChangedListener);
-                            _link = null;
                         }
                         if (_endItem != null) {
                             _endItem.removeOnPointChangedListener(
@@ -1022,7 +1037,6 @@ public class BloodHoundTool extends ButtonTool implements
                             _endItem.removeOnVisibleChangedListener(
                                     linkListener);
 
-                            _link = null;
                         }
 
                         // set to null _startItem and _endItem after both _endItem and _startItem
@@ -1042,26 +1056,33 @@ public class BloodHoundTool extends ButtonTool implements
                     }
                 });
 
-        if (_startItem.getType().equals("b-m-p-s-p-i"))
-            _startItem.addOnVisibleChangedListener(linkListener);
-        if (_endItem.getType().equals("b-m-p-s-p-i"))
-            _endItem.addOnVisibleChangedListener(linkListener);
-        if (_startItem.getUID().equals(_mapView.getSelfMarker().getUID()))
-            ((Marker) _startItem)
-                    .addOnTrackChangedListener(_trackChangedListener);
-        _linkGroup.addItem(linkListener.line);
+        try {
 
-        _startItem.addOnPointChangedListener(_pointChangedListener);
-        _endItem.addOnPointChangedListener(_pointChangedListener);
-        _updateLinkInfo();
+            if (_startItem.getType().equals("b-m-p-s-p-i"))
+                _startItem.addOnVisibleChangedListener(linkListener);
+            if (_endItem.getType().equals("b-m-p-s-p-i"))
+                _endItem.addOnVisibleChangedListener(linkListener);
+            if (_startItem.getUID().equals(_mapView.getSelfMarker().getUID()))
+                ((Marker) _startItem)
+                        .addOnTrackChangedListener(_trackChangedListener);
+            _linkGroup.addItem(linkListener.line);
 
-        _startItem.addOnGroupChangedListener(linkListener);
-        _endItem.addOnGroupChangedListener(linkListener);
+            _startItem.addOnPointChangedListener(_pointChangedListener);
+            _endItem.addOnPointChangedListener(_pointChangedListener);
+            _updateLinkInfo();
 
-        _startItem.setMetaBoolean("pairingline_on", true);
-        _endItem.setMetaBoolean("pairingline_on", true);
+            _startItem.addOnGroupChangedListener(linkListener);
+            _endItem.addOnGroupChangedListener(linkListener);
 
-        _link = linkListener;
+            _startItem.setMetaBoolean("pairingline_on", true);
+            _endItem.setMetaBoolean("pairingline_on", true);
+
+            _link = linkListener;
+        } catch (Exception ignored) {
+            // ATAK-14272 NullPointerException Bloodhound Tool - since this logic in thread unsafe
+            // but it is lower risk during this sprint than syncronizing modifications to the startItem
+            // and endItem
+        }
     }
 
     private boolean _removeLink(final String uid1, final String uid2) {
@@ -1185,18 +1206,22 @@ public class BloodHoundTool extends ButtonTool implements
     @Override
     public void onToolEnd() {
         super.onToolEnd();
-        timerTask.setEta(Double.NaN);
-        synchronized (_link.route) {
-            _link.route.dispose();
-            _link.route = null;
-        }
-        _link = null;
-    }
 
+        // No reason to keep the timer task going, only should be running the timer when the
+        // tool enters onToolBegin and ends when the onToolEnd.
+        timerTask.setEta(Double.NaN);
+        timerTask.cancel();
+        timer.purge();
+
+        if (_link != null) {
+            _link.route.dispose();
+            _link = null;
+        }
+    }
 
     @Override
     public void onSharedPreferenceChanged(SharedPreferences sp,
-                                          String key) {
+            String key) {
         switch (key) {
             case "rab_north_ref_pref":
                 _northReference = _prefs.getNorthReference();
@@ -1248,7 +1273,6 @@ public class BloodHoundTool extends ButtonTool implements
             _updateLinkInfo();
     }
 
-
     public void _updateLinkInfo() {
         PointMapItem startPoint = getStartItem();
         PointMapItem endPoint = getEndItem();
@@ -1296,7 +1320,7 @@ public class BloodHoundTool extends ButtonTool implements
             if (_displaySlantRange) {
                 text += bs + " "
                         + SpanUtilities.formatType(_rangeUnits, slantRange,
-                        Span.METER);
+                                Span.METER);
             } else {
                 //user pref selected ground clamped direction instead of slant range
                 text += bs + " " + SpanUtilities.formatType(_rangeUnits, range,
@@ -1317,7 +1341,7 @@ public class BloodHoundTool extends ButtonTool implements
                     && endPoint.getPoint().isAltitudeValid()) {
                 text += "   "
                         + AngleUtilities.format(Math.abs(depAngle),
-                        _bearingUnits, false);
+                                _bearingUnits, false);
                 if (depAngle > 0) {
                     text += "\u2191"; //Up arrow
                 } else if (depAngle < 0) {
@@ -1336,10 +1360,15 @@ public class BloodHoundTool extends ButtonTool implements
         relativeBearing %= 360;
 
         RangeAndBearingMapItem line = null;
+        Route route = null;
 
         BloodHoundToolLink bloodhoundLink = getlink();
         if (bloodhoundLink != null && bloodhoundLink.line != null) {
             line = bloodhoundLink.line;
+        }
+
+        if (bloodhoundLink != null && bloodhoundLink.isRoute()) {
+            route = bloodhoundLink.route;
         }
 
         String bearingString = "---";
@@ -1372,10 +1401,15 @@ public class BloodHoundTool extends ButtonTool implements
                 if (!Double.isNaN(avgSpeed)
                         && Double.compare(avgSpeed, 0.0) != 0) {
                     remainingEta = range / avgSpeed;
+                    if (route != null) {
+                        Log.d(TAG, "Calculating eta by route");
+                        remainingEta = route.getTotalDistance() / avgSpeed;
+                    }
                 }
             } catch (Exception e) {
                 Log.e(TAG, "caught an error obtaining the user speed", e);
             }
+
             if (!Double.isNaN(remainingEta)) {
                 startPoint.setMetaDouble("bloodhoundEta", remainingEta);
 
@@ -1392,16 +1426,19 @@ public class BloodHoundTool extends ButtonTool implements
                 int currentColor = currentColor();
 
                 _bloodHoundHUD.setColor(currentColor);
-                if (getlink() != null) {
-                    getlink().setColor(currentColor);
+
+                final BloodHoundToolLink link = getlink();
+                if (link != null) {
+                    link.setColor(currentColor);
                 }
             } else {
                 // TODO: What is this metadata used for?
-                getStartItem().removeMetaData("bloodhoundEta");
+                startPoint.removeMetaData("bloodhoundEta");
                 timerTask.setEta(Double.NaN);
                 _bloodHoundHUD.setColor(outerColor);
-                if (getlink() != null) {
-                    getlink().setColor(outerColor);
+                final BloodHoundToolLink link = getlink();
+                if (link != null) {
+                    link.setColor(outerColor);
                 }
             }
 
@@ -1451,6 +1488,11 @@ public class BloodHoundTool extends ButtonTool implements
         }
     }
 
+    public void dismissTimer() {
+        if (timerTask != null)
+            timerTask.setDismissed(true);
+    }
+
     /** A task that is run to flash the color on the bloodhound link when a certain distance
      *  threshold is reached. */
     private class FlashTimerTask extends TimerTask {
@@ -1489,9 +1531,9 @@ public class BloodHoundTool extends ButtonTool implements
 
                         BloodHoundToolLink link = getlink();
                         if (eta <= flashETA && blink % 9 == 0) {
-                                _bloodHoundHUD.setColor(flashColor);
-                                if (link != null)
-                                    link.setColor(flashColor);
+                            _bloodHoundHUD.setColor(flashColor);
+                            if (link != null)
+                                link.setColor(flashColor);
                         } else {
                             int currentColor = currentColor();
                             _bloodHoundHUD.setColor(currentColor);

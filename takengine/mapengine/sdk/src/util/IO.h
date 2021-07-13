@@ -6,14 +6,14 @@
 ////                    of convenience utility functions for encoding and
 ////                    decoding.
 ////
-
+////    AUTHOR(S):      scott           scott_barrett@partech.com
 ////
 ////
 ////    HISTORY:
 ////
 ////      DATE          AUTHOR          COMMENTS
 ////      ------------  --------        --------
-////      Dec 16, 2014
+////      Dec 16, 2014  scott           Created.
 ////
 ////========================================================================////
 ////                                                                        ////
@@ -130,7 +130,7 @@ enum
 
 class ENGINE_API DataInput {
 public:
-    static const size_t EndOfStream = -1; //-XXX
+    static const size_t EndOfStream = SIZE_MAX; //-XXX
 
     DataInput();
     virtual ~DataInput();

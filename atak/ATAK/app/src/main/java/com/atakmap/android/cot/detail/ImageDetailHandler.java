@@ -13,7 +13,9 @@ import com.atakmap.comms.CommsMapComponent.ImportResult;
 import com.atakmap.coremap.cot.event.CotDetail;
 import com.atakmap.coremap.cot.event.CotEvent;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
+import com.atakmap.util.zip.IoUtils;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -88,20 +90,14 @@ class ImageDetailHandler extends CotDetailHandler {
             linkFile = ImageDropDownReceiver.createAndGetPathToImageFromUID(
                     uid, "lnk");
             if (linkFile != null) {
-                w = new FileWriter(linkFile);
+                w = IOProviderFactory.getFileWriter(linkFile);
                 w.write(linkPath);
                 w.close();
             }
         } catch (IOException e) {
             Log.e(TAG, "error: ", e);
         } finally {
-            if (w != null) {
-                try {
-                    w.close();
-                } catch (IOException e) {
-                    Log.e(TAG, "error: ", e);
-                }
-            }
+            IoUtils.close(w, TAG, "error: ");
         }
         return linkFile;
     }
@@ -114,11 +110,9 @@ class ImageDetailHandler extends CotDetailHandler {
                     uid,
                     _extFromMime(mime));
 
-            FileOutputStream fos = new FileOutputStream(imageFile);
-            try {
+            try (FileOutputStream fos = IOProviderFactory
+                    .getOutputStream(imageFile)) {
                 fos.write(bytes);
-            } finally {
-                fos.close();
             }
         } catch (IOException e) {
             Log.e(TAG, "error: ", e);

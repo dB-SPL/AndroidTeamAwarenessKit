@@ -33,9 +33,7 @@ import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import java.net.BindException;
 import java.net.InetAddress;
-import java.net.InetSocketAddress;
 import java.net.UnknownHostException;
 
 import com.atakmap.android.dropdown.DropDown.OnStateListener;
@@ -53,14 +51,13 @@ import com.atakmap.android.video.AddEditAlias;
 import com.atakmap.android.video.ConnectionEntry;
 import com.atakmap.android.video.StreamManagementUtils;
 import com.atakmap.app.R;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
 
 import java.io.File;
-import java.io.BufferedReader;
 import java.io.IOException;
 import java.net.NetworkInterface;
 import java.net.SocketException;
-import java.net.Socket;
 import java.text.DecimalFormat;
 
 import java.text.SimpleDateFormat;
@@ -187,7 +184,7 @@ public class RoverDropDownReceiver extends DropDownReceiver implements
      * Ku-Band Lower 14.7-14.835 
      * Ku-Band Upper 15.15Ghz - 15.35Ghz 
      */
-    private static Object lock = new Object();
+    private static final Object lock = new Object();
 
     private static RoverInterface radio;
 
@@ -1162,7 +1159,7 @@ public class RoverDropDownReceiver extends DropDownReceiver implements
                         try {
                             inetAddress = toInetAddress(
                                     urlView, roverIP);
-                        } catch (Exception e) {
+                        } catch (Exception ignored) {
                         }
                         if (radio.testConnection(ni, inetAddress, roverIP)) {
                             toast(urlView,
@@ -1192,7 +1189,7 @@ public class RoverDropDownReceiver extends DropDownReceiver implements
             public void onClick(final View v) {
 
                 final File f = new File(VideoBrowserDropDownReceiver.VIDEO_DIR);
-                if (!f.mkdirs()) {
+                if (!IOProviderFactory.mkdirs(f)) {
                     Log.e(TAG, "Failed to make dir at " + f.getAbsolutePath());
                 }
                 File file = new File(f, "raw_"
@@ -1635,9 +1632,9 @@ public class RoverDropDownReceiver extends DropDownReceiver implements
                             int whichButton) {
                         // get waveform
                         if (startFreq.getText().length() > 0) {
-                            int start = Integer.valueOf(startFreq.getText()
+                            int start = Integer.parseInt(startFreq.getText()
                                     .toString());
-                            int end = Integer.valueOf(endFreq.getText()
+                            int end = Integer.parseInt(endFreq.getText()
                                     .toString());
 
                             if ((validFrequency(start) != Frequency.INVALID)
@@ -1807,7 +1804,7 @@ public class RoverDropDownReceiver extends DropDownReceiver implements
                 if (eth != null && eth.isUp())
                     ce.setMacAddress(NetworkDeviceManager.getMacAddress(eth));
             } catch (IOException ioe) {
-                Log.d(TAG, "error occured getting the mac address");
+                Log.d(TAG, "error occurred getting the mac address");
             }
         }
 
@@ -2252,7 +2249,7 @@ public class RoverDropDownReceiver extends DropDownReceiver implements
                         Color.RED,
                         context.getString(
                                 R.string.radio_error_configuring_ethernet));
-                Log.d(TAG, "error occured configuring the radio network. ", e);
+                Log.d(TAG, "error occurred configuring the radio network. ", e);
             }
         }
 
@@ -2327,7 +2324,7 @@ public class RoverDropDownReceiver extends DropDownReceiver implements
                             Toast.LENGTH_SHORT).show();
                 }
             } catch (Exception ioe) {
-                Log.d(TAG, "error occured looking up an automatic address");
+                Log.d(TAG, "error occurred looking up an automatic address");
             }
 
         }
@@ -2462,7 +2459,7 @@ public class RoverDropDownReceiver extends DropDownReceiver implements
                         (byte) a, (byte) b, (byte) c, (byte) d
                 });
         } catch (Exception e) {
-            Log.d(TAG, "error occured resolving: " + ip, e);
+            Log.d(TAG, "error occurred resolving: " + ip, e);
         }
         toast(v, "attempting to resolve rover (slow)");
         return InetAddress.getByName(ip);

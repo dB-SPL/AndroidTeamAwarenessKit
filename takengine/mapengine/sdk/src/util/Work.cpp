@@ -1,11 +1,31 @@
 
 //#include <chrono>
+#include <unordered_map>
 #include "thread/Thread.h"
+#include "thread/RWMutex.h"
 #include "util/Work.h"
 #include "port/Platform.h"
 
 using namespace TAK::Engine::Util;
 using namespace TAK::Engine::Thread;
+
+//
+//
+//
+
+namespace {
+	thread_local static uint64_t thread_local_worker_id_ = 0;
+
+	class CurrentWorkerScope {
+	public:
+		CurrentWorkerScope(uint64_t worker_id) {
+			thread_local_worker_id_ = worker_id;
+		}
+		~CurrentWorkerScope() NOTHROWS {
+			thread_local_worker_id_ = 0;
+		}
+	};
+}
 
 //
 // Work
@@ -188,6 +208,23 @@ TAKErr TransferWork::onSignalWork(MonitorLockPtr &lockPtr) NOTHROWS {
 // Worker
 //
 
+namespace {
+	static Mutex next_worker_id_lock_;
+	static uint64_t next_worker_id_ = 0;
+	
+	RWMutex worker_locak_storage_lock_;
+	std::unordered_map<uint64_t, std::vector<void*>> worker_local_storage_;
+
+	uint64_t nextWorkerId_() {
+		Lock lock(next_worker_id_lock_);
+		return ++next_worker_id_;
+	}
+}
+
+Worker::Worker() NOTHROWS
+	: worker_id_(nextWorkerId_()) {}
+
+
 Worker::~Worker() NOTHROWS
 { }
 
@@ -208,7 +245,7 @@ namespace {
 
 		ControlQueue() NOTHROWS;
 		~ControlQueue() NOTHROWS;
-		TAKErr queueWork(const std::shared_ptr<Work> &work, Stats *optStats = nullptr) NOTHROWS;
+		TAKErr queueWork(std::shared_ptr<Work> &&work, Stats *optStats = nullptr) NOTHROWS;
 		TAKErr awaitWork(std::shared_ptr<Work> &workPtr, int64_t milliLimit) NOTHROWS;
 		TAKErr takeWork(std::shared_ptr<Work> &workPtr) NOTHROWS;
 		TAKErr interrupt() NOTHROWS;
@@ -249,7 +286,7 @@ namespace {
 		TAKErr scheduleWork(std::shared_ptr<Work> work) NOTHROWS override;
 		~ThreadWorker() NOTHROWS override;
 
-		static TAKErr spawnThread(ThreadPtr &thread, const std::shared_ptr<ControlQueue> &controlQueue, int64_t keepAliveMillis) NOTHROWS;
+		static TAKErr spawnThread(ThreadPtr &thread, const std::shared_ptr<ControlQueue> &controlQueue, int64_t keepAliveMillis, uint64_t worker_id) NOTHROWS;
 
 	private:
 		ThreadWorker(const std::shared_ptr<ControlQueue> &queue, int64_t keepAliveMillis, bool shouldCap, bool shouldInterrupt) NOTHROWS;
@@ -263,6 +300,7 @@ namespace {
 		struct ThreadArgs {
 			std::shared_ptr<ControlQueue> controlQueue;
 			int64_t keepAliveMillis;
+			uint64_t worker_id;
 		};
 	};
 
@@ -290,6 +328,18 @@ namespace {
 		const int64_t keepAliveMillis;
 	};
 
+	class OverrideWorker : public Worker {
+	public:
+		explicit OverrideWorker(const SharedWorkerPtr& bw) NOTHROWS
+			: backing_worker_(bw), task_num_(0) {}
+
+		virtual TAKErr scheduleWork(std::shared_ptr<Work> work) NOTHROWS;
+		Mutex state_mutex_;
+		const SharedWorkerPtr& backing_worker_;
+		std::shared_ptr<Work> ongoing_work_;
+		uint64_t task_num_;
+	};
+
 	//
 	// ControlQueue
 	//
@@ -303,7 +353,7 @@ namespace {
 	ControlQueue::~ControlQueue() NOTHROWS
 	{ }
 
-	TAKErr ControlQueue::queueWork(const std::shared_ptr<Work> &work, Stats *optStats) NOTHROWS {
+	TAKErr ControlQueue::queueWork(std::shared_ptr<Work> &&work, Stats *optStats) NOTHROWS {
 		MonitorLockPtr lockPtr(nullptr, nullptr);
 		TAKErr code(MonitorLock_create(lockPtr, this->monitor));
 		TE_CHECKRETURN_CODE(code);
@@ -440,13 +490,15 @@ namespace {
 	{ }
 	
 	TAKErr ControlWorkerImpl::scheduleWork(std::shared_ptr<Work> work) NOTHROWS {
-		return controlQueue->queueWork(work);
+		return controlQueue->queueWork(std::move(work));
 	}
 
 	TAKErr ControlWorkerImpl::doAnyWork(int64_t millisecondLimit) NOTHROWS {
 
 		int64_t last = TAK::Engine::Port::Platform_systime_millis();
 		int64_t countDown = millisecondLimit;
+
+		CurrentWorkerScope currentWorkerScope(Worker_getWorkerId(*this));
 
 		while (countDown > 0) {
 			std::shared_ptr<Work> work;
@@ -468,6 +520,8 @@ namespace {
 
 		int64_t last = TAK::Engine::Port::Platform_systime_millis();
 		int64_t countDown = millisecondLimit;
+
+		CurrentWorkerScope currentWorkerScope(Worker_getWorkerId(*this));
 
 		while (countDown > 0) {
 			std::shared_ptr<Work> work;
@@ -495,7 +549,7 @@ namespace {
 
 	TAKErr ThreadWorker::create(std::shared_ptr<ThreadWorker> &workerPtr, const std::shared_ptr<ControlQueue> &controlQueue, int64_t keepAliveMillis, bool shouldCap, bool shouldInterrupt) NOTHROWS {
 		std::shared_ptr<ThreadWorker> threadWorker(new ThreadWorker(controlQueue, keepAliveMillis, shouldCap, shouldInterrupt));
-		TAKErr code = ThreadWorker::spawnThread(threadWorker->threadPtr, controlQueue, keepAliveMillis);
+		TAKErr code = ThreadWorker::spawnThread(threadWorker->threadPtr, controlQueue, keepAliveMillis, Worker_getWorkerId(*threadWorker));
 		if (code == TE_Ok)
 			workerPtr = threadWorker;
 		return code;
@@ -518,8 +572,8 @@ namespace {
 			controlQueue->interrupt();
 	}
 
-	TAKErr ThreadWorker::spawnThread(ThreadPtr &threadPtr, const std::shared_ptr<ControlQueue> &controlQueue, int64_t keepAliveMillis) NOTHROWS {
-		std::unique_ptr<ThreadArgs> threadArgs(new ThreadArgs{ controlQueue, keepAliveMillis });
+	TAKErr ThreadWorker::spawnThread(ThreadPtr &threadPtr, const std::shared_ptr<ControlQueue> &controlQueue, int64_t keepAliveMillis, uint64_t worker_id) NOTHROWS {
+		std::unique_ptr<ThreadArgs> threadArgs(new ThreadArgs{ controlQueue, keepAliveMillis, worker_id });
 		TAKErr code = Thread_start(threadPtr, threadStart, threadArgs.get());
 		if (code != TE_Ok)
 			return code;
@@ -531,7 +585,7 @@ namespace {
 	}
 
 	TAKErr ThreadWorker::scheduleWork(std::shared_ptr<Work> work) NOTHROWS {
-		TAKErr code = controlQueue->queueWork(work);
+		TAKErr code = controlQueue->queueWork(std::move(work));
 		if (code == TE_Interrupted) {
 			return TE_Ok;
 		}
@@ -541,10 +595,13 @@ namespace {
 	void *ThreadWorker::threadStart(void *opaque) {
 
 		std::unique_ptr<ThreadArgs> threadArgs(static_cast<ThreadArgs *>(opaque));
+		uint64_t worker_id = threadArgs->worker_id;
 		std::shared_ptr<ControlQueue> controlQueue = threadArgs->controlQueue;
 		controlQueue->attachThread();
 		std::size_t keepAliveMillis = (threadArgs->keepAliveMillis > 0LL) ? static_cast<std::size_t>(threadArgs->keepAliveMillis) : 0LL;
 		threadArgs.reset();
+
+		CurrentWorkerScope currentWorkerScope(worker_id);
 
 		std::shared_ptr<Work> work;
 		while (controlQueue->awaitWork(work, keepAliveMillis) == TE_Ok) {
@@ -571,7 +628,7 @@ namespace {
 		std::shared_ptr<ThreadPoolWorker> threadWorker(new ThreadPoolWorker(minThreadCount, maxThreadCount, keepAliveMillis, controlQueue));
 		for (size_t i = 0; i < minThreadCount; ++i) {
 			ThreadPtr threadPtr(nullptr, nullptr);
-			TAKErr code = ThreadWorker::spawnThread(threadPtr, controlQueue, INT64_MAX);
+			TAKErr code = ThreadWorker::spawnThread(threadPtr, controlQueue, INT64_MAX, Worker_getWorkerId(*threadWorker));
 			if (code != TE_Ok) {
 				controlQueue->interrupt();
 				return code;
@@ -598,18 +655,112 @@ namespace {
 
 	TAKErr ThreadPoolWorker::scheduleWork(std::shared_ptr<Work> work) NOTHROWS {
 		ControlQueue::Stats stats;
-		TAKErr code = controlQueue->queueWork(work, &stats);
+		TAKErr code = controlQueue->queueWork(std::move(work), &stats);
 		if (code == TE_Ok && 
 			stats.waitingCount == 0 &&
 			stats.threadCount < this->maxThreadCount) {
 			ThreadPtr threadPtr(nullptr, nullptr);
-			code = ThreadWorker::spawnThread(threadPtr, this->controlQueue, this->keepAliveMillis);
+			code = ThreadWorker::spawnThread(threadPtr, this->controlQueue, this->keepAliveMillis, Worker_getWorkerId(*this));
 			TE_CHECKRETURN_CODE(code);
 		}
 
 		return code;
 	}
+
+	//
+	// OverrideWorker
+	//
+
+	TAKErr OverrideWorker::scheduleWork(std::shared_ptr<Work> work) NOTHROWS {
+		
+		if (!work)
+			return TE_InvalidArg;
+
+		{
+			Lock lock(state_mutex_);
+			if (lock.status != TE_Ok)
+				return lock.status;
+
+			task_num_++;
+
+			if (ongoing_work_) {
+				ongoing_work_->preempt(TE_Canceled);
+				ongoing_work_ = work;
+			}
+		}
+
+		// backing_worker_ isn't transient-- don't need lock
+		return this->backing_worker_->scheduleWork(work);
+	}
 }
+
+uint64_t TAK::Engine::Util::Worker_getWorkerId(const Worker& worker) NOTHROWS {
+	return worker.worker_id_;
+}
+
+uint64_t TAK::Engine::Util::Worker_getCurrentWorkerId() NOTHROWS {
+	return thread_local_worker_id_;
+}
+
+TAKErr TAK::Engine::Util::Worker_allocWorkerLocalStorageSlot(size_t* result) NOTHROWS {
+
+	if (!result)
+		return TE_InvalidArg;
+
+	uint64_t worker_id = Worker_getCurrentWorkerId();
+	if (worker_id == 0)
+		return TE_IllegalState;
+
+	{
+		Lock lock(next_worker_id_lock_);
+		auto it = worker_local_storage_.find(worker_id);
+		if (it == worker_local_storage_.end())
+			it = worker_local_storage_.insert(std::pair<uint64_t, std::vector<void*>>(worker_id, std::vector<void*>())).first;
+		size_t slot = it->second.size();
+		it->second.push_back(nullptr);
+		*result = slot;
+	}
+
+	return TE_Ok;
+}
+
+TAKErr TAK::Engine::Util::Worker_getWorkerLocalStorage(void** ptr, size_t slot) NOTHROWS {
+
+	if (!ptr)
+		return TE_InvalidArg;
+
+	uint64_t worker_id = Worker_getCurrentWorkerId();
+	if (worker_id == 0)
+		return TE_IllegalState;
+
+	{
+		Lock lock(next_worker_id_lock_);
+		auto it = worker_local_storage_.find(worker_id);
+		if (it == worker_local_storage_.end() || slot >= it->second.size())
+			return TE_InvalidArg;
+		*ptr = it->second[slot];
+	}
+
+	return TE_Ok;
+}
+
+TAKErr TAK::Engine::Util::Worker_setWorkerLocalStorage(size_t slot, void* ptr) NOTHROWS {
+
+	uint64_t worker_id = Worker_getCurrentWorkerId();
+	if (worker_id == 0)
+		return TE_IllegalState;
+
+	{
+		Lock lock(next_worker_id_lock_);
+		auto it = worker_local_storage_.find(worker_id);
+		if (it == worker_local_storage_.end() || slot >= it->second.size())
+			return TE_InvalidArg;
+		it->second[slot] = ptr;
+	}
+
+	return TE_Ok;
+}
+
 
 TAKErr TAK::Engine::Util::Worker_createThread(SharedWorkerPtr &worker) NOTHROWS {
 	std::shared_ptr<ControlQueue> controlQueue(new ControlQueue());
@@ -644,35 +795,46 @@ TAKErr TAK::Engine::Util::Worker_createThreadPool(SharedWorkerPtr &worker, size_
 	return code;
 }
 
+TAKErr TAK::Engine::Util::Worker_createOverrideTasker(SharedWorkerPtr& result,
+	const uint64_t** task_num_address, const SharedWorkerPtr& dest_worker) NOTHROWS {
+
+	std::shared_ptr<OverrideWorker> overrideWorker = std::make_shared<OverrideWorker>(dest_worker);
+	if (task_num_address)
+		*task_num_address = &overrideWorker->task_num_;
+
+	result = overrideWorker;
+	return TE_Ok;
+}
+
 //
 // GlobalWorkers
 //
 
-SharedWorkerPtr makeFixedWorker(size_t threadCount) {
-	std::shared_ptr<Worker> result;
-	Worker_createThreadPool(result, threadCount, threadCount, INT64_MAX);
-	return result;
+namespace {
+	SharedWorkerPtr makeFixedWorker(size_t threadCount) {
+		std::shared_ptr<Worker> result;
+		Worker_createThreadPool(result, threadCount, threadCount, INT64_MAX);
+		return result;
+	}
+
+	SharedWorkerPtr makeFlexWorker() {
+		std::shared_ptr<Worker> result;
+		Worker_createThreadPool(result, 0, 32, 60 * 1000);
+		return result;
+	}
 }
 
-SharedWorkerPtr makeFlexWorker() {
-	std::shared_ptr<Worker> result;
-	Worker_createThreadPool(result, 0, 32, 60 * 1000);
-	return result;
-}
-
-
-
-SharedWorkerPtr TAK::Engine::Util::GeneralWorkers_flex() NOTHROWS {
+const SharedWorkerPtr& TAK::Engine::Util::GeneralWorkers_flex() NOTHROWS {
 	static SharedWorkerPtr inst = makeFlexWorker();
 	return inst;
 }
 
-SharedWorkerPtr TAK::Engine::Util::GeneralWorkers_single() NOTHROWS {
+const SharedWorkerPtr& TAK::Engine::Util::GeneralWorkers_single() NOTHROWS {
 	static SharedWorkerPtr inst = makeFixedWorker(1);
 	return inst;
 }
 
-SharedWorkerPtr TAK::Engine::Util::GeneralWorkers_cpu() NOTHROWS {
+const SharedWorkerPtr& TAK::Engine::Util::GeneralWorkers_cpu() NOTHROWS {
 	static SharedWorkerPtr inst = makeFixedWorker(4);
 	return inst;
 }
@@ -691,7 +853,7 @@ public:
 	}
 };
 
-SharedWorkerPtr TAK::Engine::Util::GeneralWorkers_immediate() NOTHROWS {
+const SharedWorkerPtr& TAK::Engine::Util::GeneralWorkers_immediate() NOTHROWS {
 	static SharedWorkerPtr inst = std::make_shared<ImmediateWorker>();
 	return inst;
 }

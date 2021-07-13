@@ -1,15 +1,17 @@
 package com.atakmap.map.layer.model.obj;
 
+import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.io.ZipVirtualFile;
 import com.atakmap.lang.Unsafe;
-import com.atakmap.map.layer.model.Material;
 import com.atakmap.map.layer.model.Material;
 import com.atakmap.map.layer.model.MeshBuilder;
 import com.atakmap.map.layer.model.Model;
 import com.atakmap.map.layer.model.ModelBuilder;
 import com.atakmap.map.layer.model.ModelInfo;
 import com.atakmap.map.layer.model.ModelSpi;
+import com.atakmap.util.zip.IoUtils;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -57,8 +59,8 @@ public final class ObjModelSpi implements ModelSpi {
             return null;
         }
 
-        File f = new File(info.uri);;
-        if(info.uri.endsWith(".zip") || info.uri.contains(".zip")) {
+        File f = new File(info.uri);
+        if(FileSystemUtils.isZipPath(info.uri)) {
             try { 
                 File obj = ObjUtils.findObj(new ZipVirtualFile(info.uri));
                 if (obj != null)
@@ -69,9 +71,9 @@ public final class ObjModelSpi implements ModelSpi {
             }
         }
 
-        if(!f.exists())
+        if(!IOProviderFactory.exists(f))
             return null;
-        final long fileLength = f.length();
+        final long fileLength = IOProviderFactory.length(f);
         if(fileLength > 0x7FFFFFFFL)
             return null;
 
@@ -271,18 +273,18 @@ public final class ObjModelSpi implements ModelSpi {
             // XXX - check for material file
             File textureFile = null;
             final File materialFile = ObjUtils.getSibling(f, f.getName().replace(".obj", ".mtl"));
-            if(materialFile.exists()) {
+            if(IOProviderFactory.exists(materialFile)) {
                 try {
                     Map<String, String> materials = ObjUtils.extractMaterialTextures(materialFile);
                     for(String filename : materials.values()) {
                         textureFile = new File(f.getParentFile(), filename);
-                        if(textureFile.exists())
+                        if(IOProviderFactory.exists(textureFile))
                             break;
                         textureFile = null;
                     }
                 } catch(Throwable ignored) {}
             }
-            if(textureFile == null || !textureFile.exists()) {
+            if(textureFile == null || !IOProviderFactory.exists(textureFile)) {
                 String[] exts = new String[]
                         {
                                 "_texture.jpg",
@@ -303,10 +305,7 @@ public final class ObjModelSpi implements ModelSpi {
             Log.e(TAG, "error", t);
             return null;
         } finally {
-            if(reader != null)
-                try {
-                    reader.close();
-                } catch(Throwable ignored) {}
+            IoUtils.close(reader);
         }
     }
 

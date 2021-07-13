@@ -47,11 +47,11 @@ public class CoTInfoBroadcastReceiver extends DropDownReceiver implements
     private static final String TAG = "CoTInfoBroadcastReceiver";
     public static final String COTINFO_DETAILS = "com.atakmap.android.cotdetails.COTINFO";
 
-    private final CoTInfoView civ;
+    protected CoTInfoView civ;
 
-    private PointMapItem targetPMI;
+    protected PointMapItem targetPMI;
     private final MapGroup cotDetailsGroup;
-    private final SharedPreferences _prefs;
+    protected final SharedPreferences _prefs;
     // Default to send CoT only, but also support sending attachments
     // via Mission Package Tool
     boolean bUseMissionPackage;
@@ -194,20 +194,6 @@ public class CoTInfoBroadcastReceiver extends DropDownReceiver implements
                 setType(type);
                 _prefs.edit().putString("lastCoTTypeSet", type).apply();
                 break;
-            case "com.atakmap.android.cotdetails.SENSORDETAILS":
-                if (!intent.hasExtra("targetUID"))
-                    return;
-                if (!isClosed())
-                    closeDropDown();
-                String sensorUID = intent.getStringExtra("targetUID");
-                LayoutInflater inflater = LayoutInflater
-                        .from(getMapView().getContext());
-                SensorDetailsView sdv = (SensorDetailsView) inflater.inflate(
-                        R.layout.sensor_details_view, null);
-                sdv.setSensorMarker(sensorUID);
-                showDropDown(sdv, THREE_EIGHTHS_WIDTH, FULL_HEIGHT, FULL_WIDTH,
-                        HALF_HEIGHT, this);
-                break;
         }
     }
 
@@ -324,7 +310,7 @@ public class CoTInfoBroadcastReceiver extends DropDownReceiver implements
         cotDetailsGroup.clearItems();
     }
 
-    private PointMapItem findTarget(final String targetUID) {
+    protected PointMapItem findTarget(final String targetUID) {
         PointMapItem pointItem = null;
         if (targetUID != null) {
             MapGroup rootGroup = getMapView().getRootGroup();

@@ -25,6 +25,7 @@ import com.atakmap.coremap.conversions.Span;
 import com.atakmap.coremap.conversions.SpanUtilities;
 import com.atakmap.coremap.cot.event.CotEvent;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.locale.LocaleUtil;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.coremap.maps.coords.GeoBounds;
@@ -37,7 +38,10 @@ import com.atakmap.map.layer.raster.DatasetProjection2;
 import com.atakmap.math.PointD;
 
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.OutputStream;
+import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
 import java.text.SimpleDateFormat;
 import java.util.Date;
@@ -371,11 +375,11 @@ public class ImageryCapturePP extends CapturePP {
                 + "</gx:LatLonQuad>"
                 + "</GroundOverlay>"
                 + "</kml>";
-        try {
-            PrintWriter out = new PrintWriter(docKml,
-                    FileSystemUtils.UTF8_CHARSET.name());
+        try (OutputStream os = IOProviderFactory.getOutputStream(docKml);
+                OutputStreamWriter osw = new OutputStreamWriter(
+                        os, FileSystemUtils.UTF8_CHARSET.name());
+                PrintWriter out = new PrintWriter(osw)) {
             out.println(docSkel);
-            out.close();
         } catch (IOException ioe) {
             Log.d(TAG, "error occurred writing the doc.xml file", ioe);
         }

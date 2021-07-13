@@ -1,7 +1,6 @@
 
 package com.atakmap.android.attachment;
 
-import android.content.Context;
 import android.content.Intent;
 import android.os.SystemClock;
 import android.util.Pair;
@@ -52,6 +51,7 @@ import com.atakmap.android.overlay.AbstractMapOverlay2;
 import com.atakmap.android.util.ATAKUtilities;
 import com.atakmap.app.R;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.locale.LocaleUtil;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.coremap.maps.assets.Icon;
@@ -75,7 +75,6 @@ import com.ekito.simpleKML.model.StyleSelector;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
@@ -126,7 +125,7 @@ public class AttachmentMapOverlay extends AbstractMapOverlay2 {
         }
 
         @Override
-        public boolean isSupported(Class target) {
+        public boolean isSupported(Class<?> target) {
             return AttachmentExportWrapper.class.equals(target) ||
                     MissionPackageExportWrapper.class.equals(target) ||
                     Folder.class.equals(target) ||
@@ -136,7 +135,7 @@ public class AttachmentMapOverlay extends AbstractMapOverlay2 {
         }
 
         @Override
-        public Object toObjectOf(Class target, ExportFilters filters) {
+        public Object toObjectOf(Class<?> target, ExportFilters filters) {
             if (!isValid())
                 return null;
 
@@ -207,9 +206,11 @@ public class AttachmentMapOverlay extends AbstractMapOverlay2 {
                 pointPlacemark.setVisibility(mi.getVisible() ? 1 : 0);
 
                 Coordinate coord = null;
+                String altitudeMode = "absolute";
                 if (mi instanceof PointMapItem) {
-                    coord = KMLUtil.convertKmlCoord(
-                            ((PointMapItem) mi).getGeoPointMetaData(), false);
+                    PointMapItem pmi = (PointMapItem) mi;
+                    coord = KMLUtil.convertKmlCoord(pmi.getGeoPointMetaData(), false);
+                    altitudeMode = KMLUtil.convertAltitudeMode(pmi.getAltitudeMode());
                 }
                 if (coord == null) {
                     Log.w(TAG, "No marker location set");
@@ -218,7 +219,7 @@ public class AttachmentMapOverlay extends AbstractMapOverlay2 {
 
                 Point centerPoint = new Point();
                 centerPoint.setCoordinates(coord);
-                centerPoint.setAltitudeMode("absolute");
+                centerPoint.setAltitudeMode(altitudeMode);
 
                 List<Geometry> pointGeomtries = new ArrayList<>();
                 pointGeomtries.add(centerPoint);
@@ -317,11 +318,11 @@ public class AttachmentMapOverlay extends AbstractMapOverlay2 {
                 pointPlacemark.setVisibility(mi.getVisible() ? 1 : 0);
 
                 Coordinate coord = null;
+                String altitudeMode = "absolute";
                 if (mi instanceof PointMapItem) {
-                    coord = KMLUtil.convertKmlCoord(
-                            GeoPointMetaData.wrap(
-                                    ((PointMapItem) mi).getPoint()),
-                            false);
+                    PointMapItem pmi = (PointMapItem) mi;
+                    coord = KMLUtil.convertKmlCoord(pmi.getGeoPointMetaData(), false);
+                    altitudeMode = KMLUtil.convertAltitudeMode(pmi.getAltitudeMode());
                 }
                 if (coord == null) {
                     Log.w(TAG, "No marker location set");
@@ -330,7 +331,7 @@ public class AttachmentMapOverlay extends AbstractMapOverlay2 {
 
                 Point centerPoint = new Point();
                 centerPoint.setCoordinates(coord);
-                centerPoint.setAltitudeMode("absolute");
+                centerPoint.setAltitudeMode(altitudeMode);
 
                 List<Geometry> geometryList = new ArrayList<>();
                 geometryList.add(centerPoint);
@@ -576,7 +577,8 @@ public class AttachmentMapOverlay extends AbstractMapOverlay2 {
                     continue;
                 for (File f : files) {
                     //skip child directories
-                    if (!FileSystemUtils.isFile(f) || f.isDirectory())
+                    if (!FileSystemUtils.isFile(f)
+                            || IOProviderFactory.isDirectory(f))
                         continue;
                     MapItemAttachment att = new MapItemAttachment(m, f);
                     if (att.isValid()) {
@@ -734,7 +736,7 @@ public class AttachmentMapOverlay extends AbstractMapOverlay2 {
         }
 
         @Override
-        public boolean isSupported(Class target) {
+        public boolean isSupported(Class<?> target) {
             return AttachmentExportWrapper.class.equals(target) ||
                     MissionPackageExportWrapper.class.equals(target) ||
                     Folder.class.equals(target) ||
@@ -744,7 +746,7 @@ public class AttachmentMapOverlay extends AbstractMapOverlay2 {
         }
 
         @Override
-        public Object toObjectOf(Class target, ExportFilters filters)
+        public Object toObjectOf(Class<?> target, ExportFilters filters)
                 throws FormatNotSupportedException {
             if (super.getChildCount() <= 0 || !isSupported(target)) {
                 //nothing to export
@@ -1103,14 +1105,14 @@ public class AttachmentMapOverlay extends AbstractMapOverlay2 {
         }
 
         @Override
-        public boolean isSupported(Class target) {
+        public boolean isSupported(Class<?> target) {
             return !(this._attachment == null || !this._attachment.isValid())
                     && this._attachment.isSupported(target);
 
         }
 
         @Override
-        public Object toObjectOf(Class target, ExportFilters filters) {
+        public Object toObjectOf(Class<?> target, ExportFilters filters) {
             if (this._attachment == null || !this._attachment.isValid())
                 return null;
 

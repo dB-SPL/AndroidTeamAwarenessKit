@@ -11,7 +11,6 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.preference.Preference;
-import android.preference.PreferenceActivity;
 import android.preference.PreferenceFragment;
 import android.preference.PreferenceManager;
 import android.view.Menu;
@@ -54,7 +53,7 @@ public class SettingsActivity extends MetricPreferenceActivity implements
     private boolean fakeTrail = false;
 
     //    private FauxNavBar fnb;
-    private static int lookupID = android.R.id.content;
+    private static final int lookupID = android.R.id.content;
 
     private SharedPreferences mainControlPrefs;
     private PreferenceFragment toolPreferenceViaShortCut = null;
@@ -195,7 +194,7 @@ public class SettingsActivity extends MetricPreferenceActivity implements
 
     private String tempkey;
 
-    private BroadcastReceiver _quitReceiver = new BroadcastReceiver() {
+    private final BroadcastReceiver _quitReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
             SettingsActivity.this.finish();
@@ -384,7 +383,7 @@ public class SettingsActivity extends MetricPreferenceActivity implements
                         .commit();
             } catch (IllegalStateException ise) {
                 Log.e(TAG,
-                        "error occured wehn attempting to go back to home, just close out of settings");
+                        "error occurred wehn attempting to go back to home, just close out of settings");
                 finish();
             }
         } else if (i == android.R.id.home) {
@@ -418,7 +417,7 @@ public class SettingsActivity extends MetricPreferenceActivity implements
      * Start a new settings activity with a preference fragment class
      * @param clazz Preference fragment class
      */
-    public static void start(Class clazz) {
+    public static void start(Class<?> clazz) {
         start(clazz, null);
     }
 
@@ -427,7 +426,7 @@ public class SettingsActivity extends MetricPreferenceActivity implements
      * @param clazz Preference fragment class
      * @param key the preference key to scroll to.
      */
-    public static void start(Class clazz, String key) {
+    public static void start(Class<?> clazz, String key) {
         MapView mv = MapView.getMapView();
         if (mv == null || clazz == null
                 || !AtakPreferenceFragment.class.isAssignableFrom(clazz)) {

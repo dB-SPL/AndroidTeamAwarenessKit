@@ -9,6 +9,7 @@ import android.opengl.GLSurfaceView;
 import android.os.SystemClock;
 import android.os.Bundle;
 
+import com.atakmap.annotations.DeprecatedApi;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.opengl.GLES20FixedPipeline;
 
@@ -47,9 +48,10 @@ public class GLMapRenderer implements GLSurfaceView.Renderer {
     }
 
     /**
-     * XXX: This is a very very bad solution to a problem.
-     * @deprecated
+     * @deprecated does nothing
      */
+    @Deprecated
+    @DeprecatedApi(since = "4.1", forRemoval = true, removeAt = "4.4")
     public void pauseRender(boolean state) {
     }
 
@@ -90,6 +92,7 @@ public class GLMapRenderer implements GLSurfaceView.Renderer {
         this.mapView.animationDelta = tick-this.mapView.animationLastTick;
         this.mapView.animationLastTick = tick;
 
+        mapView.addRenderDiagnostic(String.format("FPS %.2f", currentFramerate));
         this.mapView.render();
 
         // slows the pipeline down to effect the desired frame rate
@@ -152,6 +155,8 @@ public class GLMapRenderer implements GLSurfaceView.Renderer {
 
         fillInfo(arg0);
         b.putDouble("hardware_transform_treshold", this.mapView.hardwareTransformResolutionThreshold);
+        // start GLMapView to sync with the globe and start receiving events
+        this.mapView.start();
     }
 
     public void setBgColor(int color) {

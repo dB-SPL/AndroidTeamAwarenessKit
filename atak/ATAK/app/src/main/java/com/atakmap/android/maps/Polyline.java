@@ -71,12 +71,24 @@ public class Polyline extends Shape {
      */
     public static final int STYLE_OUTLINE_HALO_MASK = 16;
 
+
+
     /**
-     * Basic line styles.
+     * Height styles (bit masks)
      */
-    public static final int BASIC_LINE_STYLE_SOLID = 0;
-    public static final int BASIC_LINE_STYLE_DASHED = 1;
-    public static final int BASIC_LINE_STYLE_DOTTED = 2;
+    public static final int HEIGHT_STYLE_NONE = 0, // Do not draw height in 3D
+            HEIGHT_STYLE_POLYGON = 1, // Draw the 3D height polygon
+            HEIGHT_STYLE_OUTLINE = 2, // Draw an outline representing the height
+            HEIGHT_STYLE_OUTLINE_SIMPLE = 4; // Simplified height outline
+
+    /**
+     * Methods for how to extrude the shape's height (mutually exclusive)
+     */
+    public static final int HEIGHT_EXTRUDE_DEFAULT = 0, // Default based on shape properties
+            HEIGHT_EXTRUDE_MIN_ALT = 1, // Extrude from the lowest point elevation
+            HEIGHT_EXTRUDE_MAX_ALT = 2, // Extrude from the highest point elevation
+            HEIGHT_EXTRUDE_CENTER_ALT = 3, // Extrude from the center elevation
+            HEIGHT_EXTRUDE_PER_POINT = 4; // Extrude from each point's elevation
 
     private Map<String, Object> labels;
 
@@ -84,6 +96,9 @@ public class Polyline extends Shape {
     private Typeface _labelTypeface = Typeface.DEFAULT;
 
     private AltitudeMode altitudeMode = AltitudeMode.ClampToGround;
+
+    // The maximum number of points per touch partition
+    public static final int PARTITION_SIZE = 25;
 
     /*
      * public Polyline() { this(MapItem.createSerialId(), new DefaultMetaDataHolder()); }
@@ -248,20 +263,20 @@ public class Polyline extends Shape {
      * Starts BasicLineStyle
      */
 
-    private final ConcurrentLinkedQueue<OnBasicLineStyleChangedListener> _onBasicLineStyleChanged = new ConcurrentLinkedQueue<>();
     private final ConcurrentLinkedQueue<OnLabelsChangedListener> _onLabelsChanged = new ConcurrentLinkedQueue<>();
     private final ConcurrentLinkedQueue<OnLabelTextSizeChanged> _onLabelTextSizeChanged = new ConcurrentLinkedQueue<>();
     private final ConcurrentLinkedQueue<OnAltitudeModeChangedListener> _onAltitudeModeChanged = new ConcurrentLinkedQueue<>();
+    private final ConcurrentLinkedQueue<OnHeightStyleChangedListener> _onHeightStyleChanged = new ConcurrentLinkedQueue<>();
 
-    private int basicLineStyle = Polyline.BASIC_LINE_STYLE_SOLID;
+
+    private int heightStyle = HEIGHT_STYLE_POLYGON | HEIGHT_STYLE_OUTLINE;
+    private int extrudeMode = HEIGHT_EXTRUDE_DEFAULT;
 
     public interface OnLabelsChangedListener {
         void onLabelsChanged(Polyline p);
     }
 
-    public interface OnBasicLineStyleChangedListener {
-        void onBasicLineStyleChanged(Polyline p);
-    }
+
 
     public interface OnLabelTextSizeChanged {
         void onLabelTextSizeChanged(Polyline p);
@@ -273,6 +288,15 @@ public class Polyline extends Shape {
          * @param altitudeMode the altitude mode that the polyline was set to.
          */
         void onAltitudeModeChanged(Feature.AltitudeMode altitudeMode);
+    }
+
+    public interface OnHeightStyleChangedListener {
+        /**
+         * Height style flag has been modified
+         * This flag controls how 3D extruded height is drawn
+         * @param p Polyline
+         */
+        void onHeightStyleChanged(Polyline p);
     }
 
     public void setLabels(final Map<String, Object> labels) {
@@ -323,32 +347,6 @@ public class Polyline extends Shape {
         }
     }
 
-    public void setBasicLineStyle(int basicLineStyle) {
-        this.basicLineStyle = basicLineStyle;
-        onBasicLineStyleChanged();
-    }
-
-    public int getBasicLineStyle() {
-        return basicLineStyle;
-    }
-
-    public void addOnBasicLineStyleChangedListener(
-            OnBasicLineStyleChangedListener listener) {
-        if (!_onBasicLineStyleChanged.contains(listener))
-            _onBasicLineStyleChanged.add(listener);
-    }
-
-    public void removeOnBasicLineStyleChangedListener(
-            OnBasicLineStyleChangedListener listener) {
-        _onBasicLineStyleChanged.remove(listener);
-    }
-
-    protected void onBasicLineStyleChanged() {
-        for (Polyline.OnBasicLineStyleChangedListener l : _onBasicLineStyleChanged) {
-            l.onBasicLineStyleChanged(this);
-        }
-    }
-
     public void addOnAltitudeModeChangedListener(
             OnAltitudeModeChangedListener listener) {
         _onAltitudeModeChanged.add(listener);
@@ -368,6 +366,84 @@ public class Polyline extends Shape {
     public void setAltitudeMode(AltitudeMode altitudeMode) {
         this.altitudeMode = altitudeMode;
         onAltitudeModeChanged();
+    }
+
+    public void addOnHeightStyleChangedListener(
+            OnHeightStyleChangedListener l) {
+        _onHeightStyleChanged.add(l);
+    }
+
+    public void removeOnHeightStyleChangedListener(
+            OnHeightStyleChangedListener l) {
+        _onHeightStyleChanged.remove(l);
+    }
+
+    protected void onHeightStyleChanged() {
+        for (OnHeightStyleChangedListener l : _onHeightStyleChanged)
+            l.onHeightStyleChanged(this);
+    }
+
+    /**
+     * Set the height rendering style for this shape
+     * Example: {@link #HEIGHT_STYLE_POLYGON} | {@link #HEIGHT_STYLE_OUTLINE}
+     * @param heightStyle Height style bit flags
+     */
+    public void setHeightStyle(int heightStyle) {
+        if (this.heightStyle != heightStyle) {
+            this.heightStyle = heightStyle;
+            onHeightStyleChanged();
+        }
+    }
+
+    /**
+     * Get the height rendering style for this shape
+     * @return Height style bit flags
+     */
+    public int getHeightStyle() {
+        return this.heightStyle;
+    }
+
+    /**
+     * Add a single height style bit to this shape
+     * Example: {@link #HEIGHT_STYLE_OUTLINE}
+     * @param heightStyleBit Height style bit
+     */
+    public void addHeightStyle(int heightStyleBit) {
+        setHeightStyle(heightStyle | heightStyleBit);
+    }
+
+    /**
+     * Remove a single height style bit from this shape
+     * @param heightStyleBit Height style bit
+     */
+    public void removeHeightStyle(int heightStyleBit) {
+        setHeightStyle(heightStyle & ~heightStyleBit);
+    }
+
+    /**
+     * Set how the height is extruded off the shape
+     * Mode can be one of the following:
+     * {@link #HEIGHT_EXTRUDE_DEFAULT} Extrude based on shape properties
+     * {@link #HEIGHT_EXTRUDE_MIN_ALT} Extrude off the minimum point elevation
+     * {@link #HEIGHT_EXTRUDE_MAX_ALT} Extrude off the maximum point elevation
+     * {@link #HEIGHT_EXTRUDE_CENTER_ALT} Extrude off the center point elevation
+     * {@link #HEIGHT_EXTRUDE_PER_POINT} Extrude off each point's elevation
+     * @param mode Extrusion mode
+     */
+    public void setHeightExtrudeMode(int mode) {
+        if (this.extrudeMode != mode) {
+            this.extrudeMode = mode;
+            onHeightStyleChanged();
+        }
+    }
+
+    /**
+     * Get the height extrusion mode
+     * See {@link #setHeightExtrudeMode(int)}
+     * @return The height extrusion mode
+     */
+    public int getHeightExtrudeMode() {
+        return this.extrudeMode;
     }
 
     @Override
@@ -467,6 +543,26 @@ public class Polyline extends Shape {
     }
 
     @Override
+    public void toggleMetaData(String key, boolean value) {
+        super.toggleMetaData(key, value);
+
+        // TODO 4.4: Better way of listening for metadata changes
+        // Refresh labels
+        if (key.equals("labels_on"))
+            onLabelsChanged();
+    }
+
+    @Override
+    public void setMetaString(String key, String value) {
+        super.setMetaString(key, value);
+
+        // TODO 4.4: Better way of listening for metadata changes
+        // Refresh labels
+        if (key.equals("polylineLabel"))
+            onLabelsChanged();
+    }
+
+    @Override
     public Bundle preDrawCanvas(CapturePP cap) {
         Bundle ret = super.preDrawCanvas(cap);
 
@@ -532,9 +628,9 @@ public class Polyline extends Shape {
     @Override
     public void drawCanvas(CapturePP cap, Bundle data) {
         Paint paint = cap.getPaint();
-        if ((basicLineStyle & BASIC_LINE_STYLE_DASHED) > 0)
+        if ((getBasicLineStyle() & BASIC_LINE_STYLE_DASHED) > 0)
             paint.setPathEffect(cap.getDashed());
-        else if ((basicLineStyle & BASIC_LINE_STYLE_DOTTED) > 0)
+        else if ((getBasicLineStyle() & BASIC_LINE_STYLE_DOTTED) > 0)
             paint.setPathEffect(cap.getDotted());
         super.drawCanvas(cap, data);
 

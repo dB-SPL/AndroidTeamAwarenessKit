@@ -10,6 +10,8 @@ import android.database.*;
 import android.util.SparseArray;
 
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
+import com.atakmap.map.gdal.GdalLibrary;
 import com.atakmap.map.layer.raster.gdal.GdalDatasetProjection2;
 import com.atakmap.map.layer.raster.mosaic.MosaicDatabaseBuilder2;
 import com.atakmap.map.layer.raster.mosaic.MosaicUtils;
@@ -19,6 +21,7 @@ import com.atakmap.io.ZipVirtualFile;
 import com.atakmap.math.PointD;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.coremap.locale.LocaleUtil;
+import com.atakmap.util.zip.IoUtils;
 import org.gdal.gdal.*;
 
 import java.io.*;
@@ -203,13 +206,13 @@ public class PfpsUtils {
     }
     
     public static boolean isPfpsDataDir(File f, int limit){
-        if (!f.isDirectory())
+        if (!IOProviderFactory.isDirectory(f))
             return false;
         String[] c;
         try {
-            c = f.list();
+            c = IOProviderFactory.list(f);
         } catch (NullPointerException e) {
-            System.err.println("f: " + f + " " + f.getAbsolutePath());
+            Log.e(TAG, "f: " + f + " " + f.getAbsolutePath());
             throw e;
         }
         int hits = 0;
@@ -232,12 +235,12 @@ public class PfpsUtils {
 
     private static boolean checkRpf(File pfpsDataDir, int limit) {
         File rpfDir = new File(pfpsDataDir, "rpf");
-        if (!rpfDir.exists())
+        if (!IOProviderFactory.exists(rpfDir))
             rpfDir = new File(pfpsDataDir, "RPF");
-        if (!rpfDir.exists() || rpfDir.isFile())
+        if (!IOProviderFactory.exists(rpfDir) || IOProviderFactory.isFile(rpfDir))
             return false;
 
-        String[] c = rpfDir.list();
+        String[] c = IOProviderFactory.list(rpfDir);
 
         if (c == null)
             return false;
@@ -252,10 +255,10 @@ public class PfpsUtils {
 
     public static void createRpfDataDatabase2(MosaicDatabaseBuilder2 database, File d)
             throws SQLException {
-        File[] c = d.listFiles(new FileFilter() {
+        File[] c = IOProviderFactory.listFiles(d, new FileFilter() {
             @Override
             public boolean accept(File f) {
-                if (!f.isDirectory())
+                if (!IOProviderFactory.isDirectory(f))
                     return false;
                 return RPF_DIRECTORY_NAMES.containsKey(f.getName().toLowerCase(LocaleUtil.getCurrent()));
             }
@@ -276,7 +279,7 @@ public class PfpsUtils {
                 }
             }
 
-            final URI relativeUri = d.getParentFile().toURI();
+            final URI relativeUri = IOProviderFactory.toURI(d.getParentFile());
 
             PfpsMapType t;
             File[] subdirs;
@@ -303,10 +306,10 @@ public class PfpsUtils {
             char[] frameFileNameChars = new char[12];
             for (int i = 0; i < c.length; i++) {
                 t = RPF_DIRECTORY_NAMES.get(c[i].getName().toLowerCase(LocaleUtil.getCurrent()));
-                subdirs = c[i].listFiles(new FileFilter() {
+                subdirs = IOProviderFactory.listFiles(c[i], new FileFilter() {
                     @Override
                     public boolean accept(File f) {
-                        return (f.isDirectory() && f.getName().length() == 1);
+                        return (IOProviderFactory.isDirectory(f) && f.getName().length() == 1);
                     }
                 });
                 if(subdirs == null)
@@ -317,7 +320,7 @@ public class PfpsUtils {
                 if(type == null)
                     type = t.folderName.toUpperCase(LocaleUtil.getCurrent());
                 for (int j = 0; j < subdirs.length; j++) {
-                    frames = subdirs[j].listFiles();
+                    frames = IOProviderFactory.listFiles(subdirs[j]);
                     if (frames == null)
                        frames = new File[0];
 
@@ -372,20 +375,14 @@ public class PfpsUtils {
                                 for (int l = 0; l < corners.length; l++)
                                     gdalCoverage |= (Double.isNaN(corners[l].getLatitude()) || Double
                                             .isNaN(corners[l].getLongitude()));
-                            } catch (IOException ignored) {
+                            } catch (IOException | RuntimeException e) {
                                 frame = null;
-                                Log.e(TAG, "error: ", ignored);
-                            } catch (RuntimeException ignored) {
-                                frame = null;
-                                Log.e(TAG, "error: ", ignored);
+                                Log.e(TAG, "error: ", e);
                             }
                             if (gdalCoverage) {
-                                frameUri = file.getAbsolutePath();
-                                if (file instanceof ZipVirtualFile)
-                                    frameUri = "/vsizip" + frameUri;
                                 Dataset dataset = null;
                                 try {
-                                    dataset = gdal.Open(frameUri);
+                                    dataset = GdalLibrary.openDatasetFromFile(file);
                                     if (dataset == null)
                                         continue;
                                     final GdalDatasetProjection2 proj = GdalDatasetProjection2
@@ -418,7 +415,7 @@ public class PfpsUtils {
                                 throw new IllegalStateException();
                         }
 
-                        database.insertRow(relativeUri.relativize(file.toURI()).getPath(),
+                        database.insertRow(relativeUri.relativize(IOProviderFactory.toURI(file)).getPath(),
                                            type,
                                            false,
                                            corners[0],
@@ -474,22 +471,21 @@ public class PfpsUtils {
             ByteBuffer frame) throws IOException {
         InputStream inputStream = null;
         try {
-            if (frame == null || frame.capacity() < f.length())
-                frame = ByteBuffer.wrap(new byte[(int) f.length()]);
+            if (frame == null || frame.capacity() < IOProviderFactory.length(f))
+                frame = ByteBuffer.wrap(new byte[(int)IOProviderFactory.length(f)]);
             frame.clear();
-            frame.limit((int) f.length());
+            frame.limit((int)IOProviderFactory.length(f));
             if (f instanceof ZipVirtualFile)
                 inputStream = ((ZipVirtualFile) f).openStream();
             else
-                inputStream = new FileInputStream(f);
+                inputStream = IOProviderFactory.getInputStream(f);
 
             
             int r = inputStream.read(frame.array());
             if (r < 1)
                Log.d(TAG, "header read failed");
         } finally {
-            if (inputStream != null)
-                inputStream.close();
+            IoUtils.close(inputStream, TAG);
         }
 
         String s = getString(frame, 9);

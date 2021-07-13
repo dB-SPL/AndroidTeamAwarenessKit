@@ -1,11 +1,12 @@
 
 package com.atakmap.android.util;
 
+import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
+
 import java.io.File;
 import java.io.IOException;
 import java.io.RandomAccessFile;
-
-import com.atakmap.coremap.filesystem.FileSystemUtils;
 
 /**
  * A ReservationService for a directory of files.  Supports flushing of "stale"
@@ -35,11 +36,12 @@ public class FileCache
         if (cacheDir == null) {
             throw new IllegalArgumentException("Received null cache directory");
         }
-        if (cacheDir.exists()) {
-            if (!cacheDir.isDirectory() || !cacheDir.canRead()) {
+        if (IOProviderFactory.exists(cacheDir)) {
+            if (!IOProviderFactory.isDirectory(cacheDir)
+                    || !IOProviderFactory.canRead(cacheDir)) {
                 throw new IllegalArgumentException("Invalid cache directory");
             }
-        } else if (!cacheDir.mkdirs()) {
+        } else if (!IOProviderFactory.mkdirs(cacheDir)) {
             throw new IllegalArgumentException(
                     "Failed to create cache directory.");
         }
@@ -57,8 +59,8 @@ public class FileCache
      **/
     public void flushStaleCache(final long staleness) // in milliseconds
     {
-        if (cacheDir.exists()) {
-            File[] files = cacheDir.listFiles();
+        if (IOProviderFactory.exists(cacheDir)) {
+            File[] files = IOProviderFactory.listFiles(cacheDir);
 
             if (files != null) {
                 final long now = System.currentTimeMillis();
@@ -69,7 +71,8 @@ public class FileCache
                     tryWithReservation(f, new Runnable() {
                         @Override
                         public void run() {
-                            long modTime = cacheFile.lastModified();
+                            long modTime = IOProviderFactory
+                                    .lastModified(cacheFile);
                             if (Math.abs(modTime - now) > staleness)
                                 FileSystemUtils.delete(cacheFile);
                         }
@@ -112,28 +115,20 @@ public class FileCache
      **/
     private void freshen(File f) {
         if (f != null
-                && f.exists()
+                && IOProviderFactory.exists(f)
                 && !f.setLastModified(System.currentTimeMillis())) {
             //
             // Hack to update the lastModified time.
             //
-            RandomAccessFile raf = null;
 
-            try {
-                raf = new RandomAccessFile(f, "rw");
+            try (RandomAccessFile raf = IOProviderFactory.getRandomAccessFile(f,
+                    "rw")) {
 
                 long length = raf.length();
 
                 raf.setLength(length + 1);
                 raf.setLength(length);
             } catch (IOException ignored) {
-            } finally {
-                if (raf != null) {
-                    try {
-                        raf.close();
-                    } catch (IOException ignored) {
-                    }
-                }
             }
         }
     }

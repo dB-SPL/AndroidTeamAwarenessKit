@@ -3,7 +3,6 @@ package com.atakmap.android.user;
 
 import android.app.Activity;
 
-import android.app.Service;
 import android.content.Context;
 import android.text.Editable;
 
@@ -30,13 +29,13 @@ public class CustomNamingView
 
     private static final String TAG = "CUSTOM_NAMING_VIEW";
 
-    private EditText _prefixET;
-    private EditText _startNumberET;
-    private ImageButton _resetButton;
-    private ImageButton _swapButton;
-    private MapView _mapView;
-    private LinearLayout _mainView;
-    private int _creatingPallet;
+    private final EditText _prefixET;
+    private final EditText _startNumberET;
+    private final ImageButton _resetButton;
+    private final ImageButton _swapButton;
+    private final MapView _mapView;
+    private final LinearLayout _mainView;
+    private final int _creatingPallet;
 
     public final static int DOTMAP = 0;
     public final static int VEHICLE = 1;
@@ -167,7 +166,7 @@ public class CustomNamingView
         } else {
             int count = 0;
             try {
-                count = Integer.valueOf(_startNumberET.getText().toString());
+                count = Integer.parseInt(_startNumberET.getText().toString());
             } catch (NumberFormatException nfe) {
                 Log.e(TAG, "Start Index edit text did not contain a number.",
                         nfe);

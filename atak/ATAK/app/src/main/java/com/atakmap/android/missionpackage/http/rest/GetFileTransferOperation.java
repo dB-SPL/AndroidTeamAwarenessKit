@@ -5,6 +5,7 @@ import android.app.Notification;
 import android.app.NotificationManager;
 import android.content.Context;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 
 import com.atakmap.android.filesharing.android.service.AndroidFileInfo;
@@ -25,6 +26,7 @@ import com.atakmap.app.R;
 import com.atakmap.comms.http.TakHttpClient;
 import com.atakmap.comms.http.TakHttpResponse;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.locale.LocaleUtil;
 import com.atakmap.coremap.log.Log;
 import com.foxykeep.datadroid.exception.ConnectionException;
@@ -36,9 +38,8 @@ import org.apache.http.HttpStatus;
 import org.apache.http.client.methods.HttpGet;
 
 import java.io.File;
-import java.io.FileOutputStream;
-import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 
 /**
  * REST Operation to GET an ATAK Mission Package Delay operation if previously failed Files(s) are
@@ -93,7 +94,7 @@ public final class GetFileTransferOperation extends HTTPOperation {
                 .getSystemService(Context.NOTIFICATION_SERVICE);
 
         Notification.Builder builder;
-        if (android.os.Build.VERSION.SDK_INT < 26) {
+        if (android.os.Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
             builder = new Notification.Builder(context);
         } else {
             builder = new Notification.Builder(context, "com.atakmap.app.def");
@@ -127,12 +128,13 @@ public final class GetFileTransferOperation extends HTTPOperation {
                     fileRequest.getFileTransfer().getUID());
             if (fileRequest.getRetryCount() > 1) {
                 // this is a retry, lets see if we pick up where previous attempt left off
-                if (temp.exists()
-                        && temp.length() > 0
-                        && temp.canWrite()
-                        && temp.length() < fileRequest.getFileTransfer()
+                if (IOProviderFactory.exists(temp)
+                        && IOProviderFactory.length(temp) > 0
+                        && IOProviderFactory.canWrite(temp)
+                        && IOProviderFactory.length(temp) < fileRequest
+                                .getFileTransfer()
                                 .getSize()) {
-                    existingLength = temp.length();
+                    existingLength = IOProviderFactory.length(temp);
                     bRestart = true;
                     Log.d(TAG, "Restarting download: "
                             + fileRequest.getFileTransfer().getName()
@@ -180,8 +182,6 @@ public final class GetFileTransferOperation extends HTTPOperation {
             response.verifyOk();
 
             // open up for writing
-            FileOutputStream fos = new FileOutputStream(temp, bRestart);
-
             // stream in content, keep user notified on progress
             builder.setProgress(100, 1, false);
             if (notifyManager != null)
@@ -195,9 +195,9 @@ public final class GetFileTransferOperation extends HTTPOperation {
             // if this is a restart, update initial content length
             progressTracker.setCurrentLength((bRestart ? existingLength : 0));
 
-            InputStream in = null;
-            try {
-                in = resEntity.getContent();
+            try (OutputStream fos = IOProviderFactory.getOutputStream(temp,
+                    bRestart);
+                    InputStream in = resEntity.getContent()) {
                 while ((len = in.read(buf)) > 0) {
                     fos.write(buf, 0, len);
 
@@ -235,14 +235,6 @@ public final class GetFileTransferOperation extends HTTPOperation {
                         progressTracker.notified(currentTime);
                     }
                 } // end read loop
-            } finally {
-                if (in != null) {
-                    try {
-                        in.close();
-                    } catch (IOException ignored) {
-                    }
-                }
-                fos.close();
             }
 
             // Now verify we got download correctly
@@ -257,7 +249,7 @@ public final class GetFileTransferOperation extends HTTPOperation {
                 throw new ConnectionException("Size or MD5 mismatch");
             }
 
-            long downloadSize = temp.length();
+            long downloadSize = IOProviderFactory.length(temp);
             Log.d(TAG, "File Transfer downloaded and verified");
 
             // update notification
@@ -377,9 +369,11 @@ public final class GetFileTransferOperation extends HTTPOperation {
                     fileInfo.setUserLabel(fileRequest.getFileTransfer()
                             .getName());
                     // TODO is this checked dynamically or cached when File is created?
-                    fileInfo.setSizeInBytes((int) savedMissionPackage.length());
+                    fileInfo.setSizeInBytes((int) IOProviderFactory
+                            .length(savedMissionPackage));
 
-                    fileInfo.setUpdateTime(savedMissionPackage.lastModified());
+                    fileInfo.setUpdateTime(IOProviderFactory
+                            .lastModified(savedMissionPackage));
 
                     // file size and hash was verified above, so lets use that rather than re-compute
                     String sha256 = fileRequest.getFileTransfer().getSHA256(

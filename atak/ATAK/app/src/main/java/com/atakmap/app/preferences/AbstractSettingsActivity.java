@@ -2,7 +2,6 @@
 package com.atakmap.app.preferences;
 
 import android.app.ActionBar;
-import android.app.Activity;
 import android.os.Bundle;
 import androidx.core.app.NavUtils;
 import android.view.MenuItem;
@@ -38,6 +37,7 @@ abstract public class AbstractSettingsActivity extends MetricActivity {
             actionBar.setTitle(ATAKConstants.getVersionName());
             actionBar.setSubtitle(getSubtitle());
             actionBar.setDisplayHomeAsUpEnabled(true);
+            actionBar.setIcon(ATAKConstants.getIcon());
         }
         AtakPreferenceFragment.setSoftKeyIllumination(this);
 
@@ -57,7 +57,7 @@ abstract public class AbstractSettingsActivity extends MetricActivity {
             try {
                 NavUtils.navigateUpFromSameTask(this);
             } catch (IllegalArgumentException iae) {
-                Log.d(TAG, "error occured", iae);
+                Log.d(TAG, "error occurred", iae);
                 finish();
             }
         }

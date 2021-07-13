@@ -34,6 +34,7 @@ import com.atakmap.android.video.ConnectionEntry.Protocol;
 import com.atakmap.android.video.manager.VideoManager;
 import com.atakmap.app.R;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
 
 import java.io.File;
 import java.util.List;
@@ -50,7 +51,7 @@ class VideoBrowserHierarchyListItem extends AbstractHierarchyListItem2
     protected final Context _context;
     protected final ConnectionEntry _entry;
     protected final URIContentHandler _handler;
-    private final VideoFolderHierarchyListItem _parent;
+    protected final VideoFolderHierarchyListItem _parent;
 
     VideoBrowserHierarchyListItem(MapView mapView, ConnectionEntry entry,
             VideoFolderHierarchyListItem parent) {
@@ -213,7 +214,8 @@ class VideoBrowserHierarchyListItem extends AbstractHierarchyListItem2
         }
     }
 
-    private static void addFiles(SendDialog.Builder b, ConnectionEntry entry) {
+    protected static void addFiles(SendDialog.Builder b,
+            ConnectionEntry entry) {
         Protocol p = entry.getProtocol();
         List<ConnectionEntry> children = entry.getChildren();
         if (p != Protocol.DIRECTORY || children == null) {
@@ -242,12 +244,12 @@ class VideoBrowserHierarchyListItem extends AbstractHierarchyListItem2
     }
 
     @Override
-    public boolean isSupported(Class target) {
+    public boolean isSupported(Class<?> target) {
         return MissionPackageExportWrapper.class.equals(target);
     }
 
     @Override
-    public Object toObjectOf(Class target, ExportFilters filters)
+    public Object toObjectOf(Class<?> target, ExportFilters filters)
             throws FormatNotSupportedException {
         if (_entry == null)
             return null;
@@ -257,8 +259,8 @@ class VideoBrowserHierarchyListItem extends AbstractHierarchyListItem2
             File file = _entry.getLocalFile();
             if (!FileSystemUtils.isFile(file))
                 return mp;
-            if (file.isDirectory()) {
-                File[] files = file.listFiles();
+            if (IOProviderFactory.isDirectory(file)) {
+                File[] files = IOProviderFactory.listFiles(file);
                 if (!FileSystemUtils.isEmpty(files)) {
                     for (File f : files)
                         mp.addFile(f);
@@ -277,7 +279,7 @@ class VideoBrowserHierarchyListItem extends AbstractHierarchyListItem2
         return true;
     }
 
-    private void promptDelete() {
+    protected void promptDelete() {
         if (!_entry.isRemote()) {
             // Check if the file can be deleted
             File f = _entry.getLocalFile();

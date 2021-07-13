@@ -1,8 +1,6 @@
 
 package com.atakmap.android.maps.graphics.widgets;
 
-import java.util.ArrayList;
-
 import android.graphics.Color;
 import android.graphics.PointF;
 
@@ -13,9 +11,11 @@ import com.atakmap.android.maps.graphics.GLFloatArray;
 import com.atakmap.android.maps.graphics.GLShape;
 import com.atakmap.android.maps.graphics.GLTriangle;
 import com.atakmap.android.widgets.AutoSizeAngleOverlayShape;
+import com.atakmap.android.widgets.AutoSizeAngleOverlayShape.OnPropertyChangedListener;
+import com.atakmap.annotations.DeprecatedApi;
 import com.atakmap.coremap.conversions.Angle;
 import com.atakmap.coremap.conversions.AngleUtilities;
-
+import com.atakmap.coremap.maps.coords.GeoBounds;
 import com.atakmap.coremap.maps.coords.GeoPoint;
 import com.atakmap.coremap.maps.coords.NorthReference;
 import com.atakmap.map.MapRenderer;
@@ -25,8 +25,14 @@ import com.atakmap.math.PointD;
 import com.atakmap.opengl.GLES20FixedPipeline;
 import com.atakmap.opengl.GLNinePatch;
 import com.atakmap.opengl.GLText;
-import com.atakmap.android.widgets.AutoSizeAngleOverlayShape.OnPropertyChangedListener;
 
+import java.util.ArrayList;
+
+/**
+ * @deprecated Use {@link com.atakmap.android.maps.graphics.GLAutoSizeAngleOverlay2}
+ */
+@Deprecated
+@DeprecatedApi(since = "4.2", forRemoval = true, removeAt = "4.5")
 public class GLAutoSizeAngleOverlay extends GLShape implements
         OnPointsChangedListener, OnPropertyChangedListener {
 
@@ -71,12 +77,6 @@ public class GLAutoSizeAngleOverlay extends GLShape implements
     }
 
     private boolean _projectVerts(final GLMapView ortho) {
-        boolean centerMoved = centerGP != sw.getCenter().get();
-        if (centerMoved) {
-            centerGP = sw.getCenter().get();
-            sw.getBounds(bounds);
-            OnBoundsChanged();
-        }
 
         ortho.scratch.geo.set(sw.getCenter().get());
         ortho.scratch.geo.set(GeoPoint.UNKNOWN);
@@ -88,13 +88,16 @@ public class GLAutoSizeAngleOverlay extends GLShape implements
         // Also check if the distance calculation returns NaN, otherwise we get some weird behavior
         // if globe display mode is enabled and the user zooms out to view the entire globe
         double dist = ortho.inverse(top).distanceTo(sw.getCenter().get());
-        if ((dist > 100000 && !centerMoved) || Double.isNaN(dist))
+        if ((dist > 100000 && !centerMoved) || Double.isNaN(dist)) {
             return false;
+        }
 
         offsetX = (float) Math.cos(Math.toRadians(sw.getOffsetAngle()))
                 * offset;
         offsetY = (float) Math.sin(Math.toRadians(sw.getOffsetAngle()))
                 * offset;
+
+        centerMoved = false;
 
         return true;
     }
@@ -731,13 +734,19 @@ public class GLAutoSizeAngleOverlay extends GLShape implements
 
     @Override
     public void onPointsChanged(Shape s) {
-        //if the subject has changed locations 
-        if (s != null && centerGP != s.getCenter().get()) {
-            centerGP = sw.getCenter().get();
-            sw.getBounds(bounds);
-            OnBoundsChanged();
-            invalid = true;
-        }
+        final GeoBounds newBounds = sw.getBounds(null);
+        final GeoPoint newCenter = sw.getCenter().get();
+        renderContext.queueEvent(new Runnable() {
+            @Override
+            public void run() {
+                //if the subject has changed locations
+                centerMoved = !centerGP.equals(newCenter);
+                centerGP = newCenter;
+                bounds.set(newBounds);
+                OnBoundsChanged();
+                invalid = true;
+            }
+        });
     }
 
     protected static final float LINE_WIDTH = (float) Math
@@ -757,9 +766,9 @@ public class GLAutoSizeAngleOverlay extends GLShape implements
     protected double offsetAngle = 0;
 
     protected boolean invalid = false;
+    protected boolean centerMoved = false;
 
     protected float radius = 300;
-    protected double groundRadius = 0;
 
     protected GLTriangle.Fan _verts;
 

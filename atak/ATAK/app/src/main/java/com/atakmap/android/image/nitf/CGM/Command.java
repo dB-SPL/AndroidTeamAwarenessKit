@@ -11,7 +11,6 @@ import com.atakmap.coremap.log.Log;
 import java.io.DataInput;
 import java.io.EOFException;
 import java.io.IOException;
-import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -34,7 +33,7 @@ public class Command {
     protected int currentByte;
 
     private static final String TAG = "CGM Command";
-    private DataInput data;
+    private final DataInput data;
 
     public Command(int elClass, int elID, int argCount, DataInput dataIn)
             throws IOException {

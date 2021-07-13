@@ -44,9 +44,9 @@ class TiltLockWidgetController implements
     private final MapView _mapView;
     private final CompassArrowWidget _compass;
 
-    private MarkerIconWidget _tiltWidget;
-    private MarkerIconWidget _pointerWidget;
-    private SliderWidget _sliderWidget;
+    private final MarkerIconWidget _tiltWidget;
+    private final MarkerIconWidget _pointerWidget;
+    private final SliderWidget _sliderWidget;
     private boolean _enableSlider = true;
     private GeoPoint _mapFocus;
 
@@ -60,6 +60,7 @@ class TiltLockWidgetController implements
                 .getComponentExtra("rootLayoutWidget");
         LayoutWidget layoutWidget = new LayoutWidget();
         layoutWidget.setName("TiltLockLayout");
+        layoutWidget.setTouchable(false);
         root.addWidget(layoutWidget);
 
         _tiltWidget = new MarkerIconWidget();
@@ -126,7 +127,8 @@ class TiltLockWidgetController implements
         if (cn.isUserOrientationEnabled())
             return SLIDER_ROTATE;
         else if (_prefs.getBoolean("status_3d_enabled", false)
-                && cn.getTiltEnabledState() == MapTouchController.STATE_TILT_ENABLED)
+                && cn.getTiltEnabledState() == MapTouchController.STATE_TILT_ENABLED
+                || _mapView.getMapTouchController().isFreeForm3DEnabled())
             return SLIDER_TILT;
         return SLIDER_HIDDEN;
     }
@@ -157,12 +159,19 @@ class TiltLockWidgetController implements
                 double tilt = v * 90d;
                 double maxTilt = _mapView.getMaxMapTilt(_mapView.getMapScale());
                 tilt = Math.min(tilt, maxTilt);
-                if (_mapFocus == null) {
+
+                GeoPoint focus = _mapFocus;
+                GeoPoint ffPoint = _mapView.getMapTouchController()
+                        .getFreeForm3DPoint();
+                if (ffPoint != null)
+                    focus = ffPoint;
+
+                if (focus == null) {
                     onMapWidgetPress(widget, event);
                 } else {
                     // map focus cannot be null here
                     _mapView.getMapController().tiltBy(tilt - curTilt,
-                            _mapFocus, true);
+                            focus, false);
                 }
             }
 

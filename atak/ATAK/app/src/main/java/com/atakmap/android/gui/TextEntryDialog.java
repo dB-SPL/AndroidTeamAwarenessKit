@@ -19,6 +19,7 @@ import android.widget.RelativeLayout;
 import android.widget.TextView;
 
 import com.atakmap.android.maps.MapView;
+import com.atakmap.annotations.DeprecatedApi;
 import com.atakmap.app.R;
 
 /**
@@ -54,6 +55,7 @@ public class TextEntryDialog {
      *             This must not be used outside frameworks/base/test-runner.
      */
     @Deprecated
+    @DeprecatedApi(since = "4.1", forRemoval = true, removeAt = "4.4")
     public interface Predicate<T> {
         boolean apply(T t);
     }
@@ -62,9 +64,9 @@ public class TextEntryDialog {
         void onEvent(TextEntryEvent event);
     }
 
-    private Context _context;
-    private AlertDialog.Builder _builder;
-    private Resources _resources;
+    private final Context _context;
+    private final AlertDialog.Builder _builder;
+    private final Resources _resources;
     private TextEntryEventListener _observer;
     private Predicate<String> _validator;
     private EditText _entry;
@@ -232,7 +234,7 @@ public class TextEntryDialog {
 
     public static class TextEntryEvent {
 
-        private String _text;
+        private final String _text;
 
         TextEntryEvent(@Nullable String text) {
             _text = text;

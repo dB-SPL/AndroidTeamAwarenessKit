@@ -15,8 +15,6 @@ import android.graphics.Canvas;
 import android.graphics.RectF;
 import android.opengl.GLUtils;
 
-import com.atakmap.coremap.log.Log;
-
 public class GLTextureAtlas {
 
     private final static Comparator<Rect> HORIZONTAL_FREE_COMPARATOR = new Comparator<Rect>() {
@@ -46,16 +44,16 @@ public class GLTextureAtlas {
     };
 
     private Map<String, Long> uriToKey;
-    private int texSize;
+    private final int texSize;
     private int freeIndex;
     private int currentTexId;
 
     private Map<Long, Rect> keyToIconRect;
-    private boolean splitFreeHorizontal;
+    private final boolean splitFreeHorizontal;
     private SortedSet<Rect> freeList;
 
     private final boolean fixedIconSize;
-    private int iconSize;
+    private final int iconSize;
 
     private static final String TAG = "GLTextureAtlas";
 
@@ -83,18 +81,19 @@ public class GLTextureAtlas {
 
         this.splitFreeHorizontal = splitHorizontal;
 
+        Comparator<Rect> comp;
         if (!this.fixedIconSize) {
             this.keyToIconRect = new HashMap<Long, Rect>();
 
-            Comparator<Rect> comp;
             if (this.splitFreeHorizontal)
                 comp = HORIZONTAL_FREE_COMPARATOR;
             else
                 comp = VERTICAL_FREE_COMPARATOR;
-            this.freeList = new TreeSet<Rect>(comp);
         } else {
             this.keyToIconRect = null;
+            comp = HORIZONTAL_FREE_COMPARATOR;
         }
+        this.freeList = new TreeSet<Rect>(comp);
     }
 
     /**
@@ -118,6 +117,7 @@ public class GLTextureAtlas {
         
         this.freeIndex = 0;
         this.currentTexId = 0;
+        this.freeList.clear();
     }
 
     /**
@@ -220,7 +220,7 @@ public class GLTextureAtlas {
         if (this.fixedIconSize) {
             final int index = this.getIndex(key);
             final int numIconCols = (this.texSize / this.iconSize);
-            rect.top = (index / numIconCols) * this.iconSize;
+            rect.top = (index / (float)numIconCols) * this.iconSize;
             rect.left = (index % numIconCols) * this.iconSize;
             rect.bottom = rect.top + this.iconSize - 1;
             rect.right = rect.left + this.iconSize - 1;

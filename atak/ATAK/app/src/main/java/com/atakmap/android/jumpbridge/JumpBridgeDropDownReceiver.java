@@ -1,7 +1,6 @@
 
 package com.atakmap.android.jumpbridge;
 
-import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -27,8 +26,8 @@ import com.atakmap.coremap.maps.coords.GeoPoint;
 
 public class JumpBridgeDropDownReceiver extends DropDownReceiver implements
         OnStateListener {
-    private View infoView;
-    private SharedPreferences _prefs;
+    private final View infoView;
+    private final SharedPreferences _prefs;
 
     protected JumpBridgeDropDownReceiver(MapView mapView) {
         super(mapView);
@@ -42,8 +41,6 @@ public class JumpBridgeDropDownReceiver extends DropDownReceiver implements
 
     @Override
     protected void disposeImpl() {
-        // TODO Auto-generated method stub
-
     }
 
     @Override

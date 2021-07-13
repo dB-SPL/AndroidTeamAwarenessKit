@@ -32,6 +32,11 @@ public class Vector3D {
         return X*v.X + Y*v.Y + Z*v.Z;
     }
 
+    public double dot(double vX, double vY, double vZ)
+    {
+        return X*vX + Y*vY + Z*vZ;
+    }
+
     public Vector3D normalize()
     {
         return this.multiply(1d / Math.sqrt(X*X + Y*Y + Z*Z));
@@ -43,5 +48,10 @@ public class Vector3D {
         return new Vector3D(a.Y*b.Z - a.Z*b.Y,
                             a.Z*b.X - a.X*b.Z,
                             a.X*b.Y - a.Y*b.X);
+    }
+
+    @Override
+    public String toString() {
+        return "Vector3D {" + X + "," + Y + "," + Z + "}";
     }
 }

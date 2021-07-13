@@ -1,6 +1,7 @@
 
 package com.atakmap.android.gdal.pfi;
 
+import com.atakmap.annotations.DeprecatedApi;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.map.layer.raster.DatasetDescriptor;
 import com.atakmap.map.layer.raster.gdal.GdalTileReader;
@@ -8,10 +9,12 @@ import com.atakmap.map.layer.raster.gdal.GdalTileReader;
 import org.gdal.gdal.Dataset;
 import org.gdal.gdal.gdal;
 
-import java.util.Iterator;
 import java.util.SortedMap;
 import java.util.TreeMap;
 
+/** @deprecated use available generic <code>TileReader</code> implementations */
+@Deprecated
+@DeprecatedApi(since = "4.1.1", forRemoval = true, removeAt = "4.4")
 public class PfiGdalTileReader extends GdalTileReader {
 
     public static final String TAG = "PfiGdalTileReader";

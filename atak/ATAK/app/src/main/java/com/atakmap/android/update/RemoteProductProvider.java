@@ -15,6 +15,7 @@ import com.atakmap.android.update.http.RepoIndexRequest;
 import com.atakmap.app.R;
 import com.atakmap.comms.http.TakHttpClient;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.DefaultIOProvider;
 import com.atakmap.coremap.locale.LocaleUtil;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.coremap.maps.time.CoordinatedTime;
@@ -24,7 +25,9 @@ import com.foxykeep.datadroid.exception.DataException;
 
 import org.apache.http.HttpStatus;
 
+import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileReader;
 import java.io.IOException;
 
 /**
@@ -111,6 +114,7 @@ public class RemoteProductProvider extends BaseProductProvider {
                     "Downloading remote repo index"));
         }
 
+        // set to false in order to perform testing against insecure http
         if (!updateUrl.toLowerCase(LocaleUtil.getCurrent())
                 .startsWith("https")) {
             clearLocalCache("Update Server must be HTTPs");
@@ -169,7 +173,7 @@ public class RemoteProductProvider extends BaseProductProvider {
         }
 
         final File index = FileSystemUtils.getItem(REMOTE_REPO_INDEX);
-        if (!FileSystemUtils.isFile(index)) {
+        if (!index.exists()) {
             throw new DataException("Failed to extract file: "
                     + index.getAbsolutePath());
         }
@@ -211,12 +215,12 @@ public class RemoteProductProvider extends BaseProductProvider {
 
         //if we failed to sync with the update server, lets delete the local index/cache
         File toDelete = FileSystemUtils.getItem(REMOTE_REPO_INDEX);
-        if (FileSystemUtils.isFile(toDelete)) {
-            FileSystemUtils.delete(toDelete);
+        if (toDelete.exists()) {
+            toDelete.delete();
         }
         toDelete = FileSystemUtils.getItem(REMOTE_REPOZ_INDEX);
-        if (FileSystemUtils.isFile(toDelete)) {
-            FileSystemUtils.delete(toDelete);
+        if (toDelete.exists()) {
+            toDelete.delete();
         }
 
         _cache = null;
@@ -256,12 +260,13 @@ public class RemoteProductProvider extends BaseProductProvider {
         final File oldInf = new File(dest, "product.inf");
         final File newInf = new File(dest, "product.orig");
 
-        if (!FileSystemUtils.renameTo(oldInf, newInf)) {
+        if (!FileSystemUtils.renameTo(oldInf, newInf,
+                new DefaultIOProvider())) {
             Log.w(TAG, "Cannot rename file: " + oldInf);
             return;
         }
         try {
-            FileSystemUtils.unzip(infz, dest, true);
+            FileSystemUtils.unzip(infz, dest, true, new DefaultIOProvider());
         } catch (IOException e) {
             Log.w(TAG, "Cannot extract file: " + infz.getAbsolutePath(), e);
             return;
@@ -275,16 +280,18 @@ public class RemoteProductProvider extends BaseProductProvider {
                 Log.d(TAG,
                         "repository information has changed, hashcodes do not match");
                 final File tmp = FileSystemUtils.moveToTemp(MapView
-                        .getMapView().getContext(), infz, true);
+                        .getMapView().getContext(), infz, true,
+                        new DefaultIOProvider());
 
-                FileSystemUtils.delete(dest);
+                dest.delete();
                 if (!dest.mkdirs()) {
                     Log.w(TAG,
                             "Cannot create repo index "
                                     + dest.getAbsolutePath());
                 }
 
-                if (!FileSystemUtils.renameTo(tmp, infz)) {
+                if (!FileSystemUtils.renameTo(tmp, infz,
+                        new DefaultIOProvider())) {
                     Log.w(TAG, "Cannot rename file: " + oldInf);
                 }
             } else {
@@ -305,27 +312,28 @@ public class RemoteProductProvider extends BaseProductProvider {
      * @return
      */
     public static boolean extract(File infz, File dest) {
-        if (!FileSystemUtils.isFile(infz)) {
+        if (infz == null || !infz.exists()) {
             Log.w(TAG,
                     "Cannot extract invalid file: " + infz.getAbsolutePath());
             return false;
         }
 
-        if (!dest.exists() && !dest.mkdirs()) {
+        if (!dest.exists()
+                && !dest.mkdirs()) {
             Log.w(TAG, "Cannot create repo index " + dest.getAbsolutePath());
         }
 
         cleanup(infz, dest);
 
         try {
-            FileSystemUtils.unzip(infz, dest, true);
+            FileSystemUtils.unzip(infz, dest, true, new DefaultIOProvider());
         } catch (IOException e) {
             Log.w(TAG, "Cannot extract file: " + infz.getAbsolutePath(), e);
             return false;
         }
 
         File index = new File(dest, AppMgmtUtils.REPO_INDEX_FILENAME);
-        if (!FileSystemUtils.isFile(index)) {
+        if (!index.exists()) {
             Log.w(TAG, "Failed to extract file: " + infz.getAbsolutePath());
             return false;
         }
@@ -404,6 +412,34 @@ public class RemoteProductProvider extends BaseProductProvider {
     @Override
     public boolean isRemote() {
         return true;
+    }
+
+    /**
+     * Override to convert to use java.io.FileReader outside of IO Abstraction
+     *
+     * @param repoType The type of repo; such as remote in this case
+     * @param repoIndex The file for the repo index
+     * @return The product repository
+     */
+    @Override
+    public ProductRepository parseRepo(String repoType, File repoIndex) {
+        ProductRepository repo = null;
+        try {
+            repo = ProductRepository.parseRepo(_context,
+                    repoIndex.getAbsolutePath(),
+                    repoType, new BufferedReader(new FileReader(repoIndex)));
+        } catch (IOException e) {
+            Log.w(TAG, "Failed parse: " + repoIndex.getAbsolutePath(), e);
+        }
+
+        if (repo != null && repo.isValid()) {
+            Log.d(TAG, "Updating local repo: " + repo.toString());
+        } else {
+            Log.d(TAG, "Clearing local repo: " + repoIndex);
+            repo = null;
+        }
+
+        return repo;
     }
 
     private void download(ProductInformation product, String repoApkUrl,

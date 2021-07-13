@@ -1,6 +1,8 @@
 
 package com.atakmap.android.elev.dt2;
 
+import com.atakmap.annotations.DeprecatedApi;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.coremap.maps.conversion.EGM96;
 
@@ -10,6 +12,7 @@ import com.atakmap.map.elevation.ElevationData;
 import com.atakmap.map.elevation.ElevationManager;
 import com.atakmap.map.layer.raster.ImageInfo;
 import com.atakmap.math.Rectangle;
+import com.atakmap.util.zip.IoUtils;
 
 import java.io.File;
 import java.io.IOException;
@@ -23,7 +26,11 @@ import java.util.Iterator;
  * This class provides access to elevation data stored in DTED files that reside on the ATAK device.
  * This class assumes that the directory structure for the DTED on the Android is correct and does
  * not make an attempt to move or copy files. The methods in this class are not thread safe.
+ *
+ * @deprecated This code is obsolete. Use {@link ElevationManager} instead.
  */
+@Deprecated
+@DeprecatedApi(since = "4.1", forRemoval = true, removeAt = "4.4")
 public class Dt2ElevationModel {
 
     public static final String TAG = "Dt2ElevationModel";
@@ -61,8 +68,10 @@ public class Dt2ElevationModel {
      * @param longitude A double containing the longitude to be queried in decimal degrees.
      * @return An altitude object in HAE from the highest available DTED level.
      *
-     * @deprecated Use {@link ElevationManager}
+     * @deprecated Use {@link ElevationManager#getElevation(double, double, ElevationManager.QueryParameters, GeoPointMetaData)}
      */
+    @Deprecated
+    @DeprecatedApi(since = "4.1", removeAt = "4.4")
     public GeoPointMetaData queryPoint(final double latitude,
             final double longitude) {
 
@@ -272,7 +281,7 @@ public class Dt2ElevationModel {
     static double _fromDtXFile(File file, double lat, double lng) {
         RandomAccessFile raf = null;
         try {
-            raf = new RandomAccessFile(file, "r");
+            raf = IOProviderFactory.getRandomAccessFile(file, "r");
             return _getHeight(raf, lat, lng);
         } catch (Exception e) {
             Log.e(TAG,
@@ -280,14 +289,8 @@ public class Dt2ElevationModel {
                             + file.getAbsolutePath(),
                     e);
         } finally {
-            if (raf != null) {
-                try {
-                    raf.close();
-                } catch (IOException e) {
-                    Log.e(TAG, "Error closing file: " + file.getAbsolutePath(),
-                            e);
-                }
-            }
+            IoUtils.close(raf, TAG,
+                    "Error closing file: " + file.getAbsolutePath());
         }
         return GeoPoint.UNKNOWN;
     }
@@ -311,7 +314,7 @@ public class Dt2ElevationModel {
         RandomAccessFile raf = null;
 
         try {
-            raf = new RandomAccessFile(file, "r");
+            raf = IOProviderFactory.getRandomAccessFile(file, "r");
 
             raf.skipBytes(_NUM_LNG_LINES_OFFSET);
             byte[] bytes = {
@@ -424,48 +427,8 @@ public class Dt2ElevationModel {
                 points.next();
             }
         } finally {
-            if (raf != null) {
-                try {
-                    raf.close();
-                } catch (IOException ioe) {
-                    Log.e(TAG, "Error closing file: " + file.getAbsolutePath(),
-                            ioe);
-                }
-            }
+            IoUtils.close(raf, TAG,
+                    "Error closing file: " + file.getAbsolutePath());
         }
-    }
-
-    static String _makeFileName(final double lat, final double lng) {
-        StringBuilder p = new StringBuilder();
-
-        int lngIndex = (int) lng;
-        if (lng >= 0) {
-            p.append("e");
-        } else {
-            p.append("w");
-            lngIndex = -lngIndex + 1;
-        }
-        if (lngIndex < 10)
-            p.append("00");
-        else if (lngIndex < 100)
-            p.append("0");
-        p.append(lngIndex);
-
-        p.append(File.separator);
-
-        int latIndex = (int) lat;
-        if (lat >= 0) {
-            p.append("n");
-        } else {
-            p.append("s");
-            latIndex = -latIndex + 1;
-        }
-
-        if (latIndex < 10)
-            p.append("0");
-
-        p.append(latIndex);
-
-        return p.toString();
     }
 }

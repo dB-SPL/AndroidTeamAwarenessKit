@@ -11,8 +11,6 @@ import android.widget.TextView;
 
 import android.net.ConnectivityManager;
 
-import java.lang.reflect.Method;
-import java.lang.reflect.InvocationTargetException;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.android.gui.HintDialogHelper;
 
@@ -49,8 +47,8 @@ class DozeManagement {
     private static final String ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS = "android.settings.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS";
     private static final String LAUNCH_DATA_USAGE = "com.atakmap.app.doze.LaunchDataUsage";
 
-    private static int NETWORK_NOTIFICATION = 3365188;
-    private static int PS_NOTIFICATION = 3365189;
+    private static final int NETWORK_NOTIFICATION = 3365188;
+    private static final int PS_NOTIFICATION = 3365189;
 
     private static BroadcastReceiver nwRestrictionChange;
     private static BroadcastReceiver psRestrictionChange;
@@ -169,7 +167,7 @@ class DozeManagement {
 
     static private boolean isIgnoringBatteryOptimizations(Context context,
             String packageName) {
-        if (Build.VERSION.SDK_INT > 23) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             final PowerManager pm = (PowerManager) context
                     .getSystemService(Context.POWER_SERVICE);
             if (pm != null)
@@ -179,7 +177,7 @@ class DozeManagement {
     }
 
     static private boolean isPowerSaveMode(Context context) {
-        if (Build.VERSION.SDK_INT > 23) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             final PowerManager pm = (PowerManager) context
                     .getSystemService(Context.POWER_SERVICE);
             if (pm != null)
@@ -192,7 +190,7 @@ class DozeManagement {
     static private void checkAndWarnRestrictingBackgroundData(
             final Context context) {
 
-        if (android.os.Build.VERSION.SDK_INT < 24) {
+        if (android.os.Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {
             return;
         }
 
@@ -258,7 +256,7 @@ class DozeManagement {
 
     private static void launchDataUsageScreen(final Context context) {
 
-        if (android.os.Build.VERSION.SDK_INT < 24) {
+        if (android.os.Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {
             return;
         }
 

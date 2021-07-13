@@ -40,6 +40,8 @@ public class DaeModelInfoSpi implements ModelInfoSpi {
     static final int X_UP = 2;
     static final int Z_UP = 3;
 
+    private static final int MAX_SCANNER_SIZE = 128 * 1024;
+
 
     public static final String TAG = "DaeModelInfoSpi";
 
@@ -161,7 +163,12 @@ public class DaeModelInfoSpi implements ModelInfoSpi {
             info.altitudeMode = parseAltMode(altMode);
 
             String modelPath = getTextContent(model, new String[]{"Link", "href"});
-            info.uri = kmlFile.getParentFile().getPath() + File.separator + modelPath;
+            String parentPath = kmlFile.getParentFile().getPath();
+            if (parentPath.contains(".kmz/")) {
+                int endOfParentPath = parentPath.indexOf(".kmz/") + 5;
+                parentPath = parentPath.substring(0, endOfParentPath);
+            }
+            info.uri = parentPath + File.separator + modelPath;
 
             int upAxis = determineUpAxis(info.uri);
             if (upAxis == DOES_NOT_EXIST) {
@@ -281,7 +288,7 @@ public class DaeModelInfoSpi implements ModelInfoSpi {
                         if(targetHref == null || sourceHref == null)
                             continue;
                         if(info.resourceMap == null)
-                            info.resourceMap = new HashMap<String, String>();
+                            info.resourceMap = new HashMap<>();
                         info.resourceMap.put(sourceHref, targetHref);
                     }
                 }
@@ -299,7 +306,7 @@ public class DaeModelInfoSpi implements ModelInfoSpi {
         Set<ModelInfo> result = new HashSet<>();
         for (File f : daeFiles) {
             ModelInfo info = new ModelInfo();
-            if (name.endsWith(".zip"))
+            if (FileSystemUtils.checkExtension(name, "zip"))
                 info.uri = "zip://" + f.getAbsolutePath();
             else
                 info.uri = f.getAbsolutePath();
@@ -328,8 +335,7 @@ public class DaeModelInfoSpi implements ModelInfoSpi {
     public Set<ModelInfo> create(String path) {
         try {
             File file = new File(path);
-            String lowerName = file.getName().toLowerCase(LocaleUtil.getCurrent());
-            if (lowerName.endsWith(".kmz")) {
+            if (FileSystemUtils.checkExtension(file, "kmz")) {
                 // Geospatial DAE (requires doc.kml)
                 ZipVirtualFile zf = new ZipVirtualFile(path);
                 List<File> kmlFiles = ModelFileUtils.findFiles(zf, Collections.singleton("kml"));
@@ -340,8 +346,10 @@ public class DaeModelInfoSpi implements ModelInfoSpi {
                         ZipVirtualFile zvfKmlFile = new ZipVirtualFile(kmlFile);
                         is = zvfKmlFile.openStream();
                         long start = System.currentTimeMillis();
-                        Scanner scanner = new Scanner(is);
-                        String asset = scanner.findWithinHorizon("<href>[\\s\\S]*(.dae|.DAE)<\\/href>", 0);
+                        final Scanner scanner = new Scanner(is);
+                        String asset = scanner.findWithinHorizon("<href>[\\s\\S]*(.dae|.DAE)<\\/href>", MAX_SCANNER_SIZE);
+                        scanner.close();
+
                         Log.d(TAG, "initial scan for a referenced dae file: " + kmlFile + " " + (System.currentTimeMillis() - start) + "ms");
                         if (asset != null) {
                             Log.d(TAG, "found a reference to a dae in" + kmlFile);
@@ -355,7 +363,7 @@ public class DaeModelInfoSpi implements ModelInfoSpi {
                                 if (xmlis != null) {
                                     try {
                                         xmlis.close();
-                                    } catch (Exception e) {
+                                    } catch (Exception ignored) {
                                     }
                                 }
                             }
@@ -370,35 +378,32 @@ public class DaeModelInfoSpi implements ModelInfoSpi {
                     }
                 }
                 return modelInfos(models);
-            } else if (lowerName.endsWith(".zip")) {
+            } else if (FileSystemUtils.checkExtension(file, "zip")) {
                 // Zipped DAE (no geospatial info)
                 ZipVirtualFile zf = new ZipVirtualFile(path);
                 List<File> daeFiles = ModelFileUtils.findFiles(zf,
                         Collections.singleton("dae"));
                 return modelInfos(file.getName(), daeFiles);
-            } else if (lowerName.endsWith(".dae")) {
+            } else if (FileSystemUtils.checkExtension(file, "dae")) {
                 // Single DAE file
                 return modelInfos(file.getName(),
                         Collections.singletonList(file));
             }
-        } catch (IllegalArgumentException iae) {
+        } catch (IllegalArgumentException | IOException iae) {
             // occurs when a corrupt zip file is opened or something that is not a zip file
             Log.e(TAG, "error", iae);
-        } catch (IOException e) {
-            Log.e(TAG, "error", e);
         }
 
         return null;
     }
 
     private static int determineUpAxis(String uri) {
-        InputStream inputStream = null;
-        try {
-            inputStream = ModelFileUtils.openInputStream(uri);
+        try (InputStream inputStream = ModelFileUtils.openInputStream(uri)) {
             if (inputStream == null)
                 return DOES_NOT_EXIST;
-            Scanner scanner = new Scanner(inputStream);
-            String asset = scanner.findWithinHorizon("<asset>[\\s\\S]*?<\\/asset>", 5 * 1024);
+            final Scanner scanner = new Scanner(inputStream);
+            String asset = scanner.findWithinHorizon("<asset>[\\s\\S]*?<\\/asset>", MAX_SCANNER_SIZE);
+            scanner.close();
             if (asset != null) {
                 Document doc = ModelFileUtils.parseXML(new ByteArrayInputStream(asset.getBytes()));
                 if (doc != null) {
@@ -419,13 +424,6 @@ public class DaeModelInfoSpi implements ModelInfoSpi {
             }
         } catch (Exception e) {
             // undetermined
-        } finally {
-            if (inputStream != null) {
-                try {
-                    inputStream.close();
-                } catch (IOException ignored) {
-                }
-            }
         }
         return UNDETERMINED;
     }

@@ -10,8 +10,11 @@ import android.graphics.Rect;
 import android.graphics.RectF;
 
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.lang.Unsafe;
+import com.atakmap.map.gdal.GdalLibrary;
+import com.atakmap.map.gdal.VSIFileFileSystemHandler;
 
 import org.gdal.gdal.Dataset;
 import org.gdal.gdal.Driver;
@@ -49,7 +52,7 @@ public class TiledCanvas extends Canvas {
     public TiledCanvas(final File file, final int tileWidth,
             final int tileHeight) {
         _file = file;
-        Dataset ds = gdal.Open(_file.getAbsolutePath(),
+        Dataset ds = GdalLibrary.openDatasetFromFile(_file,
                 gdalconst.GA_ReadOnly);
         if (ds != null) {
             _fullWidth = ds.GetRasterXSize();
@@ -137,7 +140,7 @@ public class TiledCanvas extends Canvas {
     public Bitmap readTile(int x, int y, int width, int height) {
         if (!_valid)
             return null;
-        Dataset ds = gdal.Open(_file.getAbsolutePath(),
+        Dataset ds = GdalLibrary.openDatasetFromFile(_file,
                 gdalconst.GA_ReadOnly);
         if (ds == null)
             return null;
@@ -187,7 +190,7 @@ public class TiledCanvas extends Canvas {
             x *= _tileWidth;
             y *= _tileHeight;
         }
-        Dataset ds = gdal.Open(_file.getAbsolutePath(),
+        Dataset ds = GdalLibrary.openDatasetFromFile(_file,
                 gdalconst.GA_Update);
         if (ds == null)
             return false;
@@ -214,7 +217,8 @@ public class TiledCanvas extends Canvas {
         Dataset dsIn = null, dsOut = null;
         try {
             // Open input file
-            dsIn = gdal.Open(_file.getAbsolutePath(), gdalconst.GA_ReadOnly);
+            dsIn = GdalLibrary.openDatasetFromFile(_file,
+                    gdalconst.GA_ReadOnly);
             if (dsIn == null)
                 return false;
 
@@ -223,9 +227,12 @@ public class TiledCanvas extends Canvas {
             if (driver == null)
                 return false;
 
-            if (file.exists())
+            if (IOProviderFactory.exists(file))
                 FileSystemUtils.delete(file);
-            dsOut = driver.CreateCopy(file.getAbsolutePath(), dsIn, options);
+            String dstPath = file.getAbsolutePath();
+            if (!IOProviderFactory.isDefault())
+                dstPath = VSIFileFileSystemHandler.PREFIX + dstPath;
+            dsOut = driver.CreateCopy(dstPath, dsIn, options);
             return dsOut != null;
         } finally {
             // Close everything
@@ -254,7 +261,7 @@ public class TiledCanvas extends Canvas {
     public Bitmap createThumbnail(int width, int height) {
         if (!_valid)
             return null;
-        Dataset ds = gdal.Open(_file.getAbsolutePath(),
+        Dataset ds = GdalLibrary.openDatasetFromFile(_file,
                 gdalconst.GA_ReadOnly);
         if (ds == null)
             return null;
@@ -320,7 +327,7 @@ public class TiledCanvas extends Canvas {
         Dataset ds = null;
         try {
             // Open input file
-            ds = gdal.Open(_file.getAbsolutePath(), gdalconst.GA_Update);
+            ds = GdalLibrary.openDatasetFromFile(_file, gdalconst.GA_Update);
             if (ds == null)
                 return false;
             // Copy data

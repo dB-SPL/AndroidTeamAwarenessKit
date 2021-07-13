@@ -11,6 +11,7 @@
 #include "model/MeshTransformer.h"
 #include "math/Utils.h"
 #include "core/ProjectionFactory3.h"
+#include "util/URI.h"
 
 using namespace TAK::Engine::Model;
 using namespace TAK::Engine::Util;
@@ -74,8 +75,8 @@ namespace {
         const C3DTTile *tile;
     };
 
-    struct ParseArgs {
-        ParseArgs()
+    struct TilesetParser {
+        TilesetParser()
             : result(nullptr, nullptr)
         {}
 
@@ -86,7 +87,6 @@ namespace {
         ScenePtr result;
     };
 
-    bool isB3DM(const char *URI, String &baseURI) NOTHROWS;
     TAKErr parseVisitor(void* opaque, const C3DTTileset* tileset, const C3DTTile* tile) NOTHROWS;
     TAKErr spatiallyPartition(std::shared_ptr<C3DTSceneNode> &node, size_t perNodeLimit) NOTHROWS;
 }
@@ -113,33 +113,45 @@ int Cesium3DTilesSceneSpi::getPriority() const NOTHROWS {
 
 TAKErr Cesium3DTilesSceneSpi::create(ScenePtr& scene, const char* URI, ProcessingCallback* callbacks, const Collection<ResourceAlias>* resourceAliases) const NOTHROWS {
 
-    DataInput2Ptr inputPtr(nullptr, nullptr);
     TAKErr code = TE_Unsupported;
-    
-    String baseURI;
+    TAK::Engine::Port::String tilesetURI;
+    TAK::Engine::Port::String fileURI;
+    TAK::Engine::Port::String baseURI;
+    C3DTFileType type;
+    bool isStreamingValue = false;
 
-    if (isB3DM(URI, baseURI)) {
-        code = IO_openFileV(inputPtr, URI);
-        if (code != TE_Ok)
-            return code;
+    // catches nullptr URI
+    code = C3DT_probeSupport(&type, &fileURI, &tilesetURI, &baseURI, &isStreamingValue, URI);
+    if (code != TE_Ok)
+        return code;
 
-        code = B3DM_parse(scene, inputPtr.get(), baseURI.get());
-    } else {
-        ParseArgs args;
+    DataInput2Ptr input(nullptr, nullptr);
+    code = URI_open(input, fileURI);
+    if (code != TE_Ok)
+        return code;
+
+    if (type == C3DTFileType_TilesetJSON) {
+        TilesetParser args;
         args.callbacks = callbacks;
         args.resourceAliases = resourceAliases;
+        args.baseURI = baseURI;
 
-        code = C3DTTileset_open(inputPtr, &args.baseURI, nullptr, URI);
-        if (code != TE_Ok)
-            return code;
-
-        code = C3DTTileset_parse(inputPtr.get(), &args, parseVisitor);
+        code = C3DTTileset_parse(input.get(), &args, parseVisitor);
         if (code == TE_Ok) {
             code = spatiallyPartition(static_cast<C3DTScene*>(args.result.get())->root, 10);
             TE_CHECKRETURN_CODE(code);
             scene = std::move(args.result);
         }
+    } else if (type == C3DTFileType_B3DM) {
+        code = B3DM_parse(scene, input.get(), baseURI.get());
+    } else {
+        code = TE_Unsupported;
     }
+
+    if (input) {
+        input->close();
+    }
+
     return code;
 }
 
@@ -332,8 +344,7 @@ namespace {
 
     TAKErr parseVisitor(void* opaque, const C3DTTileset* tileset, const C3DTTile* tile) NOTHROWS {
 
-        auto *args = static_cast<ParseArgs *>(opaque);
-        
+        TilesetParser *args = static_cast<TilesetParser *>(opaque);       
         std::shared_ptr<C3DTSceneNode> node = std::make_shared<C3DTSceneNode>();
         
         if (!args->result) {
@@ -354,16 +365,21 @@ namespace {
 
         if (tile->hasTransform) {
             node->hasLocalFrame = true;
-            for (size_t r = 0; r < 4; ++r)
+            /*for (size_t r = 0; r < 4; ++r)
                 for (size_t c = 0; c < 4; ++c)
-                    node->localFrame.set(r, c, tile->transform[r * 4 + c]);
+                    node->localFrame.set(r, c, tile->transform[r * 4 + c]);*/
+            node->localFrame = tile->transform;
         }
 
         C3DTTileset_approximateTileBounds(&node->aabb, tile);
 
         if (tile->content.uri.get() != nullptr && tile->content.uri != "") {
             TAK::Engine::Port::StringBuilder fullURI;
-            if (TAK::Engine::Port::StringBuilder_combine(fullURI, args->baseURI, TAK::Engine::Port::Platform_pathSep(), tile->content.uri) != TE_Ok) {
+            
+            if (TAK::Engine::Port::String_endsWith(args->baseURI, "/") || TAK::Engine::Port::String_endsWith(args->baseURI, "\\")) {
+                if (TAK::Engine::Port::StringBuilder_combine(fullURI, args->baseURI, tile->content.uri) != TE_Ok)
+                    return TE_Err;
+            } else if (TAK::Engine::Port::StringBuilder_combine(fullURI, args->baseURI, TAK::Engine::Port::Platform_pathSep(), tile->content.uri) != TE_Ok) {
                 return TE_Err;
             }
 
@@ -372,46 +388,41 @@ namespace {
             Matrix2 localFrame;
             GeoPoint2 locPoint;
 
-            if (B3DM_getSRID() == 4978) {
-                Matrix2 locTransform;
-                C3DTTileset_accumulate(&locTransform, tile);
+            Matrix2 locTransform;
+            C3DTTileset_accumulate(&locTransform, tile);
 
-                Envelope2 node_aabb;
-                B3DMInfo b3dmInfo;
-                DataInput2Ptr inputPtr(nullptr, nullptr);
-                IO_openFileV(inputPtr, fullURI.c_str());
-                B3DM_parseInfo(&b3dmInfo, inputPtr.get(), args->baseURI);
+            Envelope2 node_aabb;
+            B3DMInfo b3dmInfo;
+            DataInput2Ptr inputPtr(nullptr, nullptr);
+            TAKErr code = URI_open(inputPtr, fullURI.c_str());
+            if (code != TE_Ok)
+                return code;
+            code = B3DM_parseInfo(&b3dmInfo, inputPtr.get(), args->baseURI);
+            if (code != TE_Ok)
+                return code;
 
-                MeshTransformOptions aabb_src;
-                aabb_src.srid = 4326;
+            MeshTransformOptions aabb_src;
+            aabb_src.srid = 4326;
 
-                MeshTransformOptions aabb_dst;
-                aabb_dst.srid = 4978;
+            MeshTransformOptions aabb_dst;
+            aabb_dst.srid = 4978;
 
-                // XXX-- Mesh_transform for aabb's lla -> ECEF not as expected since lla is a polar coordinate system
-                // and so the AABB volume isn't a uniform box, but instead is a cut out of a sphere. We really
-                // just want the ground level x, y, and z of ECEF volume
-                Envelope2 groundedAABB = node->aabb;
-                groundedAABB.maxZ = groundedAABB.minZ;
+            // XXX-- Mesh_transform for aabb's lla -> ECEF not as expected since lla is a polar coordinate system
+            // and so the AABB volume isn't a uniform box, but instead is a cut out of a sphere. We really
+            // just want the ground level x, y, and z of ECEF volume
+            Envelope2 groundedAABB = node->aabb;
+            groundedAABB.maxZ = groundedAABB.minZ;
 
-                Mesh_transform(&node_aabb, groundedAABB, aabb_src, aabb_dst);
+            Mesh_transform(&node_aabb, groundedAABB, aabb_src, aabb_dst);
 
-                Projection2Ptr proj(nullptr, nullptr);
-                TAKErr code = ProjectionFactory3_create(proj, 4978);
-                TE_CHECKRETURN_CODE(code);
+            Projection2Ptr proj(nullptr, nullptr);
+            code = ProjectionFactory3_create(proj, 4978);
+            TE_CHECKRETURN_CODE(code);
 
-                proj->inverse(&locPoint, b3dmInfo.rtcCenter);
+            proj->inverse(&locPoint, b3dmInfo.rtcCenter);
 
-                node->subsceneInfo->srid = 4978;
-                node->subsceneInfo->aabb = Envelope2Ptr(new Envelope2(node_aabb), Memory_deleter_const<Envelope2>);
-            }
-            else {
-                Envelope2 node_aabb = node->aabb;
-                locPoint.latitude  = (node_aabb.minY + node_aabb.maxY) / 2.0;
-                locPoint.longitude = (node_aabb.minX + node_aabb.maxX) / 2.0;
-                node->subsceneInfo->srid = 4326;
-            }
-
+            node->subsceneInfo->srid = 4978;
+            node->subsceneInfo->aabb = Envelope2Ptr(new Envelope2(node_aabb), Memory_deleter_const<Envelope2>);
             node->subsceneInfo->aabb = Envelope2Ptr(new Envelope2(aabb), Memory_deleter_const<Envelope2>);
             node->subsceneInfo->uri = fullURI.c_str();
             node->subsceneInfo->localFrame = Matrix2Ptr(new Matrix2(localFrame), Memory_deleter_const<Matrix2>);
@@ -494,17 +505,5 @@ namespace {
         }
 
         return code;
-    }
-
-    bool isB3DM(const char* URI, String& baseURI) NOTHROWS {
-        const char *ext = strrchr(URI, '.');
-        if (!ext)
-            return false;
-        int cmp = -1;
-        String_compareIgnoreCase(&cmp, ext, ".b3dm");
-        if (cmp != 0)
-            return false;
-        IO_getParentFile(baseURI, URI);
-        return true;
     }
 }

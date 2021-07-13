@@ -1,7 +1,6 @@
 
 package com.atakmap.android.cot;
 
-import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Context;
 import android.content.DialogInterface;
@@ -191,8 +190,7 @@ public class TadilJListActivity extends MetricActivity {
 
         ListView listView = findViewById(R.id.id_list);
 
-        db = TadilJContactDatabase.getInstance(MapView.getMapView()
-                .getContext());
+        db = TadilJContactDatabase.getInstance();
         List<Contact> storedContacts = db.getContacts();
         for (Contact contact : storedContacts) {
             if (contact instanceof TadilJContact)

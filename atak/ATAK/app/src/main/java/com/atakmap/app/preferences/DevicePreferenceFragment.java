@@ -11,19 +11,21 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.os.Bundle;
-import android.os.FileObserver;
 import android.preference.CheckBoxPreference;
 import android.preference.ListPreference;
 import android.preference.Preference;
 import android.preference.PreferenceCategory;
 import android.text.SpannableString;
 import android.text.style.ForegroundColorSpan;
+
+import com.atakmap.os.FileObserver;
 import com.atakmap.android.gui.PanEditTextPreference;
 import com.atakmap.android.ipc.AtakBroadcast;
 import com.atakmap.android.preference.AtakPreferenceFragment;
 import com.atakmap.android.preference.PreferenceSearchIndex;
 import com.atakmap.app.R;
 import com.atakmap.app.ATAKDatabaseHelper;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
 
 import com.atakmap.android.cot.NetworkGPSPreferenceFragment;
@@ -402,7 +404,8 @@ public class DevicePreferenceFragment extends AtakPreferenceFragment {
 
         void loadFiles() {
             File configDirectory = new File(PreferenceControl.DIRPATH);
-            String[] files = configDirectory.list(new ConfigFilter());
+            String[] files = IOProviderFactory.list(configDirectory,
+                    new ConfigFilter());
             if (files == null || files.length == 0) {
                 SpannableString msg = new SpannableString(
                         getString(R.string.preferences_text467));
@@ -419,7 +422,8 @@ public class DevicePreferenceFragment extends AtakPreferenceFragment {
 
         void loadPartialFiles() {
             File configDirectory = new File(PreferenceControl.DIRPATH);
-            String[] files = configDirectory.list(new ConfigFilter());
+            String[] files = IOProviderFactory.list(configDirectory,
+                    new ConfigFilter());
             if (files == null || files.length == 0) {
                 SpannableString msg = new SpannableString(
                         getString(R.string.preferences_text467));

@@ -1,5 +1,7 @@
 package com.atakmap.map.layer.model.obj;
 
+import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.locale.LocaleUtil;
 import com.atakmap.io.ZipVirtualFile;
 import com.atakmap.map.layer.model.ModelInfo;
@@ -7,8 +9,6 @@ import com.atakmap.map.layer.model.ModelInfoSpi;
 import com.atakmap.coremap.log.Log;
 
 import java.io.File;
-import java.io.FileReader;
-import java.io.IOException;
 import java.io.Reader;
 import java.util.Collections;
 import java.util.Set;
@@ -50,20 +50,18 @@ public final class ObjModelInfoSpi implements ModelInfoSpi {
 
     private boolean isSupported(String uri, File[] f) {
         f[0] = new File(uri);
-        if(f[0].getName().endsWith(".zip") || f[0].getAbsolutePath().contains(".zip")) {
+        if(FileSystemUtils.isZipPath(uri)) {
             try {
                 File entry = ObjUtils.findObj(new ZipVirtualFile(f[0]));
                 if (entry != null)
                     f[0] = entry;
             } catch(IllegalArgumentException ignored) {}
-        } else if(!f[0].exists())
+        } else if(!IOProviderFactory.exists(f[0]))
             return false;
         if(!f[0].getName().toLowerCase(LocaleUtil.getCurrent()).endsWith(".obj"))
             return false;
 
-        Reader reader = null;
-        try {
-            reader = ObjUtils.open(f[0].getAbsolutePath());
+        try(Reader reader = ObjUtils.open(f[0].getAbsolutePath())) {
 
             if (reader == null)
                 return false;
@@ -201,11 +199,6 @@ public final class ObjModelInfoSpi implements ModelInfoSpi {
         } catch(Throwable t) {
             Log.d(TAG, "error reading .obj file: " + uri, t);
             return false;
-        } finally {
-            if(reader != null)
-                try {
-                    reader.close();
-                } catch(Throwable ignored) {}
         }
     }
 }

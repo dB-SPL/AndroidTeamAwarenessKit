@@ -2,6 +2,7 @@
 package com.atakmap.spatial.kml;
 
 import android.graphics.Color;
+import android.util.Xml;
 
 import com.atakmap.android.importexport.ExportFilters;
 import com.atakmap.android.importexport.Exportable;
@@ -11,12 +12,16 @@ import com.atakmap.android.maps.MapItem;
 import com.atakmap.android.track.crumb.CrumbPoint;
 import com.atakmap.coremap.conversions.ConversionFactors;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
+import com.atakmap.coremap.locale.LocaleUtil;
 import com.atakmap.coremap.log.Log;
-
 import com.atakmap.coremap.maps.coords.GeoPoint;
 import com.atakmap.coremap.maps.coords.GeoPointMetaData;
-
+import com.atakmap.map.layer.feature.Feature.AltitudeMode;
 import com.atakmap.spatial.file.export.KMZFolder;
+import com.atakmap.util.zip.IoUtils;
+import com.atakmap.util.zip.ZipEntry;
+import com.atakmap.util.zip.ZipFile;
 import com.ekito.simpleKML.model.Boundary;
 import com.ekito.simpleKML.model.Coordinate;
 import com.ekito.simpleKML.model.Coordinates;
@@ -42,28 +47,26 @@ import com.ekito.simpleKML.model.Track;
 
 import org.simpleframework.xml.Serializer;
 import org.simpleframework.xml.core.Persister;
+import org.xmlpull.v1.XmlPullParser;
+import org.xmlpull.v1.XmlPullParserException;
 
 import java.io.BufferedWriter;
 import java.io.File;
-import java.io.FileOutputStream;
-import java.io.FileWriter;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.text.DecimalFormat;
-
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.Enumeration;
 import java.util.List;
-import com.atakmap.coremap.locale.LocaleUtil;
 import java.util.TimeZone;
 import java.util.UUID;
-import java.util.zip.ZipEntry;
 import java.util.zip.ZipException;
-import java.util.zip.ZipFile;
 
 /**
  * Utilities for extracting relevant data from a KML Convert data to/from KML
@@ -74,7 +77,7 @@ public class KMLUtil {
 
     private static final String TAG = "KMLUtil";
 
-    public static final long MIN_NETWORKLINK_INTERVAL_SECS = 30; // 30 seconds
+    public static final long MIN_NETWORKLINK_INTERVAL_SECS = 10; // 10 seconds
     public static final long DEFAULT_NETWORKLINK_INTERVAL_SECS = 300; // 5 minutes
 
     private static final String XML_PROLOG = "<?xml version='1.0' encoding='UTF-8' standalone='yes' ?>";
@@ -247,6 +250,115 @@ public class KMLUtil {
             folder.setFeatureList(features);
         }
         return features.add(feature);
+    }
+
+    /**
+     * Parse a list of network links given an XML input stream
+     * Note: Due to a bug with SimpleKML (ATAK-7343) this is performed with
+     * an XML parser as opposed to their built-in parser
+     * @param is Input stream
+     * @param handler Feature handler (null to ignore)
+     * @return List of network links
+     */
+    public static List<NetworkLink> parseNetworkLinks(InputStream is,
+            FeatureHandler<NetworkLink> handler) {
+        List<NetworkLink> ret = new ArrayList<>();
+        XmlPullParser parser = Xml.newPullParser();
+        NetworkLink nl = null;
+        Link link = null;
+        try {
+            parser.setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, false);
+            parser.setInput(is, null);
+            int eventType;
+            do {
+                eventType = parser.next();
+                String tag = parser.getName();
+                switch (eventType) {
+                    case XmlPullParser.START_TAG:
+                        // New network link
+                        if (tag.equals("NetworkLink")) {
+                            nl = new NetworkLink();
+                            for (int i = 0; i < parser
+                                    .getAttributeCount(); i++) {
+                                String attr = parser.getAttributeName(i);
+                                String value = parser.getAttributeValue(i);
+                                if (attr.equals("id"))
+                                    nl.setId(value);
+                            }
+                            continue;
+                        }
+
+                        // No NetworkLink read - skip
+                        if (nl == null)
+                            continue;
+
+                        // Top-level attributes/elements for NetworkLink
+                        switch (tag) {
+                            case "name":
+                                nl.setName(getValue(parser, null));
+                                break;
+                            case "visibility":
+                                nl.setVisibility(
+                                        getValue(parser, "1").equals("1"));
+                                break;
+                            case "open":
+                                nl.setOpen(getValue(parser, "1").equals("1"));
+                                break;
+                            case "Link":
+                                nl.setLink(link = new Link());
+                                break;
+                        }
+
+                        // No Link read - skip
+                        if (link == null)
+                            continue;
+
+                        switch (tag) {
+                            case "href":
+                                link.setHref(getValue(parser, null));
+                                break;
+                            case "refreshInterval":
+                                link.setRefreshInterval(Float.parseFloat(
+                                        getValue(parser, "-1")));
+                                break;
+                            case "refreshMode":
+                                link.setRefreshMode(getValue(parser, null));
+                                break;
+                        }
+
+                        break;
+
+                    // Finish parsing network link
+                    case XmlPullParser.END_TAG:
+                        if (nl != null && tag.equals("NetworkLink")) {
+                            ret.add(nl);
+                            // True = stop processing
+                            if (handler.process(nl))
+                                return ret;
+                            nl = null;
+                        }
+                        break;
+
+                    // Unhandled
+                    case XmlPullParser.TEXT:
+                    case XmlPullParser.END_DOCUMENT:
+                    default:
+                        break;
+                }
+            } while (eventType != XmlPullParser.END_DOCUMENT);
+
+        } catch (Exception e) {
+            Log.e(TAG, "Error parsing XML", e);
+        }
+        return ret;
+    }
+
+    private static String getValue(XmlPullParser parser, String def)
+            throws IOException, XmlPullParserException {
+        int eventType = parser.next();
+        if (eventType == XmlPullParser.TEXT)
+            return parser.getText();
+        return def;
     }
 
     /**
@@ -712,19 +824,39 @@ public class KMLUtil {
     /**
      * Create a Polygon element containing an outer LinearRing Automatically closes ring if not
      * already so
-     * 
+     *
      * @param points points making up the polygon
      * @param id shape id attribute
      * @param idlWrap180 True if this polygon crosses the IDL but requires point unwrapping
      */
     public static Polygon createPolygonWithLinearRing(GeoPointMetaData[] points,
             String id, boolean excludeAltitude, boolean idlWrap180) {
+        return createPolygonWithLinearRing(points, id, excludeAltitude,
+                idlWrap180, Double.NaN);
+    }
+
+    /**
+     * Create a Polygon element containing an outer LinearRing Automatically closes ring if not
+     * already so
+     * 
+     * @param points points making up the polygon
+     * @param id shape id attribute
+     * @param idlWrap180 True if this polygon crosses the IDL but requires point unwrapping
+     * @param height the height in meters for the Polygon, Double.NaN if no height known.
+     */
+    public static Polygon createPolygonWithLinearRing(GeoPointMetaData[] points,
+            String id, boolean excludeAltitude, boolean idlWrap180,
+            double height) {
         Polygon polygon = new Polygon();
         polygon.setId(id);
         if (excludeAltitude)
             polygon.setAltitudeMode("clampToGround");
-        else
+        else if (Double.isNaN(height)) {
             polygon.setAltitudeMode("absolute");
+        } else {
+            polygon.setAltitudeMode("relativeToGround");
+            polygon.setExtrude(true);
+        }
 
         Boundary outerBoundaryIs = new Boundary();
         polygon.setOuterBoundaryIs(outerBoundaryIs);
@@ -735,7 +867,7 @@ public class KMLUtil {
         GeoPointMetaData firstPoint = points[0];
         GeoPointMetaData lastPoint = points[points.length - 1];
         String coordsString = convertKmlCoords(points, excludeAltitude,
-                idlWrap180);
+                idlWrap180, height);
         // Close shape by inserting first point again if it is not already there
         if (firstPoint.get().getLongitude() != lastPoint.get().getLongitude() ||
                 firstPoint.get().getLatitude() != lastPoint.get()
@@ -743,7 +875,8 @@ public class KMLUtil {
             double unwrap = 0;
             if (idlWrap180)
                 unwrap = firstPoint.get().getLongitude() > 0 ? 360 : -360;
-            Coordinate c = convertKmlCoord(firstPoint, excludeAltitude, unwrap);
+            Coordinate c = convertKmlCoord(firstPoint, excludeAltitude, unwrap,
+                    height);
             if (c != null)
                 coordsString += c;
         }
@@ -858,6 +991,12 @@ public class KMLUtil {
 
     public static String convertKmlCoords(GeoPointMetaData[] points,
             boolean excludeAltitude, boolean idlWrap180) {
+        return convertKmlCoords(points, excludeAltitude, idlWrap180,
+                Double.NaN);
+    }
+
+    public static String convertKmlCoords(GeoPointMetaData[] points,
+            boolean excludeAltitude, boolean idlWrap180, double height) {
         if (points == null || points.length < 1)
             return "";
 
@@ -867,7 +1006,8 @@ public class KMLUtil {
 
         StringBuilder sb = new StringBuilder();
         for (GeoPointMetaData point : points) {
-            Coordinate c = convertKmlCoord(point, excludeAltitude, unwrap);
+            Coordinate c = convertKmlCoord(point, excludeAltitude, unwrap,
+                    height);
             if (c != null)
                 sb.append(c);
         }
@@ -875,25 +1015,59 @@ public class KMLUtil {
         return sb.toString();
     }
 
-    public static String convertKmlCoords(GeoPointMetaData[] points,
-            boolean excludeAltitude) {
-        return convertKmlCoords(points, excludeAltitude, false);
-    }
-
+    /**
+     * Convert a geopoint with height into a KML Coordinate.  With KML, the representation is the
+     * top of the item so the altitude used is actually the altitude + height which differs from
+     * TAK where the altitude is the bottom and the height is relative to the altitude.
+     * @param point the point to use for the latitude, longitude, and altitude.
+     * @param excludeAltitude the boolean to exclude the altitude from the kml string
+     * @param unwrap if the idl wrap is to be applied
+     * @return the KML Coordinate
+     */
     public static Coordinate convertKmlCoord(GeoPointMetaData point,
             boolean excludeAltitude, double unwrap) {
+        return convertKmlCoord(point, excludeAltitude, unwrap, Double.NaN);
+    }
+
+    /**
+     * Convert a geopoint with height into a KML Coordinate.  With KML, the representation is the
+     * top of the item so the altitude used is actually the altitude + height which differs from
+     * TAK where the altitude is the bottom and the height is relative to the altitude.
+     * @param point the point to use for the latitude, longitude, and altitude.
+     * @param excludeAltitude the boolean to exclude the altitude from the kml string.  If the altitude
+     *                        is not excluded, then the result will be either the altitude
+     *                        or the height if the height is specified.
+     * @param unwrap if the idl wrap is to be applied
+     * @param height the height to be used as the altitude if the altitude is not excluded.
+     *               Double.NaN is to be used when the height is not known.
+     * @return the KML Coordinate
+     */
+    private static Coordinate convertKmlCoord(GeoPointMetaData point,
+            boolean excludeAltitude, double unwrap, double height) {
         if (point == null)
             return null;
 
         double alt = point.get().getAltitude();
         double lng = point.get().getLongitude();
+        double lat = point.get().getLatitude();
+
         if (unwrap > 0 && lng < 0 || unwrap < 0 && lng > 0)
             lng += unwrap;
-        if (!point.get().isAltitudeValid() || Double.isNaN(alt)
-                || excludeAltitude) {
-            return new Coordinate(lng, point.get().getLatitude(), null);
+
+        if (excludeAltitude) {
+            // do not include any altitude
+            return new Coordinate(lng, lat, null);
         } else {
-            return new Coordinate(lng, point.get().getLatitude(), alt);
+            if (!Double.isNaN(height))
+                // height is set, use that instead of altitude
+                return new Coordinate(lng, lat, height);
+            else if (point.get().isAltitudeValid()) {
+                // height is not set, but altitude is valid
+                return new Coordinate(lng, lat, alt);
+            } else {
+                // altitude is invalid and heightr is not set
+                return new Coordinate(lng, lat, null);
+            }
         }
     }
 
@@ -1016,6 +1190,23 @@ public class KMLUtil {
     }
 
     /**
+     * Convert altitude mode enum to KML-compatible string
+     * @param altitudeMode Altitude mode
+     * @return Altitude mode string
+     */
+    public static String convertAltitudeMode(AltitudeMode altitudeMode) {
+        switch (altitudeMode) {
+            case Absolute:
+                return "absolute";
+            case Relative:
+                return "relativeToGround";
+            case ClampToGround:
+                return "clampToGround";
+        }
+        return null;
+    }
+
+    /**
      * Creates a CDATA section containing a list.
      * 
      * @param type
@@ -1084,25 +1275,16 @@ public class KMLUtil {
                         ++i;
                     } while (i < tempNameArr.length - 2);
 
-                    FileOutputStream fileOutStream = null;
-                    try {
-                        tempFile = File.createTempFile(tempName, ".kml",
+                    try (InputStream is = zip.getInputStream(ze)) {
+                        tempFile = IOProviderFactory.createTempFile(tempName,
+                                ".kml",
                                 tmpDir);
-                        fileOutStream = new FileOutputStream(
-                                tempFile);
-                        FileSystemUtils.copy(zip.getInputStream(ze),
-                                fileOutStream);
+                        try (OutputStream os = IOProviderFactory
+                                .getOutputStream(tempFile)) {
+                            FileSystemUtils.copy(is, os);
+                        }
                     } finally {
-                        if (fileOutStream != null) {
-                            try {
-                                fileOutStream.close();
-                            } catch (IOException ignored) {
-                            }
-                        }
-                        try {
-                            zip.close();
-                        } catch (IOException ignored) {
-                        }
+                        IoUtils.close(zip);
                     }
                     break;
                 }
@@ -1176,16 +1358,14 @@ public class KMLUtil {
         }
 
         File parent = file.getParentFile();
-        if (!parent.exists())
-            if (!parent.mkdirs())
+        if (!IOProviderFactory.exists(parent))
+            if (!IOProviderFactory.mkdirs(parent))
                 Log.w(TAG,
                         "Failed to create directory(s)"
                                 + parent.getAbsolutePath());
 
-        PrintWriter out = null;
-        try {
-            out = new PrintWriter(new BufferedWriter(
-                    new FileWriter(file)));
+        try (PrintWriter out = new PrintWriter(new BufferedWriter(
+                IOProviderFactory.getFileWriter(file)))) {
             if (!kml.startsWith("<?xml")) {
                 out.println(XML_PROLOG);
             }
@@ -1193,9 +1373,6 @@ public class KMLUtil {
             out.println(kml);
         } catch (IOException e) {
             Log.e(TAG, "Failed to write KML: " + file.getAbsolutePath(), e);
-        } finally {
-            if (out != null)
-                out.close();
         }
     }
 

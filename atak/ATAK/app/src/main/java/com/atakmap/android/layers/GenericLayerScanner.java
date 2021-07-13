@@ -1,6 +1,7 @@
 
 package com.atakmap.android.layers;
 
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
 
 import java.io.File;
@@ -35,7 +36,8 @@ public abstract class GenericLayerScanner extends LayerScanner {
 
         for (File scanDir : scanDirs) {
             Log.d(TAG, "starting scan of: " + scanDir);
-            if (scanDir.exists() && scanDir.isDirectory())
+            if (IOProviderFactory.exists(scanDir)
+                    && IOProviderFactory.isDirectory(scanDir))
                 this.scanDirectory(0, scanDir);
         }
     }
@@ -54,7 +56,7 @@ public abstract class GenericLayerScanner extends LayerScanner {
             return;
         }
 
-        File[] files = dir.listFiles();
+        File[] files = IOProviderFactory.listFiles(dir);
 
         if (files != null) {
             this.debug("Scanning dir: " + dir + "...");

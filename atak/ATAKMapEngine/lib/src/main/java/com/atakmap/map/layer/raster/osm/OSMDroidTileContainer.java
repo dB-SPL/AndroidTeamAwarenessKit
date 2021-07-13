@@ -13,6 +13,8 @@ import android.graphics.BitmapFactory;
 import android.graphics.Bitmap.CompressFormat;
 
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.DatabaseInformation;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.maps.coords.GeoPoint;
 import com.atakmap.database.DatabaseIface;
 import com.atakmap.database.Databases;
@@ -59,7 +61,7 @@ public final class OSMDroidTileContainer implements TileContainer {
             
             // since we are creating, if the file exists delete it to overwrite
             File f = new File(path);
-            if(f.exists())
+            if(IOProviderFactory.exists(f))
                 FileSystemUtils.delete(f);
             
             // adopt the name from the spec if not defined
@@ -68,7 +70,7 @@ public final class OSMDroidTileContainer implements TileContainer {
 
             DatabaseIface db = null;
             try {
-                db = Databases.openOrCreateDatabase(path);
+                db = IOProviderFactory.createDatabase(new File(path));
                 createTables(db, spec.getSRID(), true);
                 final TileContainer retval =  new OSMDroidTileContainer(name, spec.getSRID(), db);
                 db = null;
@@ -82,12 +84,12 @@ public final class OSMDroidTileContainer implements TileContainer {
         @Override
         public TileContainer open(String path, TileMatrix spec, boolean readOnly) {
             File f = new File(path);
-            if(!f.exists())
+            if(!IOProviderFactory.exists(f))
                 return null;
             
             DatabaseIface db = null;
             try {
-                db = Databases.openDatabase(path, readOnly);
+                db = IOProviderFactory.createDatabase(new File(path), readOnly ? DatabaseInformation.OPTION_READONLY : 0);
                 OSMDroidInfo info = OSMDroidInfo.get(db, OSMDroidInfo.BoundsDiscovery.Skip);
                 if(info == null)
                     return null;
@@ -510,7 +512,7 @@ public final class OSMDroidTileContainer implements TileContainer {
     
     public static TileContainer openOrCreate(String path, String provider, int srid) {
         File f = new File(path);
-        if(f.exists()) {
+        if(IOProviderFactory.exists(f)) {
             TileContainer retval = SPI.open(path, null, false);
             if(retval != null && retval.getSRID() == srid)
                 return retval;
@@ -520,7 +522,7 @@ public final class OSMDroidTileContainer implements TileContainer {
         
         DatabaseIface db = null;
         try {
-            db = Databases.openOrCreateDatabase(path);
+            db = IOProviderFactory.createDatabase(new File(path));
             createTables(db, srid, true);
             final TileContainer retval =  new OSMDroidTileContainer(provider, srid, db);
             db = null;

@@ -1,8 +1,12 @@
 
 package com.atakmap.android.video;
 
+import android.net.Uri;
+import java.net.URI;
+
 import com.atakmap.android.video.manager.VideoManager;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
 
 import java.io.File;
@@ -105,6 +109,12 @@ public class ConnectionEntry implements Serializable {
     private int roverPort = -1;
     private boolean ignoreEmbeddedKLV = false;
     private String path = "";
+
+    /**
+     * Fortify has flagged this as Password Management: Hardcoded Password
+     * This is a empty assignment just for the purposes of making the code simpler instead of
+     * extra null pointer checks.    This is not hardcoded.
+     */
     private String passphrase = "";
 
     private Protocol protocol = Protocol.UDP;
@@ -209,8 +219,9 @@ public class ConnectionEntry implements Serializable {
             final int bufferTime,
             final int rtspReliable,
             final Source source) {
-           this(alias, address, macAddress, port, roverPort, path, protocol, networkTimeout, bufferTime, rtspReliable, "", source);
-      }
+        this(alias, address, macAddress, port, roverPort, path, protocol,
+                networkTimeout, bufferTime, rtspReliable, "", source);
+    }
 
     public ConnectionEntry(File f) {
         this.alias = f.getName();
@@ -223,7 +234,8 @@ public class ConnectionEntry implements Serializable {
         } catch (Exception e) {
             this.uid = UUID.randomUUID().toString();
         }
-        this.protocol = f.isDirectory() ? Protocol.DIRECTORY : Protocol.FILE;
+        this.protocol = IOProviderFactory.isDirectory(f) ? Protocol.DIRECTORY
+                : Protocol.FILE;
     }
 
     /**
@@ -236,61 +248,30 @@ public class ConnectionEntry implements Serializable {
         setBufferTime(-1);
         setNetworkTimeout(5000);
 
-        int protoIndex = uri.indexOf("://");
-        Protocol p = protoIndex != -1 ? Protocol.fromString(
-                uri.substring(0, protoIndex)) : null;
-        if (p == null) {
-            Log.w(TAG, "Unsupported URL: " + uri);
-            return;
-        }
-        String host, path = "";
-        int port = p.getDefaultPort();
 
-        // legacy 1234? 
+
+
+
+        URI u = URI.create(uri);
+
+        final Protocol protocol = Protocol.getProtocol(uri);
+        int port = u.getPort();
+        if (port == -1)
+            port = protocol.getDefaultPort();
         if (port < 0)
             port = 1234;
 
-        protoIndex += 3;
-        int portIndex = uri.indexOf(":", protoIndex);
-        // if there is no port, start searching for a path after the protocol
-        int pathIndex = uri.indexOf("/",
-                portIndex > -1 ? portIndex : protoIndex);
+        final String userInfo = u.getUserInfo();
 
-        // if there is a colon in the url and no port specified,
-        // reset the portIndex and just grab the path starting after the address
-        if ((pathIndex > 0 && portIndex > pathIndex) || portIndex < 0) {
-            pathIndex = uri.indexOf("/", protoIndex);
-            //If there is no trailing "/" do nothing
-            if (pathIndex > -1)
-                portIndex = -1;
-        }
 
-        if (pathIndex > -1)
-            path = uri.substring(pathIndex);
-        if (portIndex > -1) {
-            host = uri.substring(protoIndex, portIndex);
+        String host = u.getHost();
+        if (!FileSystemUtils.isEmpty(u.getUserInfo()) )
+            host = u.getUserInfo() + "@" + host;
 
-            String portStr;
-            if (pathIndex > portIndex)
-                portStr = (uri.substring(portIndex + 1, pathIndex));
-            else
-                portStr = (uri.substring(portIndex + 1));
-
-            try {
-                port = Integer.parseInt(portStr);
-            } catch (Exception ignore) {
-                Log.e(TAG, "failed to parse portStr");
-            }
-        } else if (pathIndex > -1)
-            host = uri.substring(protoIndex, pathIndex);
-        else
-            host = uri.substring(protoIndex);
-        if (host.startsWith("@"))
-            host = host.substring(1);
+        setProtocol(protocol);
         setAddress(host);
         setPort(port);
-        setPath(path);
-        setProtocol(p);
+        setPath(u.getPath());
     }
 
     /**
@@ -806,7 +787,8 @@ public class ConnectionEntry implements Serializable {
     @Override
     public int hashCode() {
         return Objects.hash(alias, uid, address, macAddress, port,
-                roverPort, ignoreEmbeddedKLV, path, protocol, passphrase, source,
+                roverPort, ignoreEmbeddedKLV, path, protocol, passphrase,
+                source,
                 networkTimeout, bufferTime, rtspReliable, localFile,
                 childrenUIDs, parentUID);
     }

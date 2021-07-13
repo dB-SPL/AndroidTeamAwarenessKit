@@ -33,7 +33,6 @@ import com.atakmap.map.layer.feature.DataStoreException;
 import com.atakmap.map.layer.feature.FeatureCursor;
 import com.atakmap.map.layer.feature.FeatureDataStore2;
 import com.atakmap.map.layer.feature.FeatureDataStore2.FeatureSetQueryParameters;
-import com.atakmap.map.layer.feature.FeatureDataStore3;
 import com.atakmap.map.layer.feature.FeatureDefinition;
 import com.atakmap.map.layer.feature.FeatureDefinition2;
 import com.atakmap.map.layer.feature.FeatureDefinition3;
@@ -386,7 +385,13 @@ public class GLBatchGeometryFeatureDataStoreRenderer extends
                             continue;
                         
                         type = blob.getInt();
-                        useBlobGeom = true;
+                        if(type%1000 != 7) {
+                            useBlobGeom = true;
+                        } else {
+                            geom = GeometryFactory.parseSpatiaLiteBlob(rawGeom);
+                            if(geom == null)
+                                continue;
+                         }
                     } else {
                         if(cursor.getGeomCoding() == FeatureDefinition.GEOM_ATAK_GEOMETRY)
                             geom = (Geometry)cursor.getRawGeometry();
@@ -417,6 +422,7 @@ public class GLBatchGeometryFeatureDataStoreRenderer extends
                                 glitem = new GLBatchLineString(this.renderContext);
                                 break;
                             case 3:
+                                // TODO: temp for debugging
                                 glitem = new GLBatchPolygon(this.renderContext);
                                 break;
                             case 4:

@@ -3,6 +3,7 @@ package com.atakmap.android.vehicle.model;
 
 import com.atakmap.android.math.MathUtils;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
 
 import org.json.JSONArray;
@@ -211,7 +212,7 @@ public class VehicleModelCache {
     public void rescan() {
 
         // Make sure the tools dir exists first
-        if (!DIR.exists() && !DIR.mkdirs()) {
+        if (!IOProviderFactory.exists(DIR) && !IOProviderFactory.mkdirs(DIR)) {
             Log.e(TAG, "Failed to make vehicle models directory: " + DIR);
             return;
         }
@@ -219,7 +220,7 @@ public class VehicleModelCache {
         // Read version
         File verFile = new File(DIR, "version.txt");
         int curVersion = 0;
-        if (verFile.exists())
+        if (IOProviderFactory.exists(verFile))
             curVersion = MathUtils.parseInt(readFileString(verFile, false), 0);
         int newVersion = MathUtils.parseInt(readFileString(verFile, true), 0);
 
@@ -235,7 +236,8 @@ public class VehicleModelCache {
                 return;
 
             // Delete icon cache if we're updating
-            FileSystemUtils.delete(ICON_DIR);
+            if (ICON_DIR.exists())
+                FileSystemUtils.delete(ICON_DIR);
         }
 
         // Read categories we need to load from
@@ -282,7 +284,7 @@ public class VehicleModelCache {
         // Get vehicle directory
         List<VehicleModelInfo> ret = new ArrayList<>();
         File dir = new File(DIR, dirName);
-        if (!dir.exists() && !dir.mkdirs()) {
+        if (!IOProviderFactory.exists(dir) && !IOProviderFactory.mkdirs(dir)) {
             Log.e(TAG, "Failed to find category directory: " + dir);
             return ret;
         }
@@ -291,7 +293,7 @@ public class VehicleModelCache {
         File catFile = new File(dir, "metadata.json");
         if (updating)
             copyAssetToFile(catFile);
-        if (!catFile.exists()) {
+        if (!IOProviderFactory.exists(catFile)) {
             Log.e(TAG, "Category file does not exist in directory: " + catFile);
             return ret;
         }
@@ -305,7 +307,7 @@ public class VehicleModelCache {
             String name = vehicle.getString("name");
             String path = vehicle.getString("file");
             File vehFile = new File(dir, path);
-            if (updating) {
+            if (updating && vehFile.exists()) {
                 // File is no longer up to date - delete so we can load from
                 // assets later
                 FileSystemUtils.delete(vehFile);

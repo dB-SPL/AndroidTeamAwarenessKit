@@ -7,6 +7,7 @@ import com.atakmap.android.missionpackage.MissionPackageReceiver;
 import com.atakmap.android.missionpackage.file.MissionPackageManifest;
 import com.atakmap.app.R;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
 
 import java.io.File;
@@ -60,8 +61,8 @@ public class CopyTask extends MissionPackageBaseTask {
         // copy to private directory in the "transfer" folder
         File parent = new File(_receiver.getComponent().getFileIO()
                 .getMissionPackageTransferPath(), UUID.randomUUID().toString());
-        if (!parent.exists()) {
-            if (!parent.mkdirs()) {
+        if (!IOProviderFactory.exists(parent)) {
+            if (!IOProviderFactory.mkdirs(parent)) {
                 Log.d(TAG, "Failed to make dir at " + parent.getAbsolutePath());
             }
         }
@@ -71,12 +72,10 @@ public class CopyTask extends MissionPackageBaseTask {
 
         // now copy to deploy directory
 
-        FileInputStream fis = null;
-        FileOutputStream fos = null;
-        try {
-            FileSystemUtils.copyStream(
-                    fis = new FileInputStream(source),
-                    fos = new FileOutputStream(_destination));
+        try (FileInputStream fis = IOProviderFactory.getInputStream(source);
+                FileOutputStream fos = IOProviderFactory
+                        .getOutputStream(_destination)) {
+            FileSystemUtils.copyStream(fis, fos);
         } catch (Exception e) {
             Log.w(TAG, "Failed to deploy (1) to: " + _destination, e);
             cancel("Failed to deploy "
@@ -85,17 +84,6 @@ public class CopyTask extends MissionPackageBaseTask {
                                     R.string.mission_package_name))
                     + " (CODE=1): " + _manifest.getName());
             return false;
-        } finally {
-            if (fis != null)
-                try {
-                    fis.close();
-                } catch (Exception ignore) {
-                }
-            if (fos != null)
-                try {
-                    fos.close();
-                } catch (Exception ignore) {
-                }
         }
 
         // now that file was written out, set additional data

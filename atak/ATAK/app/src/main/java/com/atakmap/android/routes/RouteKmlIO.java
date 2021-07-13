@@ -10,6 +10,7 @@ import com.atakmap.android.maps.Marker;
 import com.atakmap.android.maps.PointMapItem;
 import com.atakmap.app.R;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
 
 import com.atakmap.coremap.maps.coords.GeoPoint.AltitudeReference;
@@ -39,6 +40,7 @@ import com.ekito.simpleKML.model.Style;
 import com.ekito.simpleKML.model.StyleSelector;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.StringWriter;
 import java.util.ArrayList;
@@ -272,8 +274,8 @@ public class RouteKmlIO {
      */
     public static void write(Kml kml, File file) throws Exception {
         File parent = file.getParentFile();
-        if (!parent.exists()) {
-            if (!parent.mkdirs()) {
+        if (!IOProviderFactory.exists(parent)) {
+            if (!IOProviderFactory.mkdirs(parent)) {
                 Log.d(TAG, "Failed to make dir at " + parent.getAbsolutePath());
             }
         }
@@ -363,7 +365,7 @@ public class RouteKmlIO {
         String routeName = getRouteName(kml, routeHandler.lineString);
         MapGroup group = routeGroup.addGroup(routeName);
         group.setMetaBoolean("addToObjList", false);
-        int color = Integer.valueOf(prefs.getString("defaultRouteColor",
+        int color = Integer.parseInt(prefs.getString("defaultRouteColor",
                 String.valueOf(Route.DEFAULT_ROUTE_COLOR)));
 
         Route route = new Route(mapView, routeName, color, prefix, UUID
@@ -589,8 +591,8 @@ public class RouteKmlIO {
         }
 
         Serializer serializer = new Serializer();
-        try {
-            return serializer.read(file);
+        try (FileInputStream fis = IOProviderFactory.getInputStream(file)) {
+            return serializer.read(fis);
         } catch (Exception e) {
             if (file == null)
                 Log.e(TAG, "KML file is null", e);

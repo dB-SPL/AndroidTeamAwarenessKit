@@ -15,14 +15,12 @@ import com.atakmap.comms.CommsMapComponent.ImportResult;
 import com.atakmap.coremap.cot.event.CotDetail;
 import com.atakmap.coremap.cot.event.CotEvent;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
-import com.atakmap.coremap.log.Log;
-
-import com.atakmap.coremap.maps.coords.GeoPoint;
-
-import java.util.ArrayList;
 import com.atakmap.coremap.locale.LocaleUtil;
+import com.atakmap.coremap.log.Log;
+import com.atakmap.coremap.maps.coords.GeoPoint;
 import com.atakmap.coremap.maps.coords.GeoPointMetaData;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -86,15 +84,14 @@ public class ShapeDetailHandler extends CotDetailHandler {
                 ell.setStyle(
                         Shape.STYLE_STROKE_MASK | Polyline.STYLE_CLOSED_MASK);
                 ell.setMetaString("ownerUID", event.getUID());
+                ell.setMetaBoolean("addToObjList", false);
             }
 
             double major = parseDouble(d.getAttribute("major"), 0.0);
             double minor = parseDouble(d.getAttribute("minor"), 0.0);
             double angle = parseDouble(d.getAttribute("angle"), 0.0);
 
-            ell.setCenterHeightWidthAngle(getPoint(marker), minor,
-                    major,
-                    angle);
+            ell.setDimensions(getPoint(marker), minor / 2, major / 2, angle);
 
             //set color, default to white
             int color = _getColorAttr(d, "color");
@@ -145,6 +142,7 @@ public class ShapeDetailHandler extends CotDetailHandler {
         if (poly == null) {
             poly = new Polyline(UUID.randomUUID().toString());
             poly.setMetaString("ownerUID", event.getUID());
+            poly.setMetaBoolean("addToObjList", false);
         }
 
         int polyStyle = 0;
@@ -162,6 +160,10 @@ public class ShapeDetailHandler extends CotDetailHandler {
                 continue;
             double lat = parseDouble(v.getAttribute("lat"), 0);
             double lng = parseDouble(v.getAttribute("lon"), 0);
+            if (Double.isNaN(lat) || Double.isInfinite(lat) ||
+                    Double.isNaN(lng) || Double.isInfinite(lng))
+                return;
+
             String altString = v.getAttribute("hae");
             GeoPoint point;
             if (altString != null) {

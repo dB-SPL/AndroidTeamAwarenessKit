@@ -2,11 +2,16 @@
 package com.atakmap.spatial.file;
 
 import com.atakmap.android.data.FileContentResolver;
+import com.atakmap.android.data.URIContentHandler;
+import com.atakmap.android.data.URIQueryParameters;
 import com.atakmap.android.features.FeatureDataStoreUtils;
+import com.atakmap.android.hierarchy.filters.FOVFilter;
 import com.atakmap.android.maps.MapView;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.map.layer.feature.DataSourceFeatureDataStore;
 import com.atakmap.map.layer.feature.DataSourceFeatureDataStore.FileCursor;
+import com.atakmap.map.layer.feature.FeatureCursor;
+import com.atakmap.map.layer.feature.FeatureDataStore.FeatureQueryParameters;
 import com.atakmap.map.layer.feature.FeatureDataStore.FeatureSetCursor;
 import com.atakmap.map.layer.feature.FeatureSet;
 import com.atakmap.map.layer.feature.PersistentDataSourceFeatureDataStore2;
@@ -24,8 +29,8 @@ public abstract class SpatialDbContentResolver extends FileContentResolver {
     protected final MapView _mapView;
     protected final DataSourceFeatureDataStore _database;
 
-    protected SpatialDbContentResolver(MapView mv,
-            DataSourceFeatureDataStore db, Set<String> validExts) {
+    protected SpatialDbContentResolver(final MapView mv,
+            final DataSourceFeatureDataStore db, final Set<String> validExts) {
         super(validExts);
         _mapView = mv;
         _database = db;
@@ -105,4 +110,42 @@ public abstract class SpatialDbContentResolver extends FileContentResolver {
      */
     protected abstract SpatialDbContentHandler createHandler(File f,
             List<Long> featureSetIds, Envelope bounds);
+
+    @Override
+    public List<URIContentHandler> query(URIQueryParameters params) {
+
+        // Basic query based on handler attributes
+        List<URIContentHandler> handlers = super.query(params);
+
+        // If there are no results or we're not doing a FOV query then just
+        // return what we got
+        if (handlers.isEmpty() || params.fov == null)
+            return handlers;
+
+        // FOV query needs to be narrowed down to the feature level since the
+        // basic query only checks the overall bounds of each file
+        List<URIContentHandler> ret = new ArrayList<>(handlers.size());
+        FOVFilter.MapState ms = params.fov.getMapState();
+        FeatureQueryParameters fp = new FeatureQueryParameters();
+        fp.limit = 1;
+        fp.spatialFilter = new FeatureQueryParameters.RegionSpatialFilter(
+                ms.upperLeft, ms.lowerRight);
+        for (URIContentHandler h : handlers) {
+            SpatialDbContentHandler sh = (SpatialDbContentHandler) h;
+            fp.featureSetIds = sh.getFeatureSetIds();
+            FeatureCursor fc = null;
+            try {
+                fc = _database.queryFeatures(fp);
+                if (fc.moveToNext())
+                    ret.add(h); // At least one feature was found - file passes
+            } catch (Exception e) {
+                Log.e(TAG, "Failed to query features for " + sh.getTitle(), e);
+            } finally {
+                if (fc != null)
+                    fc.close();
+            }
+        }
+
+        return ret;
+    }
 }

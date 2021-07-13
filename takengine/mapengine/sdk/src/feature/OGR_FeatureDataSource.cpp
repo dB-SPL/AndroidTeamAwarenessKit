@@ -21,6 +21,7 @@
 #include "feature/OGR_SchemaDefinition.h"
 #include "feature/ParseGeometry.h"
 #include "feature/Style.h"
+#include "util/ConfigOptions.h"
 #include "util/IO.h"
 #include "util/IO2.h"
 #include "util/Logging2.h"
@@ -373,12 +374,7 @@ namespace {
     OGR_Content::OGR_Content (const char* filePath, std::size_t areaThreshold) :
         filePath (filePath),
         areaThreshold (areaThreshold),
-        dataSource (static_cast<GDALDataset*>
-                    (GDALOpenEx (filePath,
-                                 GDAL_OF_VECTOR | GDAL_OF_READONLY | GDAL_OF_VERBOSE_ERROR | GDAL_OF_INTERNAL,
-                                 nullptr, nullptr, nullptr)),
-                [] (GDALDataset* ds)
-                  { GDALClose (static_cast<GDALDatasetH> (ds)); }),
+        dataSource (nullptr, nullptr),
         levelOfDetail (0),
         driver(nullptr, nullptr),
         layerIndex (-1),
@@ -389,6 +385,30 @@ namespace {
         currentGeometry (nullptr, nullptr),
         geometryCount (0)
     {
+        TAK::Engine::Port::String openPath(filePath);
+        TAK::Engine::Port::String gdalVsiPrefix;
+        TAK::Engine::Util::ConfigOptions_getOption(gdalVsiPrefix, "gdal-vsi-prefix");
+        if(gdalVsiPrefix) {
+            std::ostringstream strm;
+            strm << gdalVsiPrefix;
+            strm << openPath;
+            openPath = strm.str().c_str();
+        }
+        if(strstr(openPath, ".zip")) {
+            std::ostringstream strm;
+            strm << "/vsizip";
+            if(openPath[0] != '/')
+                strm << "/";
+            strm << openPath;
+            openPath = strm.str().c_str();
+        }
+
+        dataSource = GDAL_DatasetPtr(static_cast<GDALDataset*>
+                    (GDALOpenEx (openPath,
+                                 GDAL_OF_VECTOR | GDAL_OF_READONLY | GDAL_OF_VERBOSE_ERROR | GDAL_OF_INTERNAL,
+                                 nullptr, nullptr, nullptr)),
+                [] (GDALDataset* ds)
+                  { GDALClose (static_cast<GDALDatasetH> (ds)); });
         if (!dataSource.get ()) {
             std::ostringstream err;
             err << MEM_FN("OGR_Content::OGR_Content") <<
@@ -475,12 +495,18 @@ namespace {
             OGRFieldDefn * ogrfdn = currentFeature->GetFieldDefnRef(i);
             const char * name = ogrfdn->GetNameRef();
             const OGRFieldType ogrFieldtype = ogrfdn->GetType();
+			if (!TAK::Engine::Port::String_strcasecmp(name, "gx:altitudeMode"))
+				name = "altitudeMode";
             if (!TAK::Engine::Port::String_strcasecmp(name, "altitudeMode")) {
                 const char * value = currentFeature->GetFieldAsString(i);
                 int altitudeMode = 0;
                 if (!TAK::Engine::Port::String_strcasecmp (value, "clampToGround"))
                     altitudeMode = 0;
+				else if (!TAK::Engine::Port::String_strcasecmp (value, "clampToSeaFloor"))
+                    altitudeMode = 0;
                 else if (!TAK::Engine::Port::String_strcasecmp (value, "relativeToGround"))
+                    altitudeMode = 1;
+                else if (!TAK::Engine::Port::String_strcasecmp (value, "relativeToSeaFloor"))
                     altitudeMode = 1;
                 else if (!TAK::Engine::Port::String_strcasecmp (value, "absolute"))
                     altitudeMode = 2;
@@ -915,16 +941,7 @@ namespace atakmap {
                 throw std::invalid_argument (MEM_FN ("parseFile")
                                              "Received NULL filePath");
             }
-            TAK::Engine::Port::String filePath(cfilePath);
-            if(strstr(cfilePath, ".zip")) {
-                std::ostringstream strm;
-                strm << "/vsizip";
-                if(cfilePath[0] != '/')
-                    strm << "/";
-                strm << cfilePath;
-                filePath = strm.str().c_str();
-            }
-            return new OGR_Content (filePath, areaThreshold);
+            return new OGR_Content (cfilePath, areaThreshold);
         }
 
         /**

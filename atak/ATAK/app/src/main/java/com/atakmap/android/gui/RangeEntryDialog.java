@@ -5,6 +5,7 @@ import android.app.AlertDialog;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.graphics.Color;
+import android.text.InputType;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.inputmethod.InputMethodManager;
@@ -25,8 +26,6 @@ import com.atakmap.coremap.locale.LocaleUtil;
 
 import java.text.DecimalFormat;
 import java.util.Arrays;
-import java.util.LinkedList;
-import java.util.List;
 
 /**
  * Dialog which allows user to hand-jam a range value in a variety of units
@@ -41,7 +40,9 @@ public class RangeEntryDialog implements DialogInterface.OnDismissListener {
     private final LayoutInflater _inflater;
     private AlertDialog _dialog;
     private View _view;
+    private EditText _input;
     private Span _unit;
+    private boolean _signedValue;
     private Callback _callback;
 
     /**
@@ -52,6 +53,23 @@ public class RangeEntryDialog implements DialogInterface.OnDismissListener {
         _mapView = mapView;
         _context = mapView.getContext();
         _inflater = LayoutInflater.from(_context);
+    }
+
+    /**
+     * Enable signed values for the input
+     * @param enable True to enable signed values
+     */
+    public RangeEntryDialog allowSignedValues(boolean enable) {
+        _signedValue = enable;
+        if (_input != null) {
+            int type = _input.getInputType();
+            if (enable)
+                type |= InputType.TYPE_NUMBER_FLAG_SIGNED;
+            else
+                type &= ~InputType.TYPE_NUMBER_FLAG_SIGNED;
+            _input.setInputType(type);
+        }
+        return this;
     }
 
     /**
@@ -82,11 +100,14 @@ public class RangeEntryDialog implements DialogInterface.OnDismissListener {
         _unit = unit;
         _callback = callback;
 
-        final EditText input = _view.findViewById(
-                R.id.drawingDistanceInput);
-        input.setText(DEC_FORMAT_2.format(SpanUtilities.convert(valueM,
+        if (Double.isNaN(valueM))
+            valueM = 0;
+
+        _input = _view.findViewById(R.id.drawingDistanceInput);
+        _input.setText(DEC_FORMAT_2.format(SpanUtilities.convert(valueM,
                 Span.METER, unit)));
-        input.setSelection(input.getText().length());
+        _input.setSelection(_input.getText().length());
+        allowSignedValues(_signedValue);
 
         final Spinner units = _view.findViewById(
                 R.id.drawingDistanceUnits);
@@ -133,7 +154,7 @@ public class RangeEntryDialog implements DialogInterface.OnDismissListener {
                     public void onClick(View v) {
                         double d;
                         try {
-                            d = SpanUtilities.convert(input.getText()
+                            d = SpanUtilities.convert(_input.getText()
                                     .toString(), _unit, Span.METER);
                         } catch (Exception e) {
                             Toast.makeText(_context, R.string.nineline_text103,

@@ -1,15 +1,16 @@
 package com.atakmap.map.layer.model.obj;
 
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.io.ZipVirtualFile;
 import com.atakmap.coremap.locale.LocaleUtil;
+import com.atakmap.util.zip.IoUtils;
 
 import java.io.BufferedReader;
 import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileReader;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.Reader;
 import java.util.HashMap;
@@ -87,7 +88,7 @@ public final class ObjUtils {
         if(inToken)
             tokens.add(sb.toString());
 
-        return tokens.toArray(new String[tokens.size()]);
+        return tokens.toArray(new String[0]);
     }
 
     static Map<String, String> extractMaterialTextures(File material) throws IOException {
@@ -96,7 +97,7 @@ public final class ObjUtils {
             if(material instanceof ZipVirtualFile)
                 reader = new BufferedReader(new InputStreamReader(((ZipVirtualFile)material).openStream()));
             else
-                reader = new BufferedReader(new FileReader(material));
+                reader = new BufferedReader(IOProviderFactory.getFileReader(material));
             StringBuilder line = new StringBuilder();
             String newmtl = null;
             Map<String, String> retval = new HashMap<String, String>();
@@ -126,8 +127,7 @@ public final class ObjUtils {
             }
             return retval;
         } finally {
-            if(reader != null)
-                reader.close();
+            IoUtils.close(reader, TAG);
         }
     }
 
@@ -140,10 +140,10 @@ public final class ObjUtils {
      */
     static Reader open(final String uri) throws IOException {
         File f = new File(uri);
-        if(f.exists())
-            return new FileReader(f);
+        if(IOProviderFactory.exists(f))
+            return IOProviderFactory.getFileReader(f);
         ZipVirtualFile zf = new ZipVirtualFile(uri);
-        if(zf.exists())
+        if(IOProviderFactory.exists(zf))
             return new InputStreamReader(zf.openStream());
         return null;
     }
@@ -162,7 +162,7 @@ public final class ObjUtils {
            return null;
 
         try {
-            final File[] children = f.listFiles();
+            final File[] children = IOProviderFactory.listFiles(f);
             if (children != null) {
                 for (File c : children) {
                     if (c.getName().toLowerCase(LocaleUtil.US).
@@ -179,8 +179,8 @@ public final class ObjUtils {
     }
 
     public static File findObj(ZipVirtualFile f) {
-        if(f.isDirectory()) {
-            File[] children = f.listFiles();
+        if(IOProviderFactory.isDirectory(f)) {
+            File[] children = IOProviderFactory.listFiles(f);
             if (children != null) { 
                 for(File c : children) {
                     File r = findObj((ZipVirtualFile)c);
@@ -222,7 +222,7 @@ public final class ObjUtils {
         if (exts != null && base != null) {
             for (String ext : exts) {
                 File f = new ZipVirtualFile(directory, base + ext);
-                if (f.exists())
+                if (IOProviderFactory.exists(f))
                     return f;
             }
         }
@@ -242,11 +242,9 @@ public final class ObjUtils {
      */
     public static File findMaterialLibrary(File obj) {
         StringBuilder lib = new StringBuilder();
-        FileInputStream fis = null;
-        try {
+        try(InputStream fis = IOProviderFactory.getInputStream(obj)) {
             byte[] mtlBytes = "mtllib ".getBytes(FileSystemUtils.UTF8_CHARSET);
             int mtlLength = mtlBytes.length;
-            fis = new FileInputStream(obj);
             int numRead;
             boolean stopAtNL = false;
             byte[] buf = new byte[FileSystemUtils.BUF_SIZE * 8];
@@ -276,11 +274,6 @@ public final class ObjUtils {
             }
         } catch (Exception e) {
             Log.e(TAG, "Failed to find mtllib in " + obj, e);
-        } finally {
-            try {
-                if (fis != null)
-                    fis.close();
-            } catch (Exception ignore) {}
         }
         String name = FileSystemUtils.sanitizeFilename(lib.toString());
         if (FileSystemUtils.isEmpty(name))
@@ -296,9 +289,8 @@ public final class ObjUtils {
      */
     public static Set<File> findMaterials(File mtl) {
         Set<File> ret = new HashSet<>();
-        BufferedReader br = null;
-        try {
-            br = new BufferedReader(new FileReader(mtl));
+        try (Reader r = IOProviderFactory.getFileReader(mtl);
+             BufferedReader br = new BufferedReader(r)) {
             String line;
             while ((line = br.readLine()) != null) {
                 if (line.startsWith("map_")
@@ -313,17 +305,12 @@ public final class ObjUtils {
                     if (FileSystemUtils.isEmpty(name))
                         continue;
                     File f = new File(mtl.getParent(), name);
-                    if (f.exists())
+                    if (IOProviderFactory.exists(f))
                         ret.add(f);
                 }
             }
         } catch (Exception e) {
             Log.e(TAG, "Failed to find materials in " + mtl, e);
-        } finally {
-            try {
-                if (br != null)
-                    br.close();
-            } catch (Exception ignore) {}
         }
         return ret;
     }

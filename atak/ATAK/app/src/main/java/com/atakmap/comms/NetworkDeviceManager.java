@@ -1,6 +1,7 @@
 
 package com.atakmap.comms;
 
+import android.os.Build;
 import android.os.Environment;
 
 import android.content.Context;
@@ -8,9 +9,9 @@ import android.content.Intent;
 
 import java.io.BufferedReader;
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.Inet4Address;
 import java.net.InetAddress;
@@ -27,10 +28,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
-
-//import com.atakmap.coremap.locale.LocaleUtil;
-//import com.atakmap.coremap.log.Log;
 
 /**
  * Contains a network device mapping that is created through an external Network learning
@@ -72,7 +71,7 @@ public class NetworkDeviceManager {
     /**
      * Contains a mapping of mac addresses to network devices from the network.map file. if this is
      * empty, ATAK should assume all devices are configured externally and no network deconfliction
-     * is needed.
+     * is needed.  Changes to this should be synchronized.
      */
     static private final List<NetworkDevice> devices = new ArrayList<>();
 
@@ -462,7 +461,7 @@ public class NetworkDeviceManager {
                     return null;
                 }
             } catch (Exception e) {
-                Log.e(TAG, "unknown exception occured, corrupted file", e);
+                Log.e(TAG, "unknown exception occurred, corrupted file", e);
                 return null;
             }
         }
@@ -485,7 +484,7 @@ public class NetworkDeviceManager {
      */
     static synchronized public void enable(boolean state) {
 
-        if ((directory == null) || !directory.exists())
+        if ((directory == null) || !IOProviderFactory.exists(directory))
             directory = new File(Environment.getExternalStorageDirectory(),
                     "atak");
 
@@ -513,18 +512,16 @@ public class NetworkDeviceManager {
         devices.clear();
         try {
             File f = new File(directory, "network.map");
-            if (f.exists()) {
-                BufferedReader br = new BufferedReader(
-                        new InputStreamReader(new FileInputStream(f)));
-                try {
+            if (IOProviderFactory.exists(f)) {
+                try (InputStream is = IOProviderFactory.getInputStream(f);
+                        InputStreamReader isr = new InputStreamReader(is);
+                        BufferedReader br = new BufferedReader(isr)) {
                     String line;
                     while ((line = br.readLine()) != null) {
                         NetworkDevice nd = NetworkDevice.fromCSVLine(line);
                         if (nd != null)
                             devices.add(nd);
                     }
-                } finally {
-                    br.close();
                 }
             }
         } catch (IOException ioe) {
@@ -554,14 +551,13 @@ public class NetworkDeviceManager {
             return false;
         try {
             // create the directory if needed
-            if (!directory.exists())
-                if (!directory.mkdir()) {
+            if (!IOProviderFactory.exists(directory))
+                if (!IOProviderFactory.mkdir(directory)) {
                     Log.e(TAG, "Failed to make dir at " + directory.getPath());
                 }
 
             File f = new File(directory, "network.map");
-            FileWriter bw = new FileWriter(f);
-            try {
+            try (FileWriter bw = IOProviderFactory.getFileWriter(f)) {
                 bw.write("#network map file created " + new Date() + "\r\n");
                 bw.write("#type values  " + NetworkDevice.Type.getStringList()
                         + "\r\n");
@@ -570,8 +566,6 @@ public class NetworkDeviceManager {
                 for (NetworkDevice n : devices) {
                     bw.write(n.toCSVLine() + "\r\n");
                 }
-            } finally {
-                bw.close();
             }
         } catch (IOException ie) {
             return false;
@@ -585,7 +579,7 @@ public class NetworkDeviceManager {
      * @param macaddr    the mac of the device to remove in the format XX:XX:XX:XX:XX:XX
      * @param directory should be consistent with FileSystemUtils.getRoot()
      */
-    public static boolean removeNetworkDevice(final String macaddr,
+    public static synchronized boolean removeNetworkDevice(final String macaddr,
             final File directory) {
         for (NetworkDevice n : devices) {
             if (n.macaddr.equalsIgnoreCase(macaddr)) {
@@ -606,7 +600,8 @@ public class NetworkDeviceManager {
      * @param directory should be consistent with FileSystemUtils.getRoot()
      * @return true if success
      */
-    public static boolean addNetworkDevice(NetworkDevice nd, File directory) {
+    public static synchronized boolean addNetworkDevice(NetworkDevice nd,
+            File directory) {
         if (nd != null) {
             NetworkDevice exists = null;
             for (NetworkDevice n : devices) {
@@ -630,13 +625,13 @@ public class NetworkDeviceManager {
      * multinic netowork issues are expected. (Multicast pub/sub is subjected to the default route
      * of the system).
      *
-     * @returns all of the network devices that are in the network.map or empty if no devices are
+     * @return all of the network devices that are in the network.map or empty if no devices are
      * defined. Only interfaces that are present will have a valid interface name defined
      * within the NetworkDevice iface field.   If the NetworkManager has not been enabled
      * is list will be empty.
      */
-    public static List<NetworkDevice> getNetworkDevices() {
-        return Collections.unmodifiableList(devices);
+    public static synchronized List<NetworkDevice> getNetworkDevices() {
+        return Collections.unmodifiableList(new ArrayList<>(devices));
     }
 
     /**
@@ -646,7 +641,7 @@ public class NetworkDeviceManager {
      * interfaces are those that are externally managed by Android (wlan0, ppp0, rmnet0, csctun0,
      * tun0).
      */
-    public static Collection<NetworkInterface> getUnmanagedInterfaces() {
+    public static synchronized Collection<NetworkInterface> getUnmanagedInterfaces() {
 
         Map<String, NetworkInterface> map = new HashMap<>();
         try {
@@ -686,7 +681,7 @@ public class NetworkDeviceManager {
      * @param macaddr is in the format XX:XX:XX:XX:XX:XX
      * @return the NetworkDevice matching the specified mac address or null if no device is described.
      */
-    public static NetworkDevice getDevice(final String macaddr) {
+    public static synchronized NetworkDevice getDevice(final String macaddr) {
         for (NetworkDevice nd : devices) {
             if (nd.macaddr.equalsIgnoreCase(macaddr)) {
                 return nd;
@@ -976,7 +971,7 @@ public class NetworkDeviceManager {
             filtersDropped = true;
             Log.d(TAG, "routing adjustments");
 
-            if (android.os.Build.VERSION.SDK_INT >= 24)
+            if (android.os.Build.VERSION.SDK_INT >= Build.VERSION_CODES.N)
                 return;
 
             try {
@@ -1185,7 +1180,7 @@ public class NetworkDeviceManager {
             Log.v(TAG, "starting dynamic configuration: " + ifaceName);
             Runtime rt = Runtime.getRuntime();
             File dhcptool = new File("/system/bin/dhcptool");
-            if (dhcptool.exists()) {
+            if (IOProviderFactory.exists(dhcptool)) {
                 Log.d(TAG, "using marshallow fallback");
                 proc = execSU(rt, "dhcptool", ifaceName);
             } else {

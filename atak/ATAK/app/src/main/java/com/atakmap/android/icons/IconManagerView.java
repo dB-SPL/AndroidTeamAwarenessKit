@@ -27,7 +27,9 @@ import com.atakmap.android.ipc.AtakBroadcast;
 import com.atakmap.android.maps.MapView;
 import com.atakmap.android.user.icon.Icon2525bPallet;
 import com.atakmap.android.user.icon.SpotMapPallet;
+import com.atakmap.android.util.ATAKUtilities;
 import com.atakmap.app.R;
+import com.atakmap.app.system.ResourceUtil;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
 import com.atakmap.coremap.log.Log;
 
@@ -52,8 +54,6 @@ public class IconManagerView extends LinearLayout {
     private ListView _iconsetList;
 
     private SharedPreferences _prefs;
-    private String _lastDirectory = Environment.getExternalStorageDirectory()
-            .getPath();
 
     public IconManagerView(Context context, AttributeSet attrs) {
         super(context, attrs);
@@ -88,6 +88,9 @@ public class IconManagerView extends LinearLayout {
 
             Button btnDefaultCoTMapping = findViewById(
                     R.id.iconmgr_iconset_defaultCoTMapping);
+            btnDefaultCoTMapping.setText(
+                    ResourceUtil.getResource(R.string.civ_default_cot_mapping,
+                            R.string.default_cot_mapping));
             btnDefaultCoTMapping.setOnClickListener(new OnClickListener() {
 
                 @Override
@@ -126,10 +129,12 @@ public class IconManagerView extends LinearLayout {
         final String[] items = new String[count];
         if (!FileSystemUtils.isEmpty(currentMapping)
                 && currentMapping.equals(Icon2525bPallet.COT_MAPPING_2525B))
-            items[0] = _context.getString(R.string.s2525B)
+            items[0] = ResourceUtil.getString(_context, R.string.civ_s2525B,
+                    R.string.s2525B)
                     + _context.getString(R.string.mapping_selected);
         else
-            items[0] = _context.getString(R.string.s2525B);
+            items[0] = ResourceUtil.getString(_context, R.string.civ_s2525B,
+                    R.string.s2525B);
 
         if (!FileSystemUtils.isEmpty(currentMapping)
                 && currentMapping.equals(SpotMapPallet.COT_MAPPING_SPOTMAP))
@@ -210,7 +215,9 @@ public class IconManagerView extends LinearLayout {
      */
     protected void importIconSet() {
         ImportFileBrowserDialog.show(
-                getContext().getString(R.string.mapping_dialog), new String[] {
+                getContext().getString(R.string.mapping_dialog),
+                ATAKUtilities.getStartDirectory(_mapView.getContext()),
+                new String[] {
                         "zip"
                 },
                 new ImportFileBrowserDialog.DialogDismissed() {
@@ -220,7 +227,7 @@ public class IconManagerView extends LinearLayout {
                             return;
 
                         final String path = f.getAbsolutePath();
-                        if (!path.endsWith(".zip")) {
+                        if (!FileSystemUtils.checkExtension(f, "zip")) {
                             Log.w(TAG,
                                     "File Import Browser returned unsupported file: "
                                             + path);

@@ -1,11 +1,11 @@
 package com.atakmap.map.layer.raster.tilereader;
 
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
 
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.io.ZipVirtualFile;
 
 import android.graphics.Bitmap;
@@ -13,6 +13,7 @@ import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.BitmapRegionDecoder;
 import android.graphics.Rect;
+import com.atakmap.util.zip.IoUtils;
 
 public class AndroidTileReader extends TileReader {
 
@@ -36,13 +37,12 @@ public class AndroidTileReader extends TileReader {
             if(file instanceof ZipVirtualFile)
                 stream = ((ZipVirtualFile)file).openStream();
             else
-                stream = new FileInputStream(file);
+                stream = IOProviderFactory.getInputStream(file);
             BitmapFactory.decodeStream(stream, null, opts);
             this.width = opts.outWidth;
             this.height = opts.outHeight;
         } finally {
-            if(stream != null)
-                stream.close();
+            IoUtils.close(stream, TAG);
         }
         
         if(tileWidth > 0)

@@ -18,7 +18,6 @@ import android.widget.TextView;
 import com.atakmap.android.data.URIContentHandler;
 import com.atakmap.android.data.URIContentManager;
 import com.atakmap.android.filesystem.MIMETypeMapper;
-import com.atakmap.android.filesystem.ResourceFile;
 import com.atakmap.android.hierarchy.HierarchyListAdapter;
 import com.atakmap.android.hierarchy.HierarchyListItem;
 import com.atakmap.android.hierarchy.action.Action;
@@ -43,6 +42,7 @@ import com.atakmap.android.missionpackage.file.MissionPackageContent;
 import com.atakmap.android.util.ATAKUtilities;
 import com.atakmap.app.R;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.locale.LocaleUtil;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.filesystem.HashingUtils;
@@ -122,8 +122,9 @@ class MissionPackageFileHierarchyListItem extends AbstractChildlessListItem
 
     @Override
     public String getDescription() {
-        if (_file != null && _file.exists() && _file.isFile())
-            return MathUtils.GetLengthString(_file.length());
+        if (_file != null && IOProviderFactory.exists(_file)
+                && IOProviderFactory.isFile(_file))
+            return MathUtils.GetLengthString(IOProviderFactory.length(_file));
         return null;
     }
 
@@ -152,6 +153,8 @@ class MissionPackageFileHierarchyListItem extends AbstractChildlessListItem
         int i = v.getId();
         if (i == R.id.extract)
             _overlay.promptExtractContent(_group, _fileItem);
+        else if (i == R.id.open)
+            MIMETypeMapper.openFile(_file, _context);
         else if (i == R.id.delete)
             _overlay.promptRemoveContent(_group, _fileItem);
     }
@@ -183,15 +186,20 @@ class MissionPackageFileHierarchyListItem extends AbstractChildlessListItem
                     R.layout.missionpackage_overlay_fileitem, parent, false);
             h.missing = v.findViewById(R.id.not_found);
             h.extract = v.findViewById(R.id.extract);
+            h.open = v.findViewById(R.id.open);
             h.delete = v.findViewById(R.id.delete);
             v.setTag(h);
         }
         boolean showExtras = !(listener instanceof HierarchyListAdapter &&
                 ((HierarchyListAdapter) listener).getSelectHandler() != null);
         boolean showExtract = showExtras && !FileSystemUtils.isFile(_file);
+        boolean showView = MIMETypeMapper.getOpenIntent(_context,
+                _file) != null;
         h.missing.setVisibility(showExtract ? View.VISIBLE : View.GONE);
         h.extract.setVisibility(showExtract ? View.VISIBLE : View.GONE);
+        h.open.setVisibility(showView ? View.VISIBLE : View.GONE);
         h.delete.setVisibility(showExtras ? View.VISIBLE : View.GONE);
+        h.open.setOnClickListener(this);
         h.extract.setOnClickListener(this);
         h.delete.setOnClickListener(this);
         return v;
@@ -199,7 +207,7 @@ class MissionPackageFileHierarchyListItem extends AbstractChildlessListItem
 
     private static class ExtraHolder {
         TextView missing;
-        ImageButton extract, delete;
+        ImageButton extract, open, delete;
     }
 
     @Override
@@ -320,7 +328,8 @@ class MissionPackageFileHierarchyListItem extends AbstractChildlessListItem
 
         TextView sizeText = v
                 .findViewById(R.id.missionpackage_file_detail_txtSize);
-        sizeText.setText(MathUtils.GetLengthString(_file.length()));
+        sizeText.setText(
+                MathUtils.GetLengthString(IOProviderFactory.length(_file)));
 
         TextView dateText = v
                 .findViewById(R.id.missionpackage_file_detail_txtModifiedDate);

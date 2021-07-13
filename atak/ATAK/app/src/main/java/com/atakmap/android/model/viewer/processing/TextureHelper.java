@@ -8,11 +8,11 @@ import android.opengl.GLES30;
 import android.opengl.GLUtils;
 
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.io.ZipVirtualFile;
 
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 
@@ -26,7 +26,7 @@ public class TextureHelper {
         };
         for (String ext : exts) {
             File image = new File(resourcePath.replace(".obj", ext));
-            if (image.exists())
+            if (IOProviderFactory.exists(image))
                 return image;
         }
 
@@ -37,7 +37,7 @@ public class TextureHelper {
         for (String ext : exts) {
             File image = new File(
                     resourcePath.replace("_simplified_3d_mesh.obj", ext));
-            if (image.exists())
+            if (IOProviderFactory.exists(image))
                 return image;
         }
 
@@ -57,18 +57,10 @@ public class TextureHelper {
 
         // Read out texture bytes first
         byte[] bytes = null;
-        InputStream is = null;
-        try {
-            is = getInputStream(filePath);
+        try (InputStream is = getInputStream(filePath)) {
             bytes = FileSystemUtils.read(is);
         } catch (Exception e) {
             Log.e(TAG, "Failed to read texture: " + filePath, e);
-        } finally {
-            try {
-                if (is != null)
-                    is.close();
-            } catch (Exception ignore) {
-            }
         }
         if (bytes == null)
             return 0;
@@ -114,11 +106,12 @@ public class TextureHelper {
     private static InputStream getInputStream(String filePath)
             throws IOException {
         File f = new File(filePath);
-        if (!f.exists() && filePath.contains(".zip/")) {
+        if (!IOProviderFactory.exists(f) && (filePath.contains(".zip/")
+                || filePath.contains(".kmz/"))) {
             ZipVirtualFile zvf = new ZipVirtualFile(filePath);
             return zvf.openStream();
         } else
-            return new FileInputStream(f);
+            return IOProviderFactory.getInputStream(f);
     }
 
     private static int getSubsampleFactor(byte[] bytes, int maxTexSize) {

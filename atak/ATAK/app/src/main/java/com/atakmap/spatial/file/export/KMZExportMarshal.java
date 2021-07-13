@@ -9,10 +9,12 @@ import com.atakmap.android.icons.UserIcon;
 import com.atakmap.android.importexport.Exportable;
 import com.atakmap.android.importexport.FormatNotSupportedException;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.spatial.file.KmlFileSpatialDb;
 import com.atakmap.spatial.kml.FeatureHandler;
 import com.atakmap.spatial.kml.KMLUtil;
+import com.atakmap.util.zip.IoUtils;
 import com.ekito.simpleKML.model.Feature;
 import com.ekito.simpleKML.model.Folder;
 import com.ekito.simpleKML.model.Placemark;
@@ -58,7 +60,7 @@ public class KMZExportMarshal extends KMLExportMarshal {
     }
 
     @Override
-    public Class getTargetClass() {
+    public Class<?> getTargetClass() {
         return KMZFolder.class;
     }
 
@@ -158,11 +160,8 @@ public class KMZExportMarshal extends KMLExportMarshal {
         }
 
         //TODO sits at 94% during serialization to KMZ/zip. Could serialize during marshall above
-        ZipOutputStream zos = null;
         File kmz = getFile();
-        try {
-            FileOutputStream fos = new FileOutputStream(kmz);
-            zos = new ZipOutputStream(new BufferedOutputStream(fos));
+        try (ZipOutputStream zos = FileSystemUtils.getZipOutputStream(kmz)) {
 
             //and doc.kml
             addFile(zos, "doc.kml", kml);
@@ -183,14 +182,6 @@ public class KMZExportMarshal extends KMLExportMarshal {
         } catch (Exception e) {
             Log.e(TAG, "Failed to create KMZ file", e);
             throw new IOException(e);
-        } finally {
-            if (zos != null) {
-                try {
-                    zos.close();
-                } catch (Exception e) {
-                    Log.w(TAG, "Failed to close KMZ: " + kmz.getAbsolutePath());
-                }
-            }
         }
     }
 
@@ -223,20 +214,26 @@ public class KMZExportMarshal extends KMLExportMarshal {
     }
 
     private void addFile(ZipOutputStream zos, Pair<String, String> file) {
-        try {
+        try (InputStream in = getInputStream(context, file.first)) {
             // create new zip entry
             ZipEntry entry = new ZipEntry(file.second);
             zos.putNextEntry(entry);
 
             // stream file into zipstream
-            InputStream in = getInputStream(context, file.first);
             FileSystemUtils.copyStream(in, true, zos, false, _buffer);
 
             // close current file & corresponding zip entry
-            zos.closeEntry();
+
             Log.d(TAG, "Compressing file " + file.first);
         } catch (IOException e) {
             Log.e(TAG, "Failed to add File: " + file.second, e);
+        } finally {
+            if (zos != null) {
+                try {
+                    zos.closeEntry();
+                } catch (IOException e) {
+                }
+            }
         }
     }
 
@@ -260,7 +257,8 @@ public class KMZExportMarshal extends KMLExportMarshal {
 
             return new ByteArrayInputStream(bitmap);
         } else {
-            FileInputStream fi = new FileInputStream(file);
+            FileInputStream fi = IOProviderFactory
+                    .getInputStream(new File(file));
             in = new BufferedInputStream(fi, FileSystemUtils.BUF_SIZE);
             Log.d(TAG, "File input stream: " + file);
         }

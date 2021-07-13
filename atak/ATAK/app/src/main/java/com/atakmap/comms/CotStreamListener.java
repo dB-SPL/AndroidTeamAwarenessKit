@@ -35,8 +35,8 @@ public class CotStreamListener implements
 
     /**
      * ctor
-     * @param context
-     * @param name
+     * @param context the context to use for the StreamListener
+     * @param name The name of the stream listener
      * @param eventListener [optional]
      */
     public CotStreamListener(Context context, String name,
@@ -46,8 +46,8 @@ public class CotStreamListener implements
 
     /**
      * ctor
-     * @param context
-     * @param name
+     * @param context the context to use for the StreamListener
+     * @param name The name of the stream listener
      * @param eventListener [optional]
      * @param bConnect True to connect immediately, false to manually do so later via init()
      */
@@ -100,7 +100,7 @@ public class CotStreamListener implements
 
     /**
      * Invoked when connection to a TAK Server is enabled or disabled by user
-     * @param port
+     * @param port the connection to enable or disable.
      */
     protected void enabled(CotPortListActivity.CotPort port, boolean enabled) {
     }
@@ -184,8 +184,8 @@ public class CotStreamListener implements
 
     /**
      * Add or Update stream and return whether stream enabled or connection state changed
-     * @param bundle
-     * @return
+     * @param bundle the bundle that describes a stream
+     * @return returns the wrapper
      */
     private synchronized CotStreamUpdateWraper updateStream(Bundle bundle) {
         if (bundle == null || bundle.size() < 1) {
@@ -447,7 +447,7 @@ public class CotStreamListener implements
      * Note, currently called by CotService when removed or disconnected
      *
      * CotServiceRemote.OutputsChangedListener.onCotOutputRemoved
-     * @param descBundle
+     * @param descBundle the bundle that describes the stream.
      */
     @Override
     public void onCotOutputRemoved(final Bundle descBundle) {

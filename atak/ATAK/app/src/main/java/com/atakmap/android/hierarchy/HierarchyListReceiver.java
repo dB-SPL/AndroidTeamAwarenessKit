@@ -73,6 +73,7 @@ import com.atakmap.android.tools.ActionBarReceiver;
 import com.atakmap.android.tools.ActionBarView;
 import com.atakmap.app.R;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.spatial.file.GpxFileSpatialDb;
 import com.atakmap.spatial.file.KmlFileSpatialDb;
@@ -120,29 +121,34 @@ public class HierarchyListReceiver extends BroadcastReceiver implements
         return _instance;
     }
 
-    private HIERARCHY_MODE mode = HIERARCHY_MODE.NONE;
+    protected HIERARCHY_MODE mode = HIERARCHY_MODE.NONE;
     private final Stack<HIERARCHY_MODE> previousMode = new Stack<>();
     private final double[] overlayManagerSizeValues = new double[4];
     private final MapOverlayManager overlayManager;
-    private final HierarchyManagerView content;
-    private HierarchyListAdapter adapter;
-    private final View titleBar, actionsLayout;
-    private final LinearLayout customView, listHeader, listFooter;
-    private final Button titleTextButton;
-    private final EditText searchText;
-    private final Context _context;
-    private final MapView _mapView;
+    protected HierarchyManagerView content;
+    protected HierarchyListAdapter adapter;
+    protected View titleBar;
+    protected View actionsLayout;
+    protected LinearLayout customView;
+    protected LinearLayout listHeader;
+    protected LinearLayout listFooter;
+    protected Button titleTextButton;
+    protected EditText searchText;
+    protected final Context _context;
+    protected final MapView _mapView;
     private final SharedPreferences prefs;
     private HierarchyListItem selectedItem = null;
-    private final View checkAllLayout;
-    private final ImageView checkAll;
+    protected View checkAllLayout;
+    protected ImageView checkAll;
     private int checkAllState;
-    private final CheckBox showAll;
-    private final ListView listView;
-    private final ImageButton backBtn, hierarchyClearBtn, multiSelectBtn,
-            searchBtn;
-    private final SortSpinner sortSpinner;
-    private final ProgressBar searchProgress;
+    protected CheckBox showAll;
+    protected ListView listView;
+    protected ImageButton backBtn;
+    protected ImageButton hierarchyClearBtn;
+    protected ImageButton multiSelectBtn;
+    protected ImageButton searchBtn;
+    protected SortSpinner sortSpinner;
+    protected ProgressBar searchProgress;
     private final HierarchyListDropDown overlayManagerDropDown;
 
     // List UID which OM navigates to initially
@@ -334,6 +340,9 @@ public class HierarchyListReceiver extends BroadcastReceiver implements
                         .getSerializableExtra("hier_mode");
                 final List<String> listItemPaths = intent
                         .getStringArrayListExtra("list_item_paths");
+                final List<String> selectedPaths = intent
+                        .getStringArrayListExtra(
+                                "hier_userselect_selected_paths");
                 boolean refresh = intent.getBooleanExtra("refresh", false);
                 boolean isRootList = intent.getBooleanExtra("isRootList",
                         false);
@@ -365,7 +374,6 @@ public class HierarchyListReceiver extends BroadcastReceiver implements
                     final List<String> handlerMapItemUIDs = intent
                             .getStringArrayListExtra(
                                     "hier_userselect_mapitems_uids");
-
                     try {
                         Log.d(TAG, "Creating User Select Handler of type: "
                                 + handlerClassName
@@ -420,6 +428,8 @@ public class HierarchyListReceiver extends BroadcastReceiver implements
                         userSelectHandler, this);
                 this.adapter.registerListener();
                 this.content.setAdapter(this.adapter);
+                if (selectedPaths != null)
+                    this.adapter.setSelectedPaths(selectedPaths);
                 setCurrentMode(setMode);
                 overlayManagerDropDown.showDropDown();
                 updateCheckAll(HierarchyListAdapter.UNCHECKED);
@@ -530,10 +540,8 @@ public class HierarchyListReceiver extends BroadcastReceiver implements
         }
 
         // Cancel multi-select mode
-        else if (id == R.id.hierarchy_back_out_mode) {
-            if (this.adapter != null)
-                this.adapter.setSelectHandler(null);
-        }
+        else if (id == R.id.hierarchy_back_out_mode)
+            cancelUserSelection();
 
         // Finish multi-select mode
         else if (id == R.id.hierarchy_process_user_selected_button) {
@@ -562,6 +570,7 @@ public class HierarchyListReceiver extends BroadcastReceiver implements
 
         // Close OM
         else if (id == R.id.close_hmv) {
+            cancelUserSelection();
             closeDropDown(false);
         }
     }
@@ -605,7 +614,7 @@ public class HierarchyListReceiver extends BroadcastReceiver implements
                     if (mode == HIERARCHY_MODE.NONE)
                         closeDropDown(false);
                     else if (mode == HIERARCHY_MODE.MULTISELECT)
-                        adapter.clearHandler();
+                        cancelUserSelection();
                     else
                         setPreviousMode();
                     return;
@@ -617,17 +626,17 @@ public class HierarchyListReceiver extends BroadcastReceiver implements
         } else if ((buttonId == R.id.hierarchy_back_button || buttonId == 0)
                 && mode == HIERARCHY_MODE.MULTISELECT) {
             // else if at root level, exit any special modes
-            adapter.clearHandler();
-        } else if (buttonId == 0 && mode == HIERARCHY_MODE.TOOL_SELECT
-                && this.adapter != null) {
-            // Back button hit on tool select root list - simulate a "Cancel"
-            this.adapter.setHierManView(content);
-            if (!this.adapter.processUserSelections())
-                closeDropDown();
+            cancelUserSelection();
         } else if (buttonId == 0) {
             // Device back button hit on root list
+            cancelUserSelection();
             closeDropDown();
         }
+    }
+
+    private void cancelUserSelection() {
+        if (adapter != null && adapter.getSelectHandler() != null)
+            adapter.cancelUserSelection();
     }
 
     private void refreshDropDown(Intent intent) {
@@ -756,8 +765,9 @@ public class HierarchyListReceiver extends BroadcastReceiver implements
                         File exportDir = FileSystemUtils
                                 .getItem(FileSystemUtils.EXPORT_DIRECTORY);
 
-                        if (exportDir != null && exportDir.exists()
-                                && exportDir.isDirectory())
+                        if (exportDir != null
+                                && IOProviderFactory.exists(exportDir)
+                                && IOProviderFactory.isDirectory(exportDir))
                             startDirectory = exportDir.getAbsolutePath();
                         else
                             startDirectory = Environment
@@ -919,6 +929,10 @@ public class HierarchyListReceiver extends BroadcastReceiver implements
 
     int getScroll() {
         return listView.getFirstVisiblePosition();
+    }
+
+    public boolean isTouchActive() {
+        return content.isTouchActive();
     }
 
     /**
@@ -1084,7 +1098,7 @@ public class HierarchyListReceiver extends BroadcastReceiver implements
     /**
      * This sets up the Overlay Manager Action bar to the current mode
      */
-    void setViewToMode() {
+    public void setViewToMode() {
         if (adapter == null || !overlayManagerDropDown.isVisible())
             return;
 
@@ -1213,7 +1227,7 @@ public class HierarchyListReceiver extends BroadcastReceiver implements
                 sorts.add(new SortAlphabet());
             }
             int selectionIndex = 0;
-            Class curSort = adapter.getSortType();
+            Class<?> curSort = adapter.getSortType();
             if (showSort = sorts.size() > 1) {
                 boolean found = false;
                 for (int i = 0; i < sorts.size(); i++) {
@@ -1263,7 +1277,7 @@ public class HierarchyListReceiver extends BroadcastReceiver implements
      * @param sortType Sort class
      * @return Sort instance
      */
-    public static Sort findSort(HierarchyListItem item, Class sortType) {
+    public static Sort findSort(HierarchyListItem item, Class<?> sortType) {
         List<Sort> sorts = getSortModes(item);
         if (sorts != null) {
             for (Sort s : sorts) {
@@ -1285,7 +1299,7 @@ public class HierarchyListReceiver extends BroadcastReceiver implements
      * @param parent Parent view group
      * @param child Child view
      */
-    private static void replaceView(ViewGroup parent, View child) {
+    protected static void replaceView(ViewGroup parent, View child) {
         if (parent == null)
             return;
 
@@ -1596,6 +1610,10 @@ public class HierarchyListReceiver extends BroadcastReceiver implements
 
         @Override
         public void disposeImpl() {
+        }
+
+        public String getToolbarTitle() {
+            return adapter.getListTitle();
         }
 
         public void setToolbar(IToolbarExtension toolbar) {

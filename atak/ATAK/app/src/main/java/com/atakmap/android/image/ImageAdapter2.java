@@ -30,13 +30,13 @@ import com.atakmap.coremap.concurrent.NamedThreadFactory;
 import com.atakmap.coremap.conversions.CoordinateFormat;
 import com.atakmap.coremap.conversions.CoordinateFormatUtilities;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
 
 import com.atakmap.coremap.maps.conversion.EGM96;
 
 import com.atakmap.coremap.maps.coords.GeoPoint;
 
-import org.apache.sanselan.Sanselan;
 import org.apache.sanselan.common.IImageMetadata;
 import org.apache.sanselan.formats.jpeg.JpegImageMetadata;
 import org.apache.sanselan.formats.tiff.TiffField;
@@ -48,6 +48,7 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FilenameFilter;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import com.atakmap.coremap.locale.LocaleUtil;
 import com.atakmap.coremap.maps.coords.GeoPointMetaData;
@@ -141,13 +142,22 @@ public class ImageAdapter2 extends BaseAdapter {
         // just get bounds first
         BitmapFactory.Options opts = new BitmapFactory.Options();
         opts.inJustDecodeBounds = true;
-        BitmapFactory.decodeFile(imageFile.getAbsolutePath(), opts);
+        try (FileInputStream fis = IOProviderFactory
+                .getInputStream(imageFile)) {
+            BitmapFactory.decodeStream(fis, null, opts);
+        } catch (IOException ignored) {
+        }
 
         int sample = Math.max(1, (opts.outWidth / width));
         sample = sample > 1 ? _nextPowerOf2(sample) : sample;
         BitmapFactory.Options opts2 = new BitmapFactory.Options();
         opts2.inSampleSize = sample;
-        return BitmapFactory.decodeFile(imageFile.getAbsolutePath(), opts2);
+        try (FileInputStream fis = IOProviderFactory
+                .getInputStream(imageFile)) {
+            return BitmapFactory.decodeStream(fis, null, opts2);
+        } catch (IOException e) {
+            return null;
+        }
     }
 
     private Bitmap getOrientedImage(File f, BitmapFactory.Options o) {
@@ -189,14 +199,25 @@ public class ImageAdapter2 extends BaseAdapter {
 
             Bitmap bmp;
             if (rot == 0) {
-                bmp = BitmapFactory.decodeFile(f.getAbsolutePath(), o);
+                try (FileInputStream fis = IOProviderFactory
+                        .getInputStream(f)) {
+                    bmp = BitmapFactory.decodeStream(fis, null, o);
+                } catch (IOException ignored) {
+                    bmp = null;
+                }
             } else {
                 Matrix matrix = new Matrix();
                 matrix.postRotate(rot);
 
-                bmp = BitmapFactory.decodeFile(f.getAbsolutePath(), o);
-                bmp = Bitmap.createBitmap(bmp, 0, 0, bmp.getWidth(),
-                        bmp.getHeight(), matrix, false);
+                try (FileInputStream fis = IOProviderFactory
+                        .getInputStream(f)) {
+                    bmp = BitmapFactory.decodeStream(fis, null, o);
+                } catch (IOException ignored) {
+                    bmp = null;
+                }
+                if (bmp != null)
+                    bmp = Bitmap.createBitmap(bmp, 0, 0, bmp.getWidth(),
+                            bmp.getHeight(), matrix, false);
             }
 
             return bmp;
@@ -320,7 +341,8 @@ public class ImageAdapter2 extends BaseAdapter {
                      * by the EXIFInterface, we need to use the Sanselan to get 
                      * the GPSImgDirection tag.
                      */
-                    IImageMetadata metadata = Sanselan.getMetadata(bmpFile);
+                    IImageMetadata metadata = ExifHelper
+                            .getExifMetadata(bmpFile);
                     JpegImageMetadata jpegMetadata = (JpegImageMetadata) metadata;
                     if (jpegMetadata != null) {
                         TiffImageMetadata sanexif = jpegMetadata.getExif();
@@ -409,8 +431,14 @@ public class ImageAdapter2 extends BaseAdapter {
                         synchronized (lock) {
                             BitmapFactory.Options opts = new BitmapFactory.Options();
                             opts.inJustDecodeBounds = true;
-                            BitmapFactory.decodeFile(bmpFile.getAbsolutePath(),
-                                    opts);
+                            try (InputStream is = IOProviderFactory
+                                    .getInputStream(new File(bmpFile
+                                            .getAbsolutePath()))) {
+                                BitmapFactory.decodeStream(is,
+                                        null, opts);
+                            } catch (IOException e) {
+                                Log.e(TAG, "error encountered", e);
+                            }
 
                             int sample = Math.max(1, (opts.outWidth / _width));
                             sample = sample > 1 ? _nextPowerOf2(sample)
@@ -541,16 +569,12 @@ public class ImageAdapter2 extends BaseAdapter {
 
     private File _readLink(File linkFile) {
         File link = null;
-        try {
-            BufferedReader br = new BufferedReader(new InputStreamReader(
-                    new FileInputStream(linkFile)));
-            try {
-                String line = br.readLine();
-                link = new File(
-                        FileSystemUtils.sanitizeWithSpacesAndSlashes(line));
-            } finally {
-                br.close();
-            }
+        try (InputStream is = IOProviderFactory.getInputStream(linkFile);
+                InputStreamReader isr = new InputStreamReader(is);
+                BufferedReader br = new BufferedReader(isr)) {
+            String line = br.readLine();
+            link = new File(
+                    FileSystemUtils.sanitizeWithSpacesAndSlashes(line));
         } catch (IOException ex) {
             Log.e(TAG, "error: ", ex);
         }

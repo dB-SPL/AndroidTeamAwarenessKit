@@ -20,7 +20,10 @@ import com.atakmap.android.user.FilterMapOverlay;
 import com.atakmap.android.user.icon.SpotMapReceiver;
 
 import com.atakmap.android.vehicle.VehicleMapComponent;
+import com.atakmap.annotations.DeprecatedApi;
 import com.atakmap.app.R;
+import com.atakmap.app.system.FlavorProvider;
+import com.atakmap.app.system.SystemComponentLoader;
 import com.atakmap.coremap.cot.event.CotEvent;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.comms.CommsMapComponent.ImportResult;
@@ -55,9 +58,9 @@ public class CotMapAdapter {
     private final MapGroup _dipsGroup;
     private final MapGroup _routeGroup;
     private MapGroup _drawingGroup;
-    private final MapGroup _altDipsGroup;
-    private MapGroup _vehicleGroup;
     private MapGroup _quickPickMapGroup;
+    private final MapGroup _altDipsGroup;
+    private final MapGroup _vehicleGroup;
     private final MapGroup _otherGroup;
     private final MapGroup _spotMapGroup, _airspaceGroup, _casevacGroup;
 
@@ -78,6 +81,11 @@ public class CotMapAdapter {
         _spiGroup.setMetaBoolean("permaGroup", true);
         _spiGroup.setMetaString("iconUri", "asset://icons/b-m-p-s-p-i.png");
         _spiGroup.setDefaultZOrder(ZORDER_SPI);
+
+        FlavorProvider fp = SystemComponentLoader.getFlavorProvider();
+        if (fp == null || !fp.hasMilCapabilities())
+            _spiGroup.setMetaString("omNameOverride", "DPs");
+
         _mapView.getMapOverlayManager().addMarkersOverlay(
                 new DefaultMapGroupOverlay(mapView, _spiGroup, FilterMapOverlay
                         .getRejectFilter(mapView)));
@@ -254,22 +262,27 @@ public class CotMapAdapter {
 
     /**
      * Register a marker detail handler for the given detail element name
+     * @deprecated Use {@link CotDetailManager#registerHandler(String, MarkerDetailHandler)}
      *
      * @param detailName Detail element name
      * @param handler Marker detail handler
-     * @deprecated
      * Use {@link CotDetailManager#registerHandler(String, MarkerDetailHandler)} instead
      */
     @Deprecated
+    @DeprecatedApi(since = "4.1", forRemoval = true, removeAt = "4.4")
     public void setMarkerDetailHandler(String detailName,
             MarkerDetailHandler handler) {
         CotDetailManager.getInstance().registerHandler(detailName, handler);
     }
 
+    @Deprecated
+    @DeprecatedApi(since = "4.2", forRemoval = true, removeAt = "4.5")
     public MapView getMapView() {
         return _mapView;
     }
 
+    @Deprecated
+    @DeprecatedApi(since = "4.2", forRemoval = true, removeAt = "4.5")
     public MapGroup getCotMapGroup() {
         return _cotGroup;
     }

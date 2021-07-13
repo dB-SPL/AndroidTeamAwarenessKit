@@ -26,15 +26,16 @@ import com.atakmap.android.maps.MapItem;
 import com.atakmap.android.maps.MapView;
 import com.atakmap.app.R;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.maps.coords.GeoBounds;
 import com.atakmap.coremap.maps.coords.GeoPoint;
 import com.atakmap.coremap.maps.coords.MutableGeoBounds;
+import com.atakmap.map.gdal.GdalLibrary;
 
 import org.apache.sanselan.formats.tiff.TiffImageMetadata;
 import org.apache.sanselan.formats.tiff.constants.TiffConstants;
 import org.apache.sanselan.formats.tiff.write.TiffOutputSet;
 import org.gdal.gdal.Dataset;
-import org.gdal.gdal.gdal;
 import org.gdal.gdalconst.gdalconst;
 
 import java.io.File;
@@ -58,7 +59,7 @@ public class AttachmentContent implements HashtagContent, GoTo, Delete,
     }
 
     private void refresh() {
-        long lastMod = _file.lastModified();
+        long lastMod = IOProviderFactory.lastModified(_file);
         if (lastMod == _lastMod)
             return;
 
@@ -75,7 +76,7 @@ public class AttachmentContent implements HashtagContent, GoTo, Delete,
                         TiffConstants.TIFF_TAG_IMAGE_DESCRIPTION, "");
             }
         } else {
-            Dataset ds = gdal.Open(_file.getAbsolutePath(),
+            Dataset ds = GdalLibrary.openDatasetFromFile(_file,
                     gdalconst.GA_ReadOnly);
             if (ds != null) {
                 if (ImageContainer.NITF_FilenameFilter.accept(dir, name)) {
@@ -116,15 +117,13 @@ public class AttachmentContent implements HashtagContent, GoTo, Delete,
         if (ImageContainer.JPEG_FilenameFilter.accept(dir, name)) {
             // Update EXIF image description
             TiffImageMetadata exif = ExifHelper.getExifMetadata(_file);
-            if (exif != null) {
-                TiffOutputSet tos = ExifHelper.getExifOutput(exif);
-                if (ExifHelper.updateField(tos,
-                        TiffConstants.TIFF_TAG_IMAGE_DESCRIPTION, caption))
-                    ExifHelper.saveExifOutput(tos, _file);
-            }
+            TiffOutputSet tos = ExifHelper.getExifOutput(exif);
+            if (ExifHelper.updateField(tos,
+                    TiffConstants.TIFF_TAG_IMAGE_DESCRIPTION, caption))
+                ExifHelper.saveExifOutput(tos, _file);
         } else if (ImageContainer.NITF_FilenameFilter.accept(dir, name)) {
             // Update NITF file title
-            Dataset nitf = gdal.Open(_file.getAbsolutePath());
+            Dataset nitf = GdalLibrary.openDatasetFromFile(_file);
             if (nitf != null) {
                 NITFHelper.setTitle(nitf, caption);
                 nitf.delete();

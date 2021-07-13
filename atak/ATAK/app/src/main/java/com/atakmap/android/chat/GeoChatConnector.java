@@ -10,7 +10,7 @@ public class GeoChatConnector extends Connector {
 
     public final static String CONNECTOR_TYPE = "connector.geochat";
 
-    private NetConnectString connectionEndpoint;
+    private final NetConnectString connectionEndpoint;
 
     public GeoChatConnector(NetConnectString netConnectString) {
         connectionEndpoint = netConnectString;
@@ -22,7 +22,9 @@ public class GeoChatConnector extends Connector {
 
     @Override
     public String getConnectionString() {
-        return connectionEndpoint.toString();
+        if (connectionEndpoint != null)
+            return connectionEndpoint.toString();
+        return "";
     }
 
     @Override

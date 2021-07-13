@@ -13,7 +13,7 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.graphics.drawable.Drawable;
 
-import com.atakmap.app.BuildConfig;
+import com.atakmap.android.maps.MapItem;
 
 import com.atakmap.android.bpha.BPHARectangleCreator;
 import com.atakmap.android.bpha.BattlePositionHoldingArea;
@@ -31,6 +31,8 @@ import com.atakmap.android.user.EnterLocationTool;
 import com.atakmap.android.user.PlacePointTool;
 import com.atakmap.android.user.icon.IconPallet.CreatePointException;
 import com.atakmap.app.R;
+import com.atakmap.app.system.FlavorProvider;
+import com.atakmap.app.system.SystemComponentLoader;
 import com.atakmap.coremap.maps.coords.GeoPointMetaData;
 
 import java.util.HashMap;
@@ -166,7 +168,9 @@ public class MissionSpecificPalletFragment extends Fragment implements
         new BattlePositionLayoutHandler(inflater, subView,
                 this);
 
-        if (!BuildConfig.MIL_CAPABILITIES) {
+        // check to see what type is being built - capabilities wise
+        FlavorProvider fp = SystemComponentLoader.getFlavorProvider();
+        if (fp == null || !fp.hasMilCapabilities()) {
             ipButtonLayout.setVisibility(View.GONE);
             cpButtonLayout.setVisibility(View.GONE);
             habpButtonLayout.setVisibility(View.GONE);
@@ -246,6 +250,30 @@ public class MissionSpecificPalletFragment extends Fragment implements
         else
             res = R.id.slot4;
 
+        if (v != null) {
+            LinearLayout slotButtonLayout = v
+                    .findViewById(res);
+            slotButtonLayout.setVisibility(View.GONE);
+        }
+    }
+
+    /**
+     * Allows for a dynamically registered capability within the pallet to be unregistered.
+     * @param slot the previously registered slot
+     */
+    synchronized static public void unregisterSlot(Slot slot) {
+        if (slot == null)
+            return;
+        // look up the corresponding resource
+        Integer res = null;
+        for (Map.Entry<Integer, Slot> entry : _slotMap.entrySet()) {
+            if (entry.getValue() == slot) {
+                res = entry.getKey();
+                break;
+            }
+        }
+        if (res == null)
+            return; // no resource for slot
         if (v != null) {
             LinearLayout slotButtonLayout = v
                     .findViewById(res);
@@ -389,7 +417,8 @@ public class MissionSpecificPalletFragment extends Fragment implements
         super.onResume();
     }
 
-    public Marker getPointPlacedIntent(GeoPointMetaData point, final String uid)
+    public MapItem getPointPlacedIntent(GeoPointMetaData point,
+            final String uid)
             throws CreatePointException {
         if (selectedButton == null || selectedType.equals(""))
             throw new CreatePointException(
@@ -427,9 +456,7 @@ public class MissionSpecificPalletFragment extends Fragment implements
             if (r == null) {
                 throw new CreatePointException("unable to place rectangle");
             }
-            return r.getAnchorItem() instanceof Marker
-                    ? (Marker) r.getAnchorItem()
-                    : null;
+            return r;
         }
         //Log.d(TAG, "getPointPlacedIntent: " + _curColor + ", " + uid);
 

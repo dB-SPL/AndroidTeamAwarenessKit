@@ -45,6 +45,7 @@ public class GLWidgetsMapComponent extends AbstractMapComponent implements
         _mapView.addOnActionBarToggledListener(this);
         _mapView.addOnTouchListenerAt(0, _touchListener);
 
+        GLWidgetFactory.registerSpi(GLMapFocusTextWidget.SPI);
         GLWidgetFactory.registerSpi(GLTextWidget.SPI);
         GLWidgetFactory.registerSpi(GLScrollLayoutWidget.SPI);
         GLWidgetFactory.registerSpi(GLLinearLayoutWidget.SPI);
@@ -53,6 +54,8 @@ public class GLWidgetsMapComponent extends AbstractMapComponent implements
         GLWidgetFactory.registerSpi(GLButtonWidget.SPI);
         GLWidgetFactory.registerSpi(GLRadialButtonWidget.SPI);
         GLWidgetFactory.registerSpi(GLMarkerIconWidget.SPI);
+        GLWidgetFactory.registerSpi(GLMarkerDrawableWidget.SPI);
+        GLWidgetFactory.registerSpi(GLDrawableWidget.SPI);
         GLWidgetFactory.registerSpi(GLArcWidget.SPI);
         GLWidgetFactory.registerSpi(GLIsoKeyWidget.SPI);
         GLWidgetFactory.registerSpi(GLScaleWidget.SPI);

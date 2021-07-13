@@ -4,6 +4,7 @@ package com.atakmap.android.maps.tilesets.mobac;
 import android.util.Xml;
 
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.coremap.maps.coords.GeoBounds;
 import com.atakmap.net.AtakAuthenticationHandlerHTTP;
@@ -16,6 +17,7 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.PrintWriter;
+import java.io.Writer;
 import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
 import java.net.URL;
@@ -970,7 +972,7 @@ public class WMTSQueryLayers extends QueryLayers {
                 f = new File(FileSystemUtils
                         .getItem("imagery/mobile/mapsources"),
                         FileSystemUtils.sanitizeWithSpacesAndSlashes(filename));
-                if (f.exists()) {
+                if (IOProviderFactory.exists(f)) {
                     suffix = String.valueOf(index++);
 
                     // give up after a while
@@ -1013,22 +1015,23 @@ public class WMTSQueryLayers extends QueryLayers {
             }
 
             // and print out the XML itself.
-            PrintWriter out = new PrintWriter(f);
-            out.println("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
-            out.println("<customMapSource>");
-            out.println("    <name>" + title + " on "
-                    + queryLayer.getServiceTitle()
-                    + "</name>");
-            out.println("    <minZoom>0</minZoom>");
-            out.println("    <maxZoom>" + numMatrixLevels + "</maxZoom>");
-            out.println("    <tileType>" + format + "</tileType>");
-            out.println("    <url>" + url + "</url>");
-            out.println("    <tileUpdate>false</tileUpdate>");
-            out.println("    <backgroundColor>#000000</backgroundColor>");
-            out.println("    <ignoreErrors>false</ignoreErrors>");
-            out.println("    <serverParts></serverParts>");
-            out.println("</customMapSource>");
-            out.close();
+            try (Writer w = IOProviderFactory.getFileWriter(f);
+                    PrintWriter out = new PrintWriter(w)) {
+                out.println("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
+                out.println("<customMapSource>");
+                out.println("    <name>" + title + " on "
+                        + queryLayer.getServiceTitle()
+                        + "</name>");
+                out.println("    <minZoom>0</minZoom>");
+                out.println("    <maxZoom>" + numMatrixLevels + "</maxZoom>");
+                out.println("    <tileType>" + format + "</tileType>");
+                out.println("    <url>" + url + "</url>");
+                out.println("    <tileUpdate>false</tileUpdate>");
+                out.println("    <backgroundColor>#000000</backgroundColor>");
+                out.println("    <ignoreErrors>false</ignoreErrors>");
+                out.println("    <serverParts></serverParts>");
+                out.println("</customMapSource>");
+            }
 
             return f;
         }

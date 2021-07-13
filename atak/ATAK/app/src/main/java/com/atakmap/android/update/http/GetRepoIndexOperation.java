@@ -4,6 +4,7 @@ package com.atakmap.android.update.http;
 import android.app.Notification;
 import android.app.NotificationManager;
 import android.content.Context;
+import android.os.Build;
 import android.os.Bundle;
 
 import com.atakmap.android.http.rest.DownloadProgressTracker;
@@ -17,7 +18,6 @@ import com.atakmap.comms.http.HttpUtil;
 import com.atakmap.comms.http.TakHttpClient;
 import com.atakmap.comms.http.TakHttpException;
 import com.atakmap.comms.http.TakHttpResponse;
-import com.atakmap.coremap.filesystem.FileSystemUtils;
 import com.atakmap.coremap.locale.LocaleUtil;
 import com.atakmap.coremap.log.Log;
 import com.foxykeep.datadroid.exception.ConnectionException;
@@ -173,7 +173,8 @@ public final class GetRepoIndexOperation extends HTTPOperation {
                         "Overwriting file: "
                                 + contentFile.getAbsolutePath()
                                 + " of size: "
-                                + contentFile.length() + " with new size: "
+                                + contentFile.length()
+                                + " with new size: "
                                 + contentLength);
             }
 
@@ -219,7 +220,7 @@ public final class GetRepoIndexOperation extends HTTPOperation {
                         .getSystemService(Context.NOTIFICATION_SERVICE);
             }
             Notification.Builder builder;
-            if (android.os.Build.VERSION.SDK_INT < 26) {
+            if (android.os.Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
                 builder = new Notification.Builder(context);
             } else {
                 builder = new Notification.Builder(context,
@@ -352,8 +353,8 @@ public final class GetRepoIndexOperation extends HTTPOperation {
             }
 
             // Now verify we got download correctly
-            if (!FileSystemUtils.isFile(contentFile)) {
-                FileSystemUtils.delete(contentFile);
+            if (!contentFile.exists()) {
+                contentFile.delete();
                 throw new ConnectionException("Failed to download data");
             }
 

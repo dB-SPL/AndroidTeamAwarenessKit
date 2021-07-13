@@ -2,11 +2,13 @@
 package com.atakmap.android.gdal.layers;
 
 import android.graphics.BitmapFactory;
+import android.graphics.Color;
 import android.os.SystemClock;
 import android.util.Pair;
 import android.util.Xml;
 
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.locale.LocaleUtil;
 import com.atakmap.coremap.log.Log;
 
@@ -37,6 +39,7 @@ import android.content.res.XmlResourceParser;
 import org.xmlpull.v1.XmlPullParserException;
 
 import java.io.File;
+import java.io.FileFilter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Collections;
@@ -79,6 +82,13 @@ public class KmzLayerInfoSpi extends AbstractDatasetDescriptorSpi {
         LATLON_QUAD_PARSE_TAGS.add("coordinates");
     }
 
+    public static final FileFilter KML_FILTER = new FileFilter() {
+        @Override
+        public boolean accept(File f) {
+            return FileSystemUtils.checkExtension(f, "kml");
+        }
+    };
+
     public final static DatasetDescriptorSpi INSTANCE = new KmzLayerInfoSpi();
 
     private KmzLayerInfoSpi() {
@@ -97,7 +107,7 @@ public class KmzLayerInfoSpi extends AbstractDatasetDescriptorSpi {
             try {
                 file = new ZipVirtualFile(file);
             } catch (Throwable e) {
-                if (file != null && file.exists()) {
+                if (file != null && IOProviderFactory.exists(file)) {
                     Log.w(TAG,
                             "Unable to open KMZ as a zip file: "
                                     + e.getMessage() + " "
@@ -117,14 +127,15 @@ public class KmzLayerInfoSpi extends AbstractDatasetDescriptorSpi {
         InputStream inputStream = null;
         try {
             ZipVirtualFile docFile = new ZipVirtualFile(file, "doc.kml");
-            if (!docFile.exists()) {
+            if (!IOProviderFactory.exists(docFile)) {
                 ZipVirtualFile zipFile;
                 try {
                     zipFile = new ZipVirtualFile(file);
                     final String[] files = zipFile.list();
                     if (files != null) {
                         for (String f : files) {
-                            if (f.toLowerCase(LocaleUtil.getCurrent()).endsWith(".kml")) {
+                            if (f.toLowerCase(LocaleUtil.getCurrent())
+                                    .endsWith(".kml")) {
                                 docFile = new ZipVirtualFile(file, f);
                                 break;
                             }
@@ -218,6 +229,20 @@ public class KmzLayerInfoSpi extends AbstractDatasetDescriptorSpi {
             // If we can successfully open the inputstream to doc.kml,
             // and it has the GroundOverlay element, then this is probably a KMZ layer file.
             ZipVirtualFile docFile = new ZipVirtualFile(kmzFile, "doc.kml");
+
+            // Look for other KML
+            if (!IOProviderFactory.exists(docFile)) {
+                File[] files = IOProviderFactory.listFiles(kmzFile, KML_FILTER);
+                if (files != null) {
+                    for (File f : files) {
+                        if (f instanceof ZipVirtualFile) {
+                            docFile = (ZipVirtualFile) f;
+                            break;
+                        }
+                    }
+                }
+            }
+
             inputStream = docFile.openStream();
             parser = Xml.newPullParser();
 
@@ -282,6 +307,8 @@ public class KmzLayerInfoSpi extends AbstractDatasetDescriptorSpi {
         tagStack.push(parser.getName());
 
         ZipVirtualFile iconFile = null;
+        int color = Color.WHITE;
+        boolean visible = true;
         boolean coords = false;
         GeoPoint ul = GeoPoint.createMutable();
         GeoPoint ur = GeoPoint.createMutable();
@@ -312,8 +339,31 @@ public class KmzLayerInfoSpi extends AbstractDatasetDescriptorSpi {
                     break;
                 case XmlPullParser.TEXT:
                     inTag = tagStack.peek();
-                    if (inTag.equals("href")) {
-                        iconFile = new ZipVirtualFile(file, parser.getText());
+                    switch (inTag) {
+                        // Image file/link
+                        case "href":
+                            iconFile = new ZipVirtualFile(file,
+                                    parser.getText());
+                            break;
+
+                        // Color/alpha modulation
+                        case "color": {
+                            String colTxt = parser.getText();
+                            if (!colTxt.startsWith("#"))
+                                colTxt = "#" + colTxt;
+                            try {
+                                color = Color.parseColor(colTxt);
+                            } catch (Exception e) {
+                                Log.e(TAG, "Failed to parse color: " + colTxt,
+                                        e);
+                            }
+                            break;
+                        }
+
+                        // Visibility toggle
+                        case "visibility":
+                            visible = parser.getText().equals("1");
+                            break;
                     }
                     break;
                 case XmlPullParser.END_DOCUMENT:
@@ -339,6 +389,9 @@ public class KmzLayerInfoSpi extends AbstractDatasetDescriptorSpi {
         extraData
                 .put("tilecache", (new File(workingDir, "tilecache.sqlite"))
                         .getAbsolutePath());
+
+        extraData.put("color", String.valueOf(color));
+        extraData.put("visible", String.valueOf(visible));
 
         final double gsd = DatasetDescriptor.computeGSD(frame.width,
                 frame.height, ul, ur, lr, ll);
@@ -635,7 +688,7 @@ public class KmzLayerInfoSpi extends AbstractDatasetDescriptorSpi {
 
             File tilecacheDir = new File(workingDir, "tilecache");
             FileSystemUtils.delete(tilecacheDir);
-            if (tilecacheDir.mkdirs())
+            if (IOProviderFactory.mkdirs(tilecacheDir))
                 extraData.put("tilecacheDir", tilecacheDir.getAbsolutePath());
 
             Map<String, MosaicDatabase2.Coverage> dbCoverages = new HashMap<>();

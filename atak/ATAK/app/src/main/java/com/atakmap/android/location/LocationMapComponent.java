@@ -1,86 +1,87 @@
 
 package com.atakmap.android.location;
 
+import android.annotation.SuppressLint;
 import android.app.Service;
+import android.content.ActivityNotFoundException;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
-import com.atakmap.android.ipc.AtakBroadcast.DocumentedIntentFilter;
 import android.content.SharedPreferences;
 import android.content.res.Configuration;
 import android.graphics.Color;
-import android.graphics.Rect;
 import android.graphics.PointF;
+import android.graphics.Rect;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
-import android.location.GpsStatus.NmeaListener;
-import android.location.GpsStatus;
 import android.location.GpsSatellite;
+import android.location.GpsStatus;
+import android.location.GpsStatus.NmeaListener;
 import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
 import android.location.LocationProvider;
 import android.location.OnNmeaMessageListener;
 import android.net.wifi.WifiManager;
-import android.os.SystemClock;
+import android.os.Build;
 import android.os.Bundle;
+import android.os.SystemClock;
 import android.preference.PreferenceManager;
 import android.provider.Settings;
+import android.provider.Settings.Secure;
 import android.telephony.TelephonyManager;
 import android.view.Display;
 import android.view.Surface;
 import android.view.WindowManager;
 
-import android.annotation.SuppressLint;
-import com.atakmap.app.Permissions;
-import com.atakmap.android.mapcompass.CompassArrowMapComponent;
 import com.atakmap.android.elev.dt2.Dt2ElevationModel;
 import com.atakmap.android.gui.HintDialogHelper;
 import com.atakmap.android.icons.Icon2525bIconAdapter;
 import com.atakmap.android.ipc.AtakBroadcast;
+import com.atakmap.android.ipc.AtakBroadcast.DocumentedIntentFilter;
+import com.atakmap.android.mapcompass.CompassArrowMapComponent;
 import com.atakmap.android.maps.AbstractMapComponent;
 import com.atakmap.android.maps.Ellipse;
+import com.atakmap.android.maps.MapData;
 import com.atakmap.android.maps.MapGroup;
 import com.atakmap.android.maps.MapItem;
 import com.atakmap.android.maps.MapMode;
 import com.atakmap.android.maps.MapView;
-import com.atakmap.android.maps.MapData;
 import com.atakmap.android.maps.Marker;
 import com.atakmap.android.maps.Marker.OnTrackChangedListener;
 import com.atakmap.android.maps.PointMapItem;
 import com.atakmap.android.maps.PointMapItem.OnPointChangedListener;
-import com.atakmap.android.selfcoordoverlay.SelfCoordOverlayUpdater;
+import com.atakmap.android.selfcoordoverlay.SelfCoordOverlayUpdaterCompat;
 import com.atakmap.android.util.ATAKUtilities;
 import com.atakmap.android.util.NotificationUtil;
+import com.atakmap.app.Permissions;
 import com.atakmap.app.R;
 import com.atakmap.comms.ReportingRate;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.locale.LocaleUtil;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.coremap.maps.assets.Icon;
-
 import com.atakmap.coremap.maps.conversion.EGM96;
-import com.atakmap.coremap.maps.coords.GeoPoint.AltitudeReference;
 import com.atakmap.coremap.maps.coords.GeoPoint;
+import com.atakmap.coremap.maps.coords.GeoPoint.AltitudeReference;
 import com.atakmap.coremap.maps.coords.GeoPointMetaData;
 import com.atakmap.coremap.maps.time.CoordinatedTime;
 import com.atakmap.map.AtakMapController;
+import com.atakmap.map.CameraController;
+import com.atakmap.map.MapRenderer3;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
-import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.text.SimpleDateFormat;
-import com.atakmap.coremap.locale.LocaleUtil;
+import java.util.Arrays;
+import java.util.Iterator;
 import java.util.Timer;
 import java.util.TimerTask;
 import java.util.UUID;
 import java.util.regex.Pattern;
-import java.util.Iterator;
-
-import android.os.Build;
-import java.lang.reflect.Method;
-import android.provider.Settings.Secure;
 
 /**
  * Provides a location Marker and various device information.
@@ -127,8 +128,8 @@ public class LocationMapComponent extends AbstractMapComponent implements
     private float[] _gravityMatrix;// = new float[9];
     private float[] _geoMagnetic;// = new float[3];
     private SensorManager _sensorMgr;
-    private final Sensor accelSensor = null;
-    private final Sensor magSensor = null;
+    private Sensor accelSensor = null;
+    private Sensor magSensor = null;
     private double _orientationOffset = 0d;
     private Marker _locationMarker;
     private MapGroup _locationGroup;
@@ -247,8 +248,7 @@ public class LocationMapComponent extends AbstractMapComponent implements
 
                         // do not call reset because that will unset the driving
                         // flag and cause the cam lock to screw up.
-                        for (int i = 0; i < vlist.length; ++i)
-                            vlist[i] = Double.NaN;
+                        Arrays.fill(vlist, Double.NaN);
                         queue(v);
                         // dismiss the driving widget
                         setDrivingWidgetVisible(false);
@@ -262,8 +262,7 @@ public class LocationMapComponent extends AbstractMapComponent implements
             if (reset)
                 return;
 
-            for (int i = 0; i < vlist.length; ++i)
-                vlist[i] = Double.NaN;
+            Arrays.fill(vlist, Double.NaN);
 
             lastHighSpeed = SystemClock.elapsedRealtime() - VALID_TIME;
             _locationMarker.setMetaBoolean("driving", false);
@@ -493,7 +492,7 @@ public class LocationMapComponent extends AbstractMapComponent implements
                 }
             }
         } catch (Exception ioe) {
-            Log.d(TAG, "error occured", ioe);
+            Log.d(TAG, "error occurred", ioe);
         }
     }
 
@@ -1015,9 +1014,9 @@ public class LocationMapComponent extends AbstractMapComponent implements
                                 "device.accelerometer.issue");
                 return;
             }
-            Sensor accelSensor = _sensorMgr
+            accelSensor = _sensorMgr
                     .getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
-            Sensor magSensor = _sensorMgr
+            magSensor = _sensorMgr
                     .getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD);
             boolean accPresent = _sensorMgr.registerListener(
                     this, accelSensor,
@@ -1132,10 +1131,16 @@ public class LocationMapComponent extends AbstractMapComponent implements
 
                                             @Override
                                             public void postHint() {
-                                                final Intent intent = new Intent(
-                                                        Settings.ACTION_LOCATION_SOURCE_SETTINGS);
-                                                _mapView.getContext()
-                                                        .startActivity(intent);
+                                                try {
+                                                    final Intent intent = new Intent(
+                                                            Settings.ACTION_LOCATION_SOURCE_SETTINGS);
+                                                    _mapView.getContext()
+                                                            .startActivity(
+                                                                    intent);
+                                                } catch (ActivityNotFoundException ane) {
+                                                    Log.d(TAG,
+                                                            "no Settings.ACTION_LOCATION_SOURCE_SETTINGS activity found on this device");
+                                                }
                                             }
                                         }, false);
                     }
@@ -1146,7 +1151,7 @@ public class LocationMapComponent extends AbstractMapComponent implements
                             interval, 0f, this);
                     locMgr.addGpsStatusListener(this);
 
-                    if (Build.VERSION.SDK_INT >= 24) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                         locMgr.addNmeaListener(
                                 newerNmeaListener = new OnNmeaMessageListener() {
                                     @Override
@@ -1208,7 +1213,7 @@ public class LocationMapComponent extends AbstractMapComponent implements
         Log.d(TAG, "adding the GpsStatus.NmeaListener listener "
                 + listener.getClass());
         try {
-            final Class c = locMgr.getClass();
+            final Class<?> c = locMgr.getClass();
             Method addNmeaListener = c.getMethod("addNmeaListener",
                     GpsStatus.NmeaListener.class);
             if (addNmeaListener != null)
@@ -1234,7 +1239,7 @@ public class LocationMapComponent extends AbstractMapComponent implements
         Log.d(TAG, "removing the GpsStatus.NmeaListener listener "
                 + listener.getClass());
         try {
-            final Class c = locMgr.getClass();
+            final Class<?> c = locMgr.getClass();
             Method removeNmeaListener = c.getMethod("removeNmeaListener",
                     GpsStatus.NmeaListener.class);
             if (removeNmeaListener != null)
@@ -1483,18 +1488,6 @@ public class LocationMapComponent extends AbstractMapComponent implements
     }
 
     private void _updateLocation(final Location loc) {
-        final MapData mapData = _mapView.getMapData();
-
-        if (_mapView.getMapData().getBoolean("mockLocationAvailable", false)) {
-            _locationMarker.removeMetaData("movable");
-            _locationMarker.setMetaString("how", "m-g");
-            if (mapData.getBoolean("fineLocationAvailable", false)) {
-                Log.d(TAG, "mocking engaged, removing internal location data");
-                _removeLocationMapData(mapData);
-            }
-            return;
-        }
-
         final GeoPoint point;
 
         double alt;
@@ -1562,6 +1555,36 @@ public class LocationMapComponent extends AbstractMapComponent implements
                     GeoPoint.UNKNOWN,
                     GeoPoint.UNKNOWN);
 
+        // note some device did not return 0.0
+        final double instantSpeed;
+        if (loc.hasSpeed()) {
+            instantSpeed = loc.getSpeed();
+        } else {
+            instantSpeed = 0.0;
+        }
+
+        final MapData mapData = _mapView.getMapData();
+        mapData.putLong("internalGPSTime", loc.getTime());
+        mapData.putLong("internalLocationTime", SystemClock.elapsedRealtime());
+        mapData.putParcelable("internalLocation", point);
+        mapData.putString("internalLocationSrc", GeoPointMetaData.GPS);
+        mapData.putString("internalLocationAltSrc", altSrc);
+        mapData.putDouble("internalLocationSpeed", instantSpeed);
+
+        // TODO: mirror what is being done for fineLocationBearing and correct for 4.3
+        if (loc.hasBearing())
+            mapData.putDouble("internalLocationBearing", loc.getBearing());
+
+        if (_mapView.getMapData().getBoolean("mockLocationAvailable", false)) {
+            _locationMarker.removeMetaData("movable");
+            _locationMarker.setMetaString("how", "m-g");
+            if (mapData.getBoolean("fineLocationAvailable", false)) {
+                Log.d(TAG, "mocking engaged, removing internal location data");
+                _removeLocationMapData(mapData);
+            }
+            return;
+        }
+
         mapData.putBoolean("fineLocationAvailable", true);
 
         /**
@@ -1577,12 +1600,6 @@ public class LocationMapComponent extends AbstractMapComponent implements
         mapData.putString("fineLocationSrc", GeoPointMetaData.GPS);
         mapData.putString("fineLocationAltSrc", altSrc);
 
-        final double instantSpeed;
-        if (loc.hasSpeed()) {
-            instantSpeed = loc.getSpeed();
-        } else {
-            instantSpeed = 0.0;
-        }
         mapData.putDouble("fineLocationSpeed", instantSpeed);
 
         avgSpeed.add(instantSpeed);
@@ -1705,8 +1722,8 @@ public class LocationMapComponent extends AbstractMapComponent implements
 
             if (_accuracyEllipse == null) {
                 _accuracyEllipse = new Ellipse(UUID.randomUUID().toString());
-                _accuracyEllipse.setCenterHeightWidth(
-                        _locationMarker.getGeoPointMetaData(), 0, 0);
+                _accuracyEllipse
+                        .setCenter(_locationMarker.getGeoPointMetaData());
                 _accuracyEllipse.setFillColor(Color.argb(50, 187, 238, 255));
                 _accuracyEllipse.setFillStyle(2);
                 _accuracyEllipse.setStrokeColor(Color.BLUE);
@@ -1732,9 +1749,9 @@ public class LocationMapComponent extends AbstractMapComponent implements
                                         || lastPoint.distanceTo(gp.get()) > 0.25
                                         || Double.compare(gp.get().getCE(),
                                                 lastPoint.getCE()) != 0) {
-                                    _accuracyEllipse.setCenterHeightWidth(gp,
-                                            (int) (gp.get().getCE() * 2),
-                                            (int) (gp.get().getCE() * 2));
+                                    _accuracyEllipse.setDimensions(gp,
+                                            (int) gp.get().getCE(),
+                                            (int) gp.get().getCE());
                                     lastPoint = gp.get();
                                 }
                             } else {
@@ -1827,7 +1844,7 @@ public class LocationMapComponent extends AbstractMapComponent implements
                         .getLong(
                                 prefix + "LocationTime")) < GPS_TIMEOUT_MILLIS) {
 
-            SelfCoordOverlayUpdater.getInstance().change();
+            SelfCoordOverlayUpdaterCompat.change();
 
             GeoPoint point = data.getParcelable(prefix + "Location");
 
@@ -1925,10 +1942,10 @@ public class LocationMapComponent extends AbstractMapComponent implements
             //_locationMarker.removeMetaData("Speed");
             //avgSpeed.reset();
 
-            SelfCoordOverlayUpdater.getInstance().change();
+            SelfCoordOverlayUpdaterCompat.change();
         } else {
             //No GPS available but still need to update location/connectcion widgets
-            SelfCoordOverlayUpdater.getInstance().change();
+            SelfCoordOverlayUpdaterCompat.change();
         }
 
         /*
@@ -2023,11 +2040,12 @@ public class LocationMapComponent extends AbstractMapComponent implements
                         || orientationMethod == MapMode.MAGNETIC_UP) {
 
                     if (_locationMarker.getMetaBoolean("camLocked", false)) {
-                        PointF p = _mapView.forward(_locationMarker.getPoint()
-                                .getLatitude(),
-                                _locationMarker.getPoint().getLongitude());
-                        double delta = lastHeading - _mapView.getMapRotation();
-                        ctrl.rotateBy(delta, (int) p.x, (int) p.y, true);
+                        PointF p = _mapView.forward(_locationMarker.getPoint());
+                        CameraController.Interactive.rotateTo(
+                                _mapView.getRenderer3(), lastHeading,
+                                _locationMarker.getPoint(), p.x, p.y,
+                                MapRenderer3.CameraCollision.AdjustCamera,
+                                true);
                     } else {
                         ctrl.rotateTo(lastHeading, true);
                     }

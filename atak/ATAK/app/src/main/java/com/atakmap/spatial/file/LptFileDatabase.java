@@ -6,7 +6,9 @@ import android.content.res.AssetManager;
 
 import com.atakmap.android.maps.MapGroup;
 import com.atakmap.android.maps.MapView;
+import com.atakmap.annotations.DeprecatedApi;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.map.layer.feature.FeatureDataSource;
 import com.atakmap.map.layer.feature.geometry.Envelope;
@@ -17,10 +19,17 @@ import com.healthmarketscience.jackcess.Table;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.channels.FileChannel;
 import java.util.HashMap;
 import com.atakmap.coremap.locale.LocaleUtil;
 import java.util.Map;
 
+/**
+ * @deprecated Transitioned to Map Engine Features API
+ * Replaced by {@link FalconViewSpatialDb}
+ */
+@Deprecated
+@DeprecatedApi(since = "4.3", forRemoval = true, removeAt = "4.6")
 public class LptFileDatabase extends FileDatabase {
     private static final String TAG = "LptFileDatabase";
 
@@ -42,7 +51,7 @@ public class LptFileDatabase extends FileDatabase {
     @Override
     public boolean accept(File file) {
         String lc = file.getName().toLowerCase(LocaleUtil.getCurrent());
-        return file.isFile() && lc.endsWith(EXTENSION);
+        return IOProviderFactory.isFile(file) && lc.endsWith(EXTENSION);
     }
 
     @Override
@@ -75,9 +84,9 @@ public class LptFileDatabase extends FileDatabase {
             return;
         Envelope.Builder bounds = new Envelope.Builder();
         Database msaccessDb = null;
-        try {
+        try (FileChannel channel = IOProviderFactory.getChannel(lptFile, "r")) {
             DatabaseBuilder db = new DatabaseBuilder();
-            db.setFile(lptFile);
+            db.setChannel(channel);
             db.setReadOnly(true);
             msaccessDb = db.open();
 
@@ -113,6 +122,11 @@ public class LptFileDatabase extends FileDatabase {
                     //        + ", from link: " + link);
 
                     //Log.d(TAG, "Got LPT point: (" + lat + ", " + lng + ")");
+                    if (lat == null || lng == null)
+                        continue;
+                    if (alt == null)
+                        alt = Short.MIN_VALUE;
+
                     insertLptPoint(lptFile, name, iconUri, lat, lng, alt,
                             fileGrp);
                     bounds.add(lng, lat);
@@ -133,6 +147,7 @@ public class LptFileDatabase extends FileDatabase {
                 } catch (Exception ignored) {
                 }
             }
+
         }
 
         // Add to content handler

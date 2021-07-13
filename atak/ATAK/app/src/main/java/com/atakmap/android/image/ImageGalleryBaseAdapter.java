@@ -5,6 +5,7 @@ import static com.atakmap.android.image.ImageDropDownReceiver.ImageFileFilter;
 import static com.atakmap.android.image.ImageDropDownReceiver.VideoFileFilter;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.PrintWriter;
@@ -15,6 +16,7 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+import com.atakmap.util.zip.IoUtils;
 import org.apache.sanselan.formats.tiff.TiffImageMetadata;
 import org.apache.sanselan.formats.tiff.constants.TiffConstants;
 
@@ -30,6 +32,7 @@ import com.atakmap.android.util.LimitingThread;
 import com.atakmap.app.R;
 import com.atakmap.coremap.concurrent.NamedThreadFactory;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.filesystem.HashingUtils;
 import com.atakmap.map.AtakMapController;
@@ -186,7 +189,7 @@ public abstract class ImageGalleryBaseAdapter
      * Remove a filter type from the list
      * @param filterClass Filter class
      */
-    public void removeFilter(Class filterClass) {
+    public void removeFilter(Class<?> filterClass) {
         synchronized (filters) {
             filters.remove(filterClass);
         }
@@ -459,7 +462,7 @@ public abstract class ImageGalleryBaseAdapter
     protected static void updateLastModified(final File f)
             throws IOException {
         if (f != null
-                && f.exists()
+                && IOProviderFactory.exists(f)
                 && !f.setLastModified(System.currentTimeMillis())) {
             //
             // Hack to update the lastModified time.
@@ -467,20 +470,14 @@ public abstract class ImageGalleryBaseAdapter
             RandomAccessFile raf = null;
 
             try {
-                raf = new RandomAccessFile(f, "rw");
+                raf = IOProviderFactory.getRandomAccessFile(f, "rw");
 
                 long length = raf.length();
 
                 raf.setLength(length + 1);
                 raf.setLength(length);
             } finally {
-                if (raf != null) {
-                    try {
-                        raf.close();
-                    } catch (IOException ioe) {
-                        Log.d(TAG, "failed to close the file");
-                    }
-                }
+                IoUtils.close(raf, TAG, "failed to close the file");
             }
         }
     }
@@ -523,7 +520,7 @@ public abstract class ImageGalleryBaseAdapter
 
         if (reservation != null) {
             try {
-                if (cacheFile.exists()) {
+                if (IOProviderFactory.exists(cacheFile)) {
                     // Check if the source image has been modified
                     // and if so generate a new thumbnail
                     long modTime = -1;
@@ -533,15 +530,21 @@ public abstract class ImageGalleryBaseAdapter
                         if (uri != null && FileSystemUtils.isEquals(
                                 uri.getScheme(), "file")) {
                             File f = new File(uri.getPath());
-                            if (f.exists() && f.isFile())
-                                modTime = f.lastModified();
+                            if (IOProviderFactory.exists(f)
+                                    && IOProviderFactory.isFile(f))
+                                modTime = IOProviderFactory.lastModified(f);
                         }
                     }
-                    if (modTime <= cacheFile.lastModified()) {
+                    if (modTime <= IOProviderFactory.lastModified(cacheFile)) {
                         BitmapFactory.Options opts = new BitmapFactory.Options();
                         opts.inPreferredConfig = Bitmap.Config.RGB_565;
-                        thumb = BitmapFactory
-                                .decodeFile(cacheFile.getAbsolutePath(), opts);
+                        try (FileInputStream fis = IOProviderFactory
+                                .getInputStream(cacheFile)) {
+                            thumb = BitmapFactory
+                                    .decodeStream(fis, null, opts);
+                        } catch (IOException ignored) {
+                            // `thumb` remains `null`
+                        }
                     }
                     if (thumb == null)
                         FileSystemUtils.delete(cacheFile);
@@ -574,7 +577,7 @@ public abstract class ImageGalleryBaseAdapter
                     }
                 }
             } catch (Exception e) {
-                if (cacheFile.exists())
+                if (IOProviderFactory.exists(cacheFile))
                     FileSystemUtils.delete(cacheFile);
             } finally {
                 if (reservation != null)
@@ -591,7 +594,7 @@ public abstract class ImageGalleryBaseAdapter
             return;
         FileOutputStream fos = null;
         try {
-            fos = new FileOutputStream(cacheFile);
+            fos = IOProviderFactory.getOutputStream(cacheFile);
             thumb.compress(Bitmap.CompressFormat.PNG, 100, fos);
             fos.close();
             fos = null;
@@ -609,14 +612,14 @@ public abstract class ImageGalleryBaseAdapter
                         String exifCache = cacheFile.getAbsolutePath().replace(
                                 ".png",
                                 ".exif");
-                        printWriter = new PrintWriter(exifCache);
+                        printWriter = new PrintWriter(IOProviderFactory
+                                .getFileWriter(new File(exifCache)));
                         printWriter.println(imageCaption);
                     }
                 } catch (IOException e) {
                     Log.w(TAG, "Failed to cache Exif for: " + cacheFile, e);
                 } finally {
-                    if (printWriter != null)
-                        printWriter.close();
+                    IoUtils.close(printWriter, TAG);
                 }
             }
         } catch (IOException e) {
@@ -626,12 +629,7 @@ public abstract class ImageGalleryBaseAdapter
             Log.w(TAG, "Failed to save (recycled): " + cacheFile, e);
             FileSystemUtils.delete(cacheFile);
         } finally {
-            if (fos != null) {
-                try {
-                    fos.close();
-                } catch (Exception ignore) {
-                }
-            }
+            IoUtils.close(fos);
             imageCache.unreserve(cacheReservation);
         }
     }
@@ -693,7 +691,7 @@ public abstract class ImageGalleryBaseAdapter
     private boolean disposed = false;
 
     protected ImageGalleryReceiver receiver;
-    protected final Map<Class, HierarchyListFilter> filters = new HashMap<>();
+    protected final Map<Class<?>, HierarchyListFilter> filters = new HashMap<>();
 
     protected final LimitingThread refreshThread = new LimitingThread(
             "RefreshGallery", new Runnable() {

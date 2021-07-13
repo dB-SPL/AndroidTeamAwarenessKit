@@ -19,7 +19,6 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 
-import javax.xml.XMLConstants;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.parsers.ParserConfigurationException;
@@ -118,7 +117,7 @@ public class FiltersConfig {
      * 
      * @param stream the input stream
      * @return a new FiltersConfig
-     * @throws SAXException if an xml parsing error has occured
+     * @throws SAXException if an xml parsing error has occurred
      * @throws IOException if the file cannot be read.
      */
     public static FiltersConfig parseFromStream(InputStream stream)

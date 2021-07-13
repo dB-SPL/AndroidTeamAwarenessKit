@@ -25,8 +25,6 @@ import com.atakmap.coremap.maps.coords.GeoPoint;
 import com.atakmap.coremap.maps.coords.GeoPointMetaData;
 import com.atakmap.coremap.maps.coords.MutableGeoBounds;
 
-import java.util.LinkedList;
-import java.util.List;
 import java.util.UUID;
 
 /**
@@ -640,7 +638,7 @@ public class FahArrowWidget extends ShapeWidget implements
     public static class Item extends Shape {
 
         private final FahArrowWidget arrow;
-        private GLWidgetsMapComponent.WidgetTouchHandler touchListener;
+        private final GLWidgetsMapComponent.WidgetTouchHandler touchListener;
 
         public Item(MapView view) {
             super(UUID.randomUUID().toString());

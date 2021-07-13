@@ -6,20 +6,18 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.SharedPreferences.OnSharedPreferenceChangeListener;
 import android.content.pm.ActivityInfo;
-import android.graphics.PointF;
 import android.graphics.Typeface;
 import android.os.Bundle;
-import android.os.SystemClock;
 import android.preference.PreferenceManager;
 import android.util.AttributeSet;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
 
+import com.atakmap.android.devtools.DeveloperTools;
 import com.atakmap.android.elev.dt2.Dt2ElevationModel;
 import com.atakmap.android.items.GLMapItemsDatabaseRenderer;
 import com.atakmap.android.location.LocationMapComponent;
-import com.atakmap.android.maps.graphics.GLBitmapLoader;
 import com.atakmap.android.maps.graphics.GLMapGroup;
 import com.atakmap.android.maps.graphics.GLMapGroup2;
 import com.atakmap.android.maps.graphics.GLMapItemFactory;
@@ -30,9 +28,11 @@ import com.atakmap.android.widgets.AttributionWidget;
 import com.atakmap.android.widgets.LayoutWidget;
 import com.atakmap.android.widgets.TextWidget;
 import com.atakmap.android.widgets.WidgetsLayer;
+import com.atakmap.annotations.DeprecatedApi;
 import com.atakmap.app.BuildConfig;
 import com.atakmap.app.DeveloperOptions;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.coremap.maps.coords.GeoBounds;
 import com.atakmap.coremap.maps.coords.GeoCalculations;
@@ -45,16 +45,10 @@ import com.atakmap.map.MapRenderer2;
 import com.atakmap.map.MapTouchHandler;
 import com.atakmap.map.elevation.ElevationManager;
 import com.atakmap.map.layer.Layer;
-import com.atakmap.map.layer.Layer2;
-import com.atakmap.map.layer.LayerFilter;
-import com.atakmap.map.layer.Layers;
 import com.atakmap.map.layer.MultiLayer;
 import com.atakmap.map.layer.ProxyLayer;
 import com.atakmap.map.layer.feature.ogr.OgrFeatureDataSource;
-import com.atakmap.map.layer.model.ModelHitTestControl;
 import com.atakmap.map.layer.opengl.GLLayerFactory;
-import com.atakmap.map.layer.raster.PrecisionImageryUtil;
-import com.atakmap.map.layer.raster.RasterDataAccess2;
 import com.atakmap.map.layer.raster.RasterLayer2;
 import com.atakmap.map.layer.raster.service.RasterDataAccessControl;
 import com.atakmap.map.opengl.GLAntiMeridianHelper;
@@ -68,8 +62,6 @@ import com.atakmap.util.ConfigOptions;
 import com.atakmap.util.Visitor;
 
 import java.io.File;
-import java.util.ArrayList;
-import java.util.Collection;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedList;
@@ -153,7 +145,7 @@ public class MapView extends AtakMapView {
         this.overlayManager = new MapOverlayManager(this);
 
         _rootGroup = new RootMapGroup();
-        _touchController = new MapTouchController(this);
+        _touchController = MapTouchControllerCompat.getInstance(this);
 
         _rootGroup.addOnGroupListChangedListener(groupListChangedListener);
         _rootGroup.addOnItemListChangedListener(itemListChangedListener);
@@ -196,9 +188,9 @@ public class MapView extends AtakMapView {
                         int oldTop, int oldRight, int oldBottom) {
 
                     text.setPoint(
-                            left + (right - left) / 2
+                            left + (right - left) / 2f
                                     - text.getTextFormat()
-                                            .measureTextWidth(banner) / 2,
+                                            .measureTextWidth(banner) / 2f,
                             getHeight() - (text.getTextFormat()
                                     .measureTextHeight(banner) + 5f));
                 }
@@ -251,6 +243,10 @@ public class MapView extends AtakMapView {
                 this.setProjection(ECEFProjection.INSTANCE);
             }
         }
+
+        // toggle developer tools per preference
+        prefListener.onSharedPreferenceChanged(preferenceManager,
+                "atakDeveloperTools");
     }
 
     /**
@@ -316,9 +312,6 @@ public class MapView extends AtakMapView {
         copyPrefToConfigOptions(this.preferenceManager,
                 "pref_overlay_style_outline_color",
                 OgrFeatureDataSource.SYS_PROP_DEFAULT_STROKE_COLOR);
-        copyPrefToConfigOptions(this.preferenceManager,
-                "pref_overlay_style_outline_width",
-                OgrFeatureDataSource.SYS_PROP_DEFAULT_STROKE_WIDTH);
         ConfigOptions.setOption(OgrFeatureDataSource.SYS_PROP_DEFAULT_ICON_URI,
                 "asset:/icons/reference_point.png");
 
@@ -327,12 +320,8 @@ public class MapView extends AtakMapView {
 
     @Override
     protected void initGLSurface() {
-        if (FileSystemUtils.getItem("opengl.broken").exists())
+        if (IOProviderFactory.exists(FileSystemUtils.getItem("opengl.broken")))
             System.setProperty("USE_GENERIC_EGL_CONFIG", "true");
-
-        GLBitmapLoader.setIconCacheDb(FileSystemUtils.getItem(
-                "Databases" + File.separatorChar + "iconcache.sqlite"));
-
         super.initGLSurface();
 
         GLMapItemFactory.registerSpi(GLMapGroup.DEFAULT_GLMAPITEM_SPI2);
@@ -356,14 +345,23 @@ public class MapView extends AtakMapView {
                                 "pref_overlay_style_outline_color",
                                 OgrFeatureDataSource.SYS_PROP_DEFAULT_STROKE_COLOR);
                         break;
-                    case "pref_overlay_syle_outline_width":
-                        copyPrefToConfigOptions(preferenceManager,
-                                "pref_overlay_style_outline_width",
-                                OgrFeatureDataSource.SYS_PROP_DEFAULT_STROKE_WIDTH);
-                        break;
                     case "atakContinuousRender":
                         getRenderer().setContinuousRenderEnabled(
                                 sp.getBoolean(key, false));
+                        break;
+                    case "atakDeveloperTools":
+                        // install the developer tools on non-release builds
+                        if (!BuildConfig.BUILD_TYPE
+                                .equalsIgnoreCase("release")) {
+                            if (sp.getBoolean(key, false)) {
+                                if (_devtools == null)
+                                    _devtools = new DeveloperTools(
+                                            MapView.this);
+                                overlayManager.addOverlay(_devtools);
+                            } else if (_devtools != null) {
+                                overlayManager.removeOverlay(_devtools);
+                            }
+                        }
                         break;
                     case "frame_limit":
                         final boolean limitFrameRate = (Short
@@ -383,7 +381,6 @@ public class MapView extends AtakMapView {
 
         prefListener.onSharedPreferenceChanged(preferenceManager,
                 "frame_limit");
-
     }
 
     /**
@@ -610,62 +607,13 @@ public class MapView extends AtakMapView {
      * @param geoPoint A coordinate
      * @return A precise coordinate, possibly containing CE/LE and elevation information that is
      *         derived from the underlying imagery.
+     *
+     * @deprecated  Will be removed without replacement
      */
+    @Deprecated
+    @DeprecatedApi(since = "4.2", forRemoval = true, removeAt = "4.5")
     public GeoPointMetaData getPrecisePoint(GeoPointMetaData geoPoint) {
-        Layer mapLayers = this.renderStack
-                .getBin(MapView.RenderStack.MAP_LAYERS.name());
-        if (mapLayers == null)
-            return null;
-        final PrecisePointVisitor visitor = new PrecisePointVisitor(geoPoint);
-        if (!findService(this.getGLSurface().getGLMapView(),
-                RasterDataAccessControl.class, mapLayers, visitor)) {
-            return null;
-        }
-        if (visitor.error != null) {
-            if (visitor.error instanceof RuntimeException)
-                throw (RuntimeException) visitor.error;
-            else
-                throw new RuntimeException(visitor.error);
-        }
-        return visitor.result;
-    }
-
-    private final static class PrecisePointVisitor implements
-            Visitor<RasterDataAccessControl> {
-        private final GeoPointMetaData imprecise;
-        GeoPointMetaData result;
-        Throwable error;
-
-        PrecisePointVisitor(GeoPointMetaData imprecise) {
-            this.imprecise = imprecise;
-            this.result = null;
-            this.error = null;
-        }
-
-        @Override
-        public void visit(RasterDataAccessControl service) {
-            try {
-                final RasterDataAccess2 access = service
-                        .accessRasterData(this.imprecise.get());
-                if (access == null)
-                    return;
-
-                this.result = new GeoPointMetaData();
-                final long s = SystemClock.elapsedRealtime();
-                final boolean success = PrecisionImageryUtil.refine(
-                        access,
-                        this.imprecise,
-                        this.result);
-                final long e = SystemClock.elapsedRealtime();
-
-                if (!success)
-                    this.result = null;
-
-                Log.d(TAG, "point refined in: " + (e - s) + "ms");
-            } catch (Throwable t) {
-                this.error = t;
-            }
-        }
+        return null;
     }
 
     public RasterLayer2 getRasterLayerAt2(final GeoPoint point) {
@@ -819,7 +767,7 @@ public class MapView extends AtakMapView {
     private MapOverlayManager overlayManager;
     private final LayerBinLayer renderStack;
     private HashMap<String, Object> _extras = new HashMap<>();
-    private MapData _mapData = new MapData();
+    private final MapData _mapData = new MapData();
     private boolean autoSelectProjection;
 
     private final MapTouchController _touchController;
@@ -830,6 +778,8 @@ public class MapView extends AtakMapView {
     private final ConcurrentLinkedQueue<OnKeyListener> _onKeyListener = new ConcurrentLinkedQueue<>();
     private final ConcurrentLinkedQueue<OnGenericMotionListener> _onGenericMotionListener = new ConcurrentLinkedQueue<>();
 
+    private DeveloperTools _devtools;
+
     /**************************************************************************/
 
     // XXX - IMapGroup bridge
@@ -838,15 +788,20 @@ public class MapView extends AtakMapView {
 
     private final MapGroup.OnGroupListChangedListener groupListChangedListener = _mapGroupItemsChangedEventForwarder;
 
-    /***
+    // XXX - recommend static utility as transition plan
+
+    /**
      * Computes the corresponding geodetic coordinate for the specified screen coordinate with the 
      * addition of looking up the elevation data.
      * @param x the x value for the screen coordinate
      * @param y the y value for the screen coordinate
      * @returns the corresponding geopoint for a given screen location, 
      * null if there is no corresponding point.
-     * @deprecated
+     * @deprecated See {@link MapRenderer2#inverse(PointD, GeoPoint, MapRenderer2.InverseMode, int, MapRenderer2.DisplayOrigin)}
+     *             and {@link ElevationManager#getElevation(double, double, ElevationManager.QueryParameters, GeoPointMetaData)}
      */
+    @Deprecated
+    @DeprecatedApi(since = "4.1", forRemoval = false)
     public GeoPointMetaData inverseWithElevation(final float x, final float y) {
         GeoPointMetaData p = new GeoPointMetaData();
         if (getGLSurface().getGLMapView() == null)
@@ -1010,7 +965,9 @@ public class MapView extends AtakMapView {
 
         if (Double.isNaN(maximumTilt))
             maximumTilt = ConfigOptions.getOption("atakmapview.maximum-tilt",
-                    75d);
+                    com.atakmap.map.MapSceneModel.isPerspectiveCameraEnabled()
+                            ? 89d
+                            : 75d);
         return maximumTilt;
     }
 
@@ -1020,25 +977,7 @@ public class MapView extends AtakMapView {
      * exceeding the current maximum tilt for the system.
      */
     public double getMaxMapTilt(double mapScale) {
-        final double level = (Math.log(156543.034 * Math.cos(0d)
-                / getMapResolution()) / Math.log(2));
-
-        final double minTilt = this.getMinMapTilt();
-        final double maxTilt = this.getMaxMapTilt();
-
-        // XXX - derived from https://developers.google.com/android/reference/com/google/android/gms/maps/model/CameraPosition.Builder?hl=fr#tilt(float)
-        if (level < 6d) {
-            return minTilt;
-        } else if (level < 10d) {
-            return 30d;
-        } else if (level < 14d) {
-            return 30d + ((level - 10d) / 4d * 15d / 4d);
-        } else if (level < 15.5d) {
-            return 45d + ((level - 14d)
-                    / 1.5d * (maxTilt - 45) / 1.5d);
-        } else {
-            return maxTilt;
-        }
+        return this.getMaxMapTilt();
     }
 
     @Override

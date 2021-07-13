@@ -1,10 +1,11 @@
 package com.atakmap.map.layer.model.contextcapture;
 
-import android.opengl.GLSurfaceView;
-
+import com.atakmap.annotations.DeprecatedApi;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.coremap.maps.coords.GeoPoint;
 import com.atakmap.io.ZipVirtualFile;
+import com.atakmap.map.MapRenderer2;
 import com.atakmap.map.MapSceneModel;
 import com.atakmap.map.layer.control.ColorControl;
 import com.atakmap.map.layer.control.Controls;
@@ -37,6 +38,8 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /** @deprecated PROTOTYPE CODE; SUBJECT TO REMOVAL AT ANY TIME; DO NOT CREATE DIRECT DEPENDENCIES */
+@Deprecated
+@DeprecatedApi(since = "4.1")
 final class GLContextCaptureTile implements GLTileNode, Controls {
     public boolean lods;
     int minLod;
@@ -207,7 +210,7 @@ final class GLContextCaptureTile implements GLTileNode, Controls {
                 // there was a miss
                 // see if the tile is quadtree/octree
                 ZipVirtualFile tiledir = new ZipVirtualFile(info.uri + "/" + this.baseTileDir);
-                File[] subs = tiledir.listFiles(new FilenameFilter() {
+                File[] subs = IOProviderFactory.listFiles(tiledir, new FilenameFilter() {
                     @Override
                     public boolean accept(File dir, String filename) {
                         return filename.startsWith(tileNameSpec + "_L" + String.format("%02d_", lod)) && filename.endsWith(".obj");
@@ -228,7 +231,7 @@ final class GLContextCaptureTile implements GLTileNode, Controls {
                             }
                         }
                     }
-                    retval = meshes.toArray(new GLMesh[meshes.size()]);
+                    retval = meshes.toArray(new GLMesh[0]);
                 } else {
                     retval = new GLMesh[0];
                 }
@@ -544,7 +547,7 @@ final class GLContextCaptureTile implements GLTileNode, Controls {
                 meshes.locks++;
             }
 
-            final MapSceneModel sm = ((GLMapSurface)ctx.getRenderContext()).getMapView().getSceneModel();
+            final MapSceneModel sm = ctx.getMapSceneModel(false, MapRenderer2.DisplayOrigin.UpperLeft);
             boolean retval = false;
             for (GLMesh mesh : meshes.data) {
                 // XXX - need to find closest hit

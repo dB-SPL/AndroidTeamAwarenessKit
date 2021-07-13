@@ -109,6 +109,13 @@ public class DrawingCircle extends Shape implements
     // Listeners
     protected final Set<OnRadiusChangedListener> _radiusListeners = new HashSet<>();
 
+    // Utilized in the case where two rings are interlocked on ajoining markers, ie
+    // the first ring center point marker is marker 1 with the radius marker being marker 2
+    // and the second ring center point marker is marker 2 with the radius marker being marker 1
+    // this breaks the infinite loop that occurs when recalculating positions of the radius
+    // marker which in tern causes the recalculation of the center point.
+    private boolean updatingRadiusMarker = false;
+
     /**
      * Create a new drawing circle
      * @param mapView Map view instance
@@ -123,6 +130,7 @@ public class DrawingCircle extends Shape implements
         _prefs = new UnitPreferences(mapView);
         _childGroup = childGroup;
         _childGroup.setMetaBoolean("addToObjList", false);
+        _childGroup.setMetaString("shapeUID", uid);
         setType(type);
         setMetaBoolean("removable", true);
         setMetaBoolean("movable", true);
@@ -291,6 +299,7 @@ public class DrawingCircle extends Shape implements
             center.toggleMetaData("editable", getEditable());
             center.setMetaString("menu", getMetaString("menu", ""));
             center.setMovable(getMovable());
+            center.setHeight(getHeight());
             if (strokeColor != center.getMetaInteger("color", Color.WHITE)) {
                 center.setMetaInteger("color", strokeColor);
                 center.refresh(_mapView.getMapEventDispatcher(),
@@ -315,13 +324,19 @@ public class DrawingCircle extends Shape implements
                 c.setZOrder(zOrder += zInc);
                 c.setStrokeColor(strokeColor);
                 c.setStrokeWeight(getStrokeWeight());
+                c.setBasicLineStyle(getBasicLineStyle());
                 c.setStyle(getStyle());
                 c.setMetaBoolean("addToObjList", false);
                 c.setClickable(false);
-                if (i < _rings.size() - 1)
+                c.setHeight(getHeight());
+                if (i < _rings.size() - 1) {
                     c.setFillColor(emptyColor);
-                else
+                    c.setHeightStyle(Polyline.HEIGHT_STYLE_OUTLINE_SIMPLE);
+                } else {
                     c.setFillColor(fillColor);
+                    c.setHeightStyle(Polyline.HEIGHT_STYLE_POLYGON
+                            | Polyline.HEIGHT_STYLE_OUTLINE_SIMPLE);
+                }
                 if (c.getGroup() == null) {
                     c.setVisible(getVisible());
                     _childGroup.addItem(c);
@@ -347,9 +362,9 @@ public class DrawingCircle extends Shape implements
     }
 
     @Override
-    public void setVisible(boolean visible) {
-        super.setVisible(visible);
-        _childGroup.setVisible(visible);
+    protected void onVisibleChanged() {
+        _childGroup.setVisible(getVisible());
+        super.onVisibleChanged();
     }
 
     @Override
@@ -379,6 +394,7 @@ public class DrawingCircle extends Shape implements
      * @param point Center point
      */
     public void setCenterPoint(GeoPointMetaData point) {
+
         GeoPoint oldCenter = _center.get();
         _center = point;
         for (Circle c : getRings())
@@ -386,18 +402,26 @@ public class DrawingCircle extends Shape implements
 
         // Update center marker position
         Marker center = getCenterMarker();
+
         if (center != null && !center.getPoint().equals(point.get()))
             center.setPoint(point);
 
         // Update radius marker position (relative to old center)
         Marker radius = getRadiusMarker();
-        if (radius != null && oldCenter != null) {
+        if (!updatingRadiusMarker && radius != null && oldCenter != null
+                && !oldCenter.equals(point.get())) {
+
             double bearing = DistanceCalculations.computeDirection(
                     oldCenter, radius.getPoint())[1];
             GeoPoint rPoint = DistanceCalculations.computeDestinationPoint(
                     point.get(), bearing, getRadius());
+
+            // If the radius marker is being set, then do not allow for a
+            // looping condition where it keeps getting set.
+            updatingRadiusMarker = true;
             radius.setPoint(new GeoPointMetaData(rPoint)
                     .setGeoPointSource(GeoPointMetaData.CALCULATED));
+            updatingRadiusMarker = false;
         }
 
         onPointsChanged();
@@ -569,6 +593,12 @@ public class DrawingCircle extends Shape implements
         refresh();
     }
 
+    @Override
+    public void setHeight(double height) {
+        super.setHeight(height);
+        refresh();
+    }
+
     /**
      * Apply fill color to the outermost ring only
      * @param fillColor An argb packed by {@link Color}
@@ -594,6 +624,13 @@ public class DrawingCircle extends Shape implements
         super.setStrokeWeight(weight);
         refresh();
     }
+
+    @Override
+    public void setBasicLineStyle(int basicLineStyle) {
+        super.setBasicLineStyle(basicLineStyle);
+        refresh();
+    }
+
 
     /**
      * Redirect hit detection to the rings
@@ -721,7 +758,7 @@ public class DrawingCircle extends Shape implements
     }
 
     @Override
-    public boolean isSupported(Class target) {
+    public boolean isSupported(Class<?> target) {
         return CotEvent.class.equals(target) ||
                 Folder.class.equals(target) ||
                 KMZFolder.class.equals(target) ||
@@ -731,7 +768,7 @@ public class DrawingCircle extends Shape implements
     }
 
     @Override
-    public Object toObjectOf(Class target, ExportFilters filters) {
+    public Object toObjectOf(Class<?> target, ExportFilters filters) {
         if (CotEvent.class.equals(target))
             return toCot();
         else if (MissionPackageExportWrapper.class.equals(target))
@@ -902,6 +939,9 @@ public class DrawingCircle extends Shape implements
             boolean continuousScroll = _mapView != null
                     && _mapView.isContinuousScrollEnabled();
 
+            boolean clampToGroundKMLElevation = Double.isNaN(getHeight())
+                    || Double.compare(getHeight(), 0.0) == 0;
+
             List<Circle> rings = getRings();
             if (rings.size() > 1) {
                 Placemark innerPlacemark = new Placemark();
@@ -923,15 +963,16 @@ public class DrawingCircle extends Shape implements
                                 .getMetaDataPoints();
                         Polygon polygon = KMLUtil.createPolygonWithLinearRing(
                                 pts, getUID() + ".Ring" + (r + 1),
-                                true,
+                                clampToGroundKMLElevation,
                                 continuousScroll && GeoCalculations
-                                        .crossesIDL(pts, 0, pts.length));
+                                        .crossesIDL(pts, 0, pts.length),
+                                getHeight());
                         if (polygon == null) {
                             Log.w(TAG,
                                     "Unable to create inner ring KML Polygon");
                             continue;
                         }
-                        polygon.setAltitudeMode("clampToGround");
+
                         innerRings.add(polygon);
                     }
 
@@ -945,15 +986,16 @@ public class DrawingCircle extends Shape implements
                 } else {
                     // just one inner ring, no need for Multi Geometry
                     GeoPointMetaData[] pts = rings.get(0).getMetaDataPoints();
+
                     Polygon polygon = KMLUtil.createPolygonWithLinearRing(pts,
-                            getUID() + ".Ring1", true,
+                            getUID() + ".Ring1", clampToGroundKMLElevation,
                             continuousScroll && GeoCalculations.crossesIDL(pts,
-                                    0, pts.length));
+                                    0, pts.length),
+                            getHeight());
                     if (polygon == null) {
                         Log.w(TAG,
                                 "Unable to create inner ring KML Polygon");
                     } else {
-                        polygon.setAltitudeMode("clampToGround");
                         innerGeomtries.add(polygon);
                     }
                 }
@@ -974,15 +1016,15 @@ public class DrawingCircle extends Shape implements
 
             GeoPointMetaData[] pts = rings.get(rings.size() - 1)
                     .getMetaDataPoints();
-
             Polygon polygon = KMLUtil.createPolygonWithLinearRing(pts,
-                    title + " text", true, continuousScroll &&
-                            GeoCalculations.crossesIDL(pts, 0, pts.length));
+                    title + " text", clampToGroundKMLElevation,
+                    continuousScroll &&
+                            GeoCalculations.crossesIDL(pts, 0, pts.length),
+                    getHeight());
             if (polygon == null) {
                 Log.w(TAG, "Unable to create outer ring KML Polygon");
                 return null;
             }
-            polygon.setAltitudeMode("clampToGround");
 
             List<Geometry> outerGeomtries = new ArrayList<>();
             outerPlacemark.setGeometryList(outerGeomtries);
@@ -1097,5 +1139,11 @@ public class DrawingCircle extends Shape implements
         folder.addGeometries(org.gdal.ogr.ogrConstants.wkbLineString,
                 geometries);
         return folder;
+    }
+
+    @Override
+    public double getArea() {
+        return getRadius() * getRadius() * Math.PI;
+
     }
 }

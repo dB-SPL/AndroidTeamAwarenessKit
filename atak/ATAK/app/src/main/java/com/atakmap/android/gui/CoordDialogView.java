@@ -339,8 +339,7 @@ public class CoordDialogView extends LinearLayout implements
         if (_currPoint != null) {
             final String p = CoordinateFormatUtilities.formatToString(
                     _currPoint.get(), _currFormat);
-            final String a = AltitudeUtilities.format(_currPoint.get(),
-                    _prefs);
+            final String a = AltitudeUtilities.format(_currPoint, _prefs);
 
             return p + "\n" + a;
         } else {
@@ -961,10 +960,12 @@ public class CoordDialogView extends LinearLayout implements
                     GeoPoint gp = CoordinateFormatUtilities.convert(
                             s.toString(),
                             CoordinateFormat.MGRS);
-                    if (gp != null)
+                    if (gp != null) {
                         _setPoint(GeoPointMetaData.wrap(gp));
+                        _result = Result.VALID_CHANGED;
+                    }
                 } catch (Exception e) {
-                    Log.e(TAG, "error occured", e);
+                    Log.e(TAG, "error occurred", e);
                 }
             }
         });
@@ -981,10 +982,12 @@ public class CoordDialogView extends LinearLayout implements
                     GeoPoint gp = CoordinateFormatUtilities.convert(
                             s.toString(),
                             CoordinateFormat.UTM);
-                    if (gp != null)
+                    if (gp != null) {
                         _setPoint(GeoPointMetaData.wrap(gp));
+                        _result = Result.VALID_CHANGED;
+                    }
                 } catch (Exception e) {
-                    Log.e(TAG, "error occured", e);
+                    Log.e(TAG, "error occurred", e);
                 }
             }
         });

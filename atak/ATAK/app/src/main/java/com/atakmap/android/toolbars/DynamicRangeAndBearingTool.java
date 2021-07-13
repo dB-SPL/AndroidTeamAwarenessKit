@@ -42,7 +42,7 @@ public class DynamicRangeAndBearingTool extends Tool implements
     private RangeAndBearingMapItem _rab;
     private final String _rabUUID = UUID.randomUUID().toString();
 
-    private final Context _context;
+    protected final Context _context;
     private final MapGroup _rabGroup;
 
     private boolean _complete;
@@ -55,14 +55,15 @@ public class DynamicRangeAndBearingTool extends Tool implements
     synchronized public static DynamicRangeAndBearingTool getInstance(
             MapView mapView, ImageButton button) {
         if (_instance == null)
-            _instance = new DynamicRangeAndBearingTool(mapView, button);
+            _instance = RangeAndBearingCompat
+                    .getDynamicRangeAndBearingInstance(mapView, button);
         else
             _instance.addButton(button);
 
         return _instance;
     }
 
-    private DynamicRangeAndBearingTool(MapView mapView, ImageButton button) {
+    protected DynamicRangeAndBearingTool(MapView mapView, ImageButton button) {
         super(mapView, TOOL_NAME);
         _context = mapView.getContext();
         if (_buttons == null)
@@ -221,6 +222,7 @@ public class DynamicRangeAndBearingTool extends Tool implements
             _rab.setMetaString("menu", "menus/drab_menu.xml");
             _rab.setTitle("Dynamic R&B Line");
             _rab.setMetaBoolean("removable", true);
+            _rab.setMetaString("entry", "user");
             _mapView.getMapEventDispatcher().addMapItemEventListener(
                     _rab, _mapItemEventListener);
             RangeAndBearingMapComponent.getGroup().addItem(_rab);
@@ -263,6 +265,7 @@ public class DynamicRangeAndBearingTool extends Tool implements
                         UUID.randomUUID().toString());
                 _pt1.setClickable(true);
                 _pt1.setMetaString("menu", "menus/drab_endpoint_menu.xml");
+                _pt1.setMetaString("entry", "user");
                 _rabGroup.addItem(_pt1);
                 prompt(R.string.rb_measure_prompt);
             } else if (_pt2 == null) {
@@ -270,6 +273,7 @@ public class DynamicRangeAndBearingTool extends Tool implements
                         UUID.randomUUID().toString());
                 _pt2.setClickable(true);
                 _pt2.setMetaString("menu", "menus/drab_endpoint_menu.xml");
+                _pt2.setMetaString("entry", "user");
                 _rabGroup.addItem(_pt2);
                 _mapView.getMapEventDispatcher().addMapItemEventListener(_pt1,
                         _dragListener);
@@ -316,7 +320,7 @@ public class DynamicRangeAndBearingTool extends Tool implements
         }
     };
 
-    synchronized private void prompt(int stringId) {
+    synchronized protected void prompt(int stringId) {
         TextContainer.getInstance().displayPrompt(_context
                 .getString(stringId));
     }

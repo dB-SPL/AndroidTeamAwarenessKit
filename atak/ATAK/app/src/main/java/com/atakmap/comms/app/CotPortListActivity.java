@@ -25,6 +25,7 @@ import android.widget.Toast;
 
 import com.atakmap.android.metrics.activity.MetricActivity;
 import com.atakmap.android.preference.AtakPreferenceFragment;
+import com.atakmap.android.util.ATAKConstants;
 import com.atakmap.app.R;
 import com.atakmap.comms.CotService;
 import com.atakmap.comms.CotServiceRemote;
@@ -208,10 +209,12 @@ public abstract class CotPortListActivity extends MetricActivity {
 
             if (destination.isConnected())
                 holder.connected
-                        .setImageResource(R.drawable.ic_server_success);
+                        .setImageResource(
+                                ATAKConstants.getServerConnection(true));
             else
                 holder.connected
-                        .setImageResource(R.drawable.ic_server_error);
+                        .setImageResource(
+                                ATAKConstants.getServerConnection(false));
 
             String error = destination.getErrorString();
             if (!FileSystemUtils.isEmpty(error)) {
@@ -475,6 +478,8 @@ public abstract class CotPortListActivity extends MetricActivity {
         String password = inputData.getString(CotPort.PASSWORD_KEY);
         String cacheCreds = inputData.getString(CotPort.CACHECREDS_KEY);
         String description = inputData.getString(CotPort.DESCRIPTION_KEY);
+        Long expiration = inputData.getLong(CotPort.EXPIRATION_KEY);
+
         if (creds == null
                 || !FileSystemUtils.isEquals(username, creds.username)
                 || !FileSystemUtils.isEquals(password, creds.password)
@@ -483,7 +488,8 @@ public abstract class CotPortListActivity extends MetricActivity {
                                 AtakCertificateDatabaseIFace.TYPE_CLIENT_CERTIFICATE,
                                 newServer) == null) {
             CertificateEnrollmentClient.getInstance().enroll(this,
-                    description, connectString, cacheCreds, null, true);
+                    description, connectString, cacheCreds, expiration, null,
+                    true);
         }
     }
 
@@ -509,7 +515,7 @@ public abstract class CotPortListActivity extends MetricActivity {
             try {
                 NavUtils.navigateUpFromSameTask(this);
             } catch (IllegalArgumentException iae) {
-                Log.d(TAG, "error occured", iae);
+                Log.d(TAG, "error occurred", iae);
                 finish();
             }
             return true;

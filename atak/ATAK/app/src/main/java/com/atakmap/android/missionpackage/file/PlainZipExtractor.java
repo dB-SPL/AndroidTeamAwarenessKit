@@ -7,17 +7,19 @@ import com.atakmap.android.importfiles.sort.ImportCotSort;
 import com.atakmap.android.maps.MapView;
 import com.atakmap.android.missionpackage.MissionPackageUtils;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
 
 import java.io.BufferedOutputStream;
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.StringBufferInputStream;
 import java.util.ArrayList;
 import java.util.List;
 import com.atakmap.coremap.locale.LocaleUtil;
+
 import java.util.UUID;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
@@ -69,16 +71,12 @@ public class PlainZipExtractor implements IMissionPackageExtractor {
 
         // prep IO
         MissionPackageManifest manifest = getManifest(inZip);
-        ZipInputStream zin = null;
-        ZipOutputStream zos = null;
-        try {
+        try (ZipInputStream zin = new ZipInputStream(
+                IOProviderFactory.getInputStream(inZip));
+                ZipOutputStream zos = FileSystemUtils
+                        .getZipOutputStream(outZip)) {
             // read in from plain old zip
-            zin = new ZipInputStream(new FileInputStream(inZip));
             ZipEntry zinEntry = null;
-
-            // write out to mission package zip
-            FileOutputStream fos = new FileOutputStream(outZip);
-            zos = new ZipOutputStream(new BufferedOutputStream(fos));
 
             // iterate all zip entries
             while ((zinEntry = zin.getNextEntry()) != null) {
@@ -173,29 +171,14 @@ public class PlainZipExtractor implements IMissionPackageExtractor {
 
             // add manifest to zos
             MissionPackageBuilder.AddManifest(zos, manifest);
+        } catch (IOException ie) {
+            Log.e(TAG, "Failed to extract: " + inZip.getAbsolutePath(), ie);
+        }
 
-            // close streams
-            try {
-                zin.close();
-            } catch (IOException e) {
-                Log.e(TAG,
-                        "Failed to close input zip file: "
-                                + inZip.getAbsolutePath(),
-                        e);
-            }
-            zin = null;
-
-            try {
-                zos.close();
-            } catch (Exception e) {
-                Log.w(TAG,
-                        "Failed to close Mission Package zip: "
-                                + outZip.getAbsolutePath());
-            }
-            zos = null;
-
+        try {
             // now see if out zip was created successfully
-            if (!FileSystemUtils.isFile(outZip) || outZip.length() < 1) {
+            if (!FileSystemUtils.isFile(outZip)
+                    || IOProviderFactory.length(outZip) < 1) {
                 Log.e(TAG,
                         "Failed to create file: " + outZip.getAbsolutePath());
                 return null;
@@ -214,27 +197,6 @@ public class PlainZipExtractor implements IMissionPackageExtractor {
             return extractor.extract(context, inZip, atakRoot, bImport);
         } catch (IOException ie) {
             Log.e(TAG, "Failed to extract: " + inZip.getAbsolutePath(), ie);
-        } finally {
-            if (zin != null) {
-                try {
-                    zin.close();
-                } catch (IOException e) {
-                    Log.e(TAG,
-                            "Failed to close zip file: "
-                                    + inZip.getAbsolutePath(),
-                            e);
-                }
-            }
-
-            if (zos != null) {
-                try {
-                    zos.close();
-                } catch (Exception e) {
-                    Log.w(TAG,
-                            "Failed to close Mission Package zip: "
-                                    + outZip.getAbsolutePath());
-                }
-            }
         }
 
         return null;
@@ -265,7 +227,8 @@ public class PlainZipExtractor implements IMissionPackageExtractor {
                 .getName()
                 .toLowerCase(LocaleUtil.getCurrent())
                 .startsWith(
-                        MissionPackageBuilder.MANIFEST_PATH + File.separator)) {
+                        (MissionPackageBuilder.MANIFEST_PATH + File.separator)
+                                .toLowerCase(LocaleUtil.getCurrent()))) {
             Log.d(TAG, "Skipping manifest: " + zinEntry.getName());
             return ZipEntryAction.OMIT;
         }

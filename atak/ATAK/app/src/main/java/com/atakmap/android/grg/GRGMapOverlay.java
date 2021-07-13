@@ -44,11 +44,15 @@ import com.atakmap.android.maps.MapView;
 import com.atakmap.android.menu.MapMenuReceiver;
 import com.atakmap.android.missionpackage.export.MissionPackageExportWrapper;
 import com.atakmap.app.R;
+import com.atakmap.app.system.ResourceUtil;
 import com.atakmap.coremap.conversions.CoordinateFormat;
 import com.atakmap.coremap.conversions.CoordinateFormatUtilities;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.coremap.maps.coords.GeoPointMetaData;
+import com.atakmap.map.CameraController;
+import com.atakmap.map.MapRenderer2;
+import com.atakmap.map.MapSceneModel;
 import com.atakmap.map.layer.feature.Feature;
 import com.atakmap.map.layer.feature.FeatureCursor;
 import com.atakmap.map.layer.feature.FeatureDataStore;
@@ -57,7 +61,9 @@ import com.atakmap.map.layer.feature.geometry.Envelope;
 import com.atakmap.map.layer.feature.geometry.Geometry;
 import com.atakmap.map.layer.feature.style.BasicStrokeStyle;
 import com.atakmap.map.layer.raster.AbstractDataStoreRasterLayer2;
+import com.atakmap.map.layer.raster.DatasetDescriptor;
 import com.atakmap.map.layer.raster.LocalRasterDataStore;
+import com.atakmap.map.layer.raster.PersistentRasterDataStore;
 import com.atakmap.map.layer.raster.RasterDataStore;
 import com.atakmap.map.layer.raster.RasterLayer2;
 
@@ -96,7 +102,8 @@ public final class GRGMapOverlay extends FeatureDataStoreMapOverlay {
         super(view.getContext(),
                 coveragesLayer.getDataStore(),
                 null, // contentSource
-                view.getContext().getString(R.string.grg_lowercase)
+                ResourceUtil.getString(view.getContext(),
+                        R.string.civ_grg_lowercase, R.string.grg_lowercase)
                         .toUpperCase(LocaleUtil.getCurrent()),
                 "android.resource://"
                         + view.getContext().getPackageName()
@@ -370,12 +377,12 @@ public final class GRGMapOverlay extends FeatureDataStoreMapOverlay {
         // Export
 
         @Override
-        public boolean isSupported(Class target) {
+        public boolean isSupported(Class<?> target) {
             return MissionPackageExportWrapper.class.equals(target);
         }
 
         @Override
-        public Object toObjectOf(Class target, ExportFilters filters)
+        public Object toObjectOf(Class<?> target, ExportFilters filters)
                 throws FormatNotSupportedException {
             if (super.getChildCount() <= 0 || !isSupported(target)) {
                 //nothing to export
@@ -465,33 +472,42 @@ public final class GRGMapOverlay extends FeatureDataStoreMapOverlay {
 
         private static final String TAG = "GRGMapOverlayListItem";
         private final ImageOverlay _item;
+        private final DatasetDescriptor _info;
         private int _color = 0;
 
         GRGMapOverlayListItem(BaseAdapter listener, ImageOverlay item) {
             this.listener = listener;
             this._item = item;
+            _info = _item.getLayerInfo();
         }
 
         @Override
         public boolean goTo(boolean select) {
-            if (_item == null) {
+            if (_info == null) {
                 Log.w(TAG, "Skipping invalid zoom");
                 return false;
             }
 
             // Zoom to fit GRG bounds
-            Geometry g = _item.getLayerInfo().getCoverage(null);
-            Envelope e = _item.getLayerInfo().getMinimumBoundingBox();
-            if (g != null && g.getEnvelope() != null) {
+            Geometry g = _info.getCoverage(null);
+            Envelope e = _info.getMinimumBoundingBox();
+            if (g != null) {
                 ImageGalleryReceiver.zoomToBounds(g.getEnvelope());
             } else if (e != null) {
                 ImageGalleryReceiver.zoomToBounds(e);
             } else {
-                double targetScale = mapView.mapResolutionAsMapScale(
-                        _item.getLayerInfo().getMinResolution(null));
-                GeoPointMetaData targetPoint = _item.getCenter();
-                mapView.getMapController().panZoomTo(targetPoint.get(),
-                        targetScale, true);
+                mapView.getMapController().dispatchOnPanRequested();
+                final MapSceneModel sm = mapView.getRenderer3()
+                        .getMapSceneModel(
+                                false, MapRenderer2.DisplayOrigin.UpperLeft);
+                // XXX - ideally, I think this eliminates the tilt, however,
+                //       preserving legacy behavior
+                mapView.getRenderer3().lookAt(
+                        _item.getCenter().get(),
+                        _item.getLayerInfo().getMinResolution(null),
+                        sm.camera.azimuth,
+                        90d + sm.camera.elevation,
+                        true);
             }
 
             if (select && _prefs.getBoolean("prefs_layer_grg_map_interaction",
@@ -613,6 +629,10 @@ public final class GRGMapOverlay extends FeatureDataStoreMapOverlay {
         @Override
         public boolean setVisible(boolean visible) {
             _layer.setVisible(_item.toString(), visible);
+            _info.setExtraData("visible", String.valueOf(visible));
+            if (_grgLayersDb instanceof PersistentRasterDataStore)
+                ((PersistentRasterDataStore) _grgLayersDb)
+                        .updateExtraData(_info);
             return true;
         }
 
@@ -645,12 +665,12 @@ public final class GRGMapOverlay extends FeatureDataStoreMapOverlay {
         // Export
 
         @Override
-        public boolean isSupported(Class target) {
+        public boolean isSupported(Class<?> target) {
             return _item != null && _item.isSupported(target);
         }
 
         @Override
-        public Object toObjectOf(Class target, ExportFilters filters)
+        public Object toObjectOf(Class<?> target, ExportFilters filters)
                 throws FormatNotSupportedException {
             if (this._item == null || !isSupported(target)) {
                 return false;
@@ -662,7 +682,8 @@ public final class GRGMapOverlay extends FeatureDataStoreMapOverlay {
 
         private void promptDelete() {
             AlertDialog.Builder b = new AlertDialog.Builder(_context);
-            b.setTitle(_context.getString(R.string.delete_grg));
+            b.setTitle(ResourceUtil.getString(_context, R.string.civ_delete_grg,
+                    R.string.delete_grg));
             b.setIcon(R.drawable.ic_menu_delete);
             b.setMessage(_context.getString(R.string.delete) + getTitle()
                     + _context.getString(R.string.question_mark_symbol));

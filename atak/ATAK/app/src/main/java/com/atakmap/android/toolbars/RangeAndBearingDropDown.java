@@ -1,27 +1,7 @@
 
 package com.atakmap.android.toolbars;
 
-import android.app.AlertDialog;
-import android.content.Context;
-import android.content.DialogInterface;
-import android.content.Intent;
-import android.content.SharedPreferences;
-import android.content.SharedPreferences.OnSharedPreferenceChangeListener;
-import android.content.res.Resources;
-import android.graphics.PorterDuff;
-import android.preference.PreferenceManager;
-import android.text.Editable;
-import android.text.InputType;
-import android.view.Gravity;
-import android.view.LayoutInflater;
-import android.view.View;
-import android.view.ViewGroup;
-import android.widget.Button;
-import android.widget.EditText;
-import android.widget.ImageButton;
-import android.widget.ImageView;
-import android.widget.LinearLayout;
-import android.widget.TextView;
+import java.util.UUID;
 
 import com.atakmap.android.contact.ContactPresenceDropdown;
 import com.atakmap.android.cotdetails.extras.ExtraDetailsLayout;
@@ -54,7 +34,27 @@ import com.atakmap.coremap.locale.LocaleUtil;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.coremap.maps.coords.GeoPointMetaData;
 
-import java.util.UUID;
+import android.app.AlertDialog;
+import android.content.Context;
+import android.content.DialogInterface;
+import android.content.Intent;
+import android.content.SharedPreferences;
+import android.content.SharedPreferences.OnSharedPreferenceChangeListener;
+import android.content.res.Resources;
+import android.graphics.PorterDuff;
+import android.preference.PreferenceManager;
+import android.text.Editable;
+import android.text.InputType;
+import android.view.Gravity;
+import android.view.LayoutInflater;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.Button;
+import android.widget.EditText;
+import android.widget.ImageButton;
+import android.widget.ImageView;
+import android.widget.LinearLayout;
+import android.widget.TextView;
 
 public class RangeAndBearingDropDown extends DropDownReceiver implements
         OnStateListener, View.OnClickListener, MapItem.OnGroupChangedListener,
@@ -62,16 +62,16 @@ public class RangeAndBearingDropDown extends DropDownReceiver implements
         MapEventDispatcher.MapEventDispatchListener {
 
     private final SharedPreferences _prefs;
-    private final ViewGroup _dropDownView;
-    private RangeAndBearingMapItem _rabItem;
+    protected ViewGroup _dropDownView;
+    protected RangeAndBearingMapItem _rabItem;
     private PointMapItem _rabPoint1, _rabPoint2;
 
-    private EditText _nameEditText;
-    private RemarksLayout _remarksEditText;
+    protected EditText _nameEditText;
+    protected RemarksLayout _remarksEditText;
 
-    private ImageButton _colorButton;
+    protected ImageButton _colorButton;
     private Button _elevationButton;
-    private ImageButton _sendButton;
+    protected ImageButton _sendButton;
 
     private ImageButton _reverseButton;
 
@@ -143,7 +143,7 @@ public class RangeAndBearingDropDown extends DropDownReceiver implements
 
     RangeAndBearingMapItem pending = null;
 
-    private void openRangeAndBearing() {
+    protected void openRangeAndBearing() {
         showDropDown(_dropDownView, THREE_EIGHTHS_WIDTH, FULL_HEIGHT,
                 FULL_WIDTH, HALF_HEIGHT, this);
         setSelected(_rabItem, "");
@@ -193,31 +193,44 @@ public class RangeAndBearingDropDown extends DropDownReceiver implements
         public void onSharedPreferenceChanged(SharedPreferences prefs,
                 String key) {
 
-            if (key.equals("coord_display_pref")) {
-                _coordinateFormat = CoordinateFormat.find(_prefs.getString(
-                        "coord_display_pref",
-                        getMapView().getContext().getString(
-                                R.string.coord_display_pref_default)));
-            } else if (key.equals("speed_unit_pref")) {
-                _speedUnits = Integer.parseInt(
-                        prefs.getString(key, Integer.toString(_speedUnits)));
-                if (!isClosed()) {
-                    populateWidgets();
-                }
-            } else if (key.equals("rab_preference_show_eta")) {
-                _showEta = prefs.getBoolean("rab_preference_show_eta", false);
-                if (!isClosed()) {
-                    populateWidgets();
-                }
+            switch (key) {
+                case "coord_display_pref":
+                    _coordinateFormat = CoordinateFormat.find(_prefs.getString(
+                            "coord_display_pref",
+                            getMapView().getContext().getString(
+                                    R.string.coord_display_pref_default)));
+                    break;
+                case "speed_unit_pref":
+                    _speedUnits = Integer.parseInt(
+                            prefs.getString(key,
+                                    Integer.toString(_speedUnits)));
+                    if (!isClosed()) {
+                        populateWidgets();
+                    }
+                    break;
+                case "rab_preference_show_eta":
+                    _showEta = prefs.getBoolean("rab_preference_show_eta",
+                            false);
+                    if (!isClosed()) {
+                        populateWidgets();
+                    }
+                    break;
             }
         }
     };
 
-    private void initializeWidgets() {
+    protected void initializeWidgets() {
         GenericDetailsView.addEditTextPrompts(_dropDownView);
         _nameEditText = _dropDownView
                 .findViewById(R.id.nameEditText);
         _nameEditText.setInputType(InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+        _nameEditText.addTextChangedListener(new AfterTextChangedWatcher() {
+            @Override
+            public void afterTextChanged(Editable s) {
+                if (_rabItem != null)
+                    _rabItem.setTitle(s.toString());
+            }
+        });
 
         _remarksEditText = _dropDownView.findViewById(R.id.remarksLayout);
 
@@ -377,12 +390,12 @@ public class RangeAndBearingDropDown extends DropDownReceiver implements
         }
     }
 
-    private void populateWidgets() {
+    protected void populateWidgets() {
         populateLocationWidgets();
 
         boolean editable = !_rabItem.hasMetaValue("nevercot");
         boolean hounding = _rabItem.hasMetaValue("hounding");
-        _nameEditText.setText(_rabItem.getMetaString("title", "R&B"));
+        _nameEditText.setText(_rabItem.getTitle());
         _nameEditText.setEnabled(editable);
 
         _remarksEditText.setText(_rabItem.getMetaString("remarks", ""));
@@ -507,7 +520,7 @@ public class RangeAndBearingDropDown extends DropDownReceiver implements
         _rabPoint2 = pm2;
     }
 
-    private void createOnRemoveListeners() {
+    protected void createOnRemoveListeners() {
         removeOnRemoveListeners();
         if (_rabItem != null) {
             _rabPoint1 = _rabItem.getPoint1Item();
@@ -584,7 +597,7 @@ public class RangeAndBearingDropDown extends DropDownReceiver implements
         alert.show();
     }
 
-    private void updateColorButton(final int color) {
+    protected void updateColorButton(final int color) {
         _colorButton.post(new Runnable() {
             @Override
             public void run() {
@@ -669,8 +682,8 @@ public class RangeAndBearingDropDown extends DropDownReceiver implements
 
         if (pending != null) {
             _rabItem = pending;
-            openRangeAndBearing();
             pending = null;
+            openRangeAndBearing();
         } else {
             _rabItem = null;
         }

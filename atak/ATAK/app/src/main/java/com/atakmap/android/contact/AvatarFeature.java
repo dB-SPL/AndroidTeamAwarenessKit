@@ -10,12 +10,14 @@ import com.atakmap.android.ipc.AtakBroadcast;
 import com.atakmap.android.maps.MapView;
 import com.atakmap.android.maps.PointMapItem;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.filesystem.HashingUtils;
 
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.OutputStream;
 
 /**
  * Represents an avatar (e.g. profile pic) provided by an
@@ -73,9 +75,9 @@ public abstract class AvatarFeature {
         final String avatarDirPath = FileSystemUtils.getItem(
                 FileSystemUtils.TMP_DIRECTORY).getPath();
         final File dir = new File(avatarDirPath);
-        if (!dir.exists()) {
+        if (!IOProviderFactory.exists(dir)) {
             Log.d(TAG, "creating avatar directory: " + dir);
-            if (!dir.mkdirs())
+            if (!IOProviderFactory.mkdirs(dir))
                 Log.w(TAG, "Failed to mkdir: " + dir);
         }
 
@@ -84,7 +86,7 @@ public abstract class AvatarFeature {
 
         String existingHash;
         String newHash = getHash();
-        if (avatarFile.exists()) {
+        if (IOProviderFactory.exists(avatarFile)) {
             //check hash prior to creating file
             existingHash = HashingUtils.sha1sum(avatarFile);
             if (!FileSystemUtils.isEquals(existingHash, newHash)) {
@@ -103,25 +105,14 @@ public abstract class AvatarFeature {
         }
 
         if (bCreate) {
-            FileOutputStream fos = null;
-            try {
+            try (OutputStream fos = IOProviderFactory
+                    .getOutputStream(avatarFile)) {
                 Log.d(TAG, "Creating avatar file: " + avatarFile + ", hash="
                         + newHash);
-                fos = new FileOutputStream(avatarFile);
                 fos.write(getAvatarBytes());
+                fos.flush();
             } catch (IOException e) {
                 Log.w(TAG, "Failed to create avatar file", e);
-            } finally {
-                if (fos != null) {
-                    try {
-                        fos.flush();
-                    } catch (Exception ignored) {
-                    }
-                    try {
-                        fos.close();
-                    } catch (Exception ignored) {
-                    }
-                }
             }
         }
 

@@ -3,11 +3,10 @@ package com.atakmap.map.formats.c3dt;
 import android.opengl.GLES30;
 
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.locale.LocaleUtil;
 import com.atakmap.coremap.maps.coords.GeoCalculations;
 import com.atakmap.coremap.maps.coords.GeoPoint;
-import com.atakmap.io.ProtocolHandler;
-import com.atakmap.io.UriFactory;
 import com.atakmap.lang.Unsafe;
 import com.atakmap.map.RenderContext;
 import com.atakmap.map.layer.feature.geometry.Envelope;
@@ -16,7 +15,6 @@ import com.atakmap.math.Matrix;
 import com.atakmap.math.NoninvertibleTransformException;
 import com.atakmap.math.PointD;
 import com.atakmap.opengl.GLES20FixedPipeline;
-import com.atakmap.opengl.Shader;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -76,10 +74,15 @@ final class GLContentFactory {
             if(b3dm == null || b3dm.gltf == null)
                 return false;
 
-            // pull the projection matrix from the graphics state
-            view.scratch.matrix.set(view.projection);
-            // concatenate the scene transform
-            view.scratch.matrix.concatenate(view.scene.forward);
+            if(view.scene.camera.perspective) {
+                view.scratch.matrix.set(view.scene.camera.projection);
+                view.scratch.matrix.concatenate(view.scene.camera.modelView);
+            } else {
+                // pull the projection matrix from the graphics state
+                view.scratch.matrix.set(view.projection);
+                // concatenate the scene transform
+                view.scratch.matrix.concatenate(view.scene.forward);
+            }
 
             // convert from ECEF to LLA
             if(view.drawSrid == 4326)
@@ -117,7 +120,7 @@ final class GLContentFactory {
                 // load the B3DM
                 final B3DM _b3dm;
                 File f = new File(content.uri);
-                if (f.exists()) {
+                if (IOProviderFactory.exists(f)) {
                     _b3dm = B3DM.parse(new File(content.uri));
                 } else {
                     final byte[] slurp = handler.getData(content.uri, null);
@@ -215,7 +218,7 @@ final class GLContentFactory {
             try {
                 String json;
                 File f = new File(content.uri);
-                if (f.exists()) {
+                if (IOProviderFactory.exists(f)) {
                     json = FileSystemUtils.copyStreamToString(f);
                 } else {
                     final byte[] result = handler.getData(content.uri, null);
@@ -327,12 +330,14 @@ final class GLContentFactory {
             if(pnts == null || vbo == null)
                 return false;
 
-            // pull the projection matrix from the graphics state
-            GLES20FixedPipeline.glGetFloatv(GLES20FixedPipeline.GL_PROJECTION, view.scratch.matrixF, 0);
-            for(int i = 0; i < 16; i++)
-                view.scratch.matrix.set(i%4, i/4, view.scratch.matrixF[i]);
-
-            view.scratch.matrix.concatenate(view.scene.forward);
+            if(view.scene.camera.perspective) {
+                view.scratch.matrix.set(view.scene.camera.projection);
+                view.scratch.matrix.concatenate(view.scene.camera.modelView);
+            } else {
+                // pull the projection matrix from the graphics state
+                view.scratch.matrix.set(view.projection);
+                view.scratch.matrix.concatenate(view.scene.forward);
+            }
 
             // convert from ECEF to LLA
             if(view.drawSrid == 4326)
@@ -400,7 +405,7 @@ final class GLContentFactory {
                 // load the B3DM
                 final PNTS _pnts;
                 File f = new File(content.uri);
-                if (f.exists()) {
+                if (IOProviderFactory.exists(f)) {
                     _pnts = PNTS.parse(new File(content.uri));
                 } else {
                     final byte[] slurp = handler.getData(content.uri, null);

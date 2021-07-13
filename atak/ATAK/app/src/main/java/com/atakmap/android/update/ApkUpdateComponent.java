@@ -6,8 +6,6 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import com.atakmap.android.ipc.AtakBroadcast.DocumentedIntentFilter;
-import android.content.SharedPreferences;
-import android.preference.PreferenceManager;
 
 import com.atakmap.android.ipc.AtakBroadcast;
 import com.atakmap.android.maps.AbstractMapComponent;
@@ -72,7 +70,7 @@ public class ApkUpdateComponent extends AbstractMapComponent {
         _instance = this;
     }
 
-    private BroadcastReceiver _componentsCreatedReceiver = new BroadcastReceiver() {
+    private final BroadcastReceiver _componentsCreatedReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
             _providerManager.init();

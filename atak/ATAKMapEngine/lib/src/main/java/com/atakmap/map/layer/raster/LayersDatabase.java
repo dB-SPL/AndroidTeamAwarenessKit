@@ -11,10 +11,14 @@ import java.util.LinkedList;
 import java.util.Set;
 
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.io.DatabaseInformation;
+import com.atakmap.coremap.io.IOProvider;
+import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.coremap.maps.coords.GeoPoint;
 import com.atakmap.database.CursorIface;
 import com.atakmap.database.CursorWrapper;
+import com.atakmap.database.DatabaseIface;
 import com.atakmap.database.Databases;
 import com.atakmap.database.StatementIface;
 import com.atakmap.map.layer.feature.datastore.FeatureSpatialDatabase;
@@ -83,10 +87,30 @@ final class LayersDatabase extends CatalogDatabase {
                         COLUMN_IMAGERY_TYPES_MAX_GSD + ") " +   // 5
             "VALUES (?, ?, ?, ?, ?)";
 
+    private final static String SQL_UPDATE_LAYER_EXTRAS_STMT =
+            "UPDATE " + TABLE_LAYERS + " SET " + COLUMN_LAYERS_INFO
+                    + " = ? WHERE " + COLUMN_LAYERS_ID + " = ?";
+
+
     /**************************************************************************/
 
     public LayersDatabase(File databaseFile, CatalogCurrencyRegistry r) {
-        super(Databases.openOrCreateDatabase(databaseFile.getAbsolutePath()), r);
+        super(createDatabase(databaseFile), r);
+    }
+
+    /**
+     * Responsible for renaming the Old DB if necessary, and returns the Database.
+     * @param databaseFile the file to use as the database.
+     * @return the database.
+     */
+    private static DatabaseIface createDatabase(File databaseFile){
+        DatabaseIface db = IOProviderFactory.createDatabase(databaseFile,
+                DatabaseInformation.OPTION_ENSURE_PARENT_DIRS);
+        if(db == null && IOProviderFactory.exists(databaseFile)) {
+            IOProviderFactory.delete(databaseFile, IOProvider.SECURE_DELETE);
+            db = IOProviderFactory.createDatabase(databaseFile);
+        }
+        return db;
     }
 
     private static int databaseVersion() {
@@ -314,6 +338,28 @@ final class LayersDatabase extends CatalogDatabase {
             //this.database.setTransactionSuccessful();
         } finally {
             //this.database.endTransaction();
+        }
+    }
+
+    /**
+     * Update layer extras metadata in the database
+     * For a complete update (name/geometry change), remove and re-insert instead
+     *
+     * @param info Dataset info
+     * @throws IOException Database error
+     */
+    public synchronized void updateLayerExtras(DatasetDescriptor info) throws IOException {
+        StatementIface updateStmt = null;
+        try {
+            long layerId = info.getLayerId();
+            updateStmt = this.database.compileStatement(SQL_UPDATE_LAYER_EXTRAS_STMT);
+            updateStmt.clearBindings();
+            updateStmt.bind(1, info.encode(layerId));
+            updateStmt.bind(2, layerId);
+            updateStmt.execute();
+        } finally {
+            if (updateStmt != null)
+                updateStmt.close();
         }
     }
 

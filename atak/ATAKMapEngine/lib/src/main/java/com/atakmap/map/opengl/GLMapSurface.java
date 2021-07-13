@@ -7,6 +7,7 @@ import java.util.concurrent.Executors;
 
 import android.content.Context;
 import android.opengl.GLSurfaceView;
+import android.os.SystemClock;
 import android.util.DisplayMetrics;
 import android.view.WindowManager;
 
@@ -14,7 +15,6 @@ import com.atakmap.android.maps.MapTextFormat;
 import com.atakmap.coremap.concurrent.NamedThreadFactory;
 import com.atakmap.map.AtakMapView;
 import com.atakmap.map.AtakMapView.OnDisplayFlagsChangedListener;
-import com.atakmap.map.Globe;
 import com.atakmap.map.RenderContext;
 import com.atakmap.map.RenderSurface;
 import com.atakmap.opengl.GLES20FixedPipeline;
@@ -36,8 +36,6 @@ public class GLMapSurface extends GLSurfaceView implements RenderContext, Render
     public static String TAG = "GLSurfaceView";
 
     private static Thread glThread;
-
-    private static int maxTextureUnits;
 
     private static float lastDensity = AtakMapView.DENSITY;
 
@@ -160,7 +158,7 @@ public class GLMapSurface extends GLSurfaceView implements RenderContext, Render
 
         setTag(LOOKUP_TAG);
 
-        this.glMapView = new GLMapView(this, 0, 0, GLMapView.MATCH_SURFACE, GLMapView.MATCH_SURFACE);
+        this.glMapView = new GLMapView(this, this.getMapView().getGlobe(), 0, 0, GLMapView.MATCH_SURFACE, GLMapView.MATCH_SURFACE);
         renderer.setView(glMapView);
 
         setRenderer(_renderer = renderer);
@@ -296,12 +294,7 @@ public class GLMapSurface extends GLSurfaceView implements RenderContext, Render
     /*************************************************************************/
 
     public static int getMaxTextureUnits() {
-        if (maxTextureUnits == 0) {
-            int[] i = new int[1];
-            GLES20FixedPipeline.glGetIntegerv(GLES20FixedPipeline.GL_MAX_TEXTURE_IMAGE_UNITS, i, 0);
-            GLMapSurface.maxTextureUnits = i[0];
-        }
-        return maxTextureUnits;
+        return GLRenderGlobals.getMaxTextureUnits();
     }
 
     public static boolean isGLThread() {
@@ -324,13 +317,18 @@ public class GLMapSurface extends GLSurfaceView implements RenderContext, Render
                 }
             }
         });
-        
+
+        // establish a limit to wait for the release to be signaled to prevent
+        // potential infinite loop if the GL thread has already exited
+        final long releaseLimit = SystemClock.uptimeMillis()+500L;
         synchronized(released) {
             while(!released[0]) {
                 this.requestRender();
                 try {
                     released.wait(100);
-                } catch(InterruptedException e) {}
+                } catch(InterruptedException ignored) {}
+                if(SystemClock.uptimeMillis() > releaseLimit)
+                    break;
             }
         }
     }
@@ -402,6 +400,8 @@ public class GLMapSurface extends GLSurfaceView implements RenderContext, Render
                 SETTING_shortenLabels = (flags & AtakMapView.DISPLAY_IGNORE_SHORT_LABELS) == 0;
                 SETTING_limitTextureUnits = (flags & AtakMapView.DISPLAY_LIMIT_TEXTURE_UNITS) == AtakMapView.DISPLAY_LIMIT_TEXTURE_UNITS;
                 SETTING_enableTextureTargetFBO = (flags & AtakMapView.DISABLE_TEXTURE_FBO) == 0;
+
+                GLRenderGlobals.setLimitTextureUnits(SETTING_limitTextureUnits);
             }
         });
     }
