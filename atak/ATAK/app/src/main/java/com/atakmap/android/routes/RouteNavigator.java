@@ -19,7 +19,6 @@ import com.atakmap.android.util.ATAKUtilities;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.coremap.maps.coords.GeoPoint;
-import com.atakmap.map.layer.Layer;
 
 import java.util.Collection;
 import java.util.List;
@@ -47,6 +46,9 @@ public class RouteNavigator {
     private final DocumentedIntentFilter gpsFilter;
     private final SharedPreferences navPrefs;
     private AttachmentBillboardLayer billboardLayer;
+
+    private boolean oldKeyGuardSetting;
+    private boolean oldScreenLockSetting;
 
     //-------------------- Properties ---------------------------
     private volatile boolean navigating = false;
@@ -103,6 +105,15 @@ public class RouteNavigator {
 
         navPrefs = PreferenceManager.getDefaultSharedPreferences(mapView
                 .getContext());
+
+        // set up the default state of the key guard and the screen lock
+        this.oldKeyGuardSetting = navPrefs.getBoolean("atakDisableKeyGuard",
+                false);
+        this.oldScreenLockSetting = navPrefs.getBoolean("atakScreenLock",
+                false);
+
+        Log.d(TAG, "recording atakKeyGuard: " + oldKeyGuardSetting
+                + " atakScreenLock: " + oldScreenLockSetting);
 
         navFilter = new DocumentedIntentFilter();
         navFilter.addAction(NAV_TO_NEXT_INTENT,
@@ -251,8 +262,19 @@ public class RouteNavigator {
 
         //Hook our pertinent callbacks
         AtakBroadcast.getInstance().registerReceiver(navReceiver, navFilter);
-
         AtakBroadcast.getInstance().registerReceiver(gpsReceiver, gpsFilter);
+
+        // set up the default state of the key guard and the screen lock
+        this.oldKeyGuardSetting = navPrefs.getBoolean("atakDisableKeyguard",
+                false);
+        this.oldScreenLockSetting = navPrefs.getBoolean("atakScreenLock",
+                false);
+
+        Log.d(TAG, "recording atakKeyGuard: " + oldKeyGuardSetting
+                + " atakScreenLock: " + oldScreenLockSetting);
+
+        navPrefs.edit().putBoolean("atakDisableKeyguard", true)
+                .putBoolean("atakScreenLock", true).apply();
 
         //Set state
         fireOnNavigationStarting();
@@ -287,6 +309,12 @@ public class RouteNavigator {
         billboardLayer.setVisible(false);
 
         if (navigating && route != null) {
+
+            Log.d(TAG, "ending nav, setting atakKeyGuard: " + oldKeyGuardSetting
+                    + " atakScreenLock: " + oldScreenLockSetting);
+            navPrefs.edit()
+                    .putBoolean("atakDisableKeyguard", oldKeyGuardSetting)
+                    .putBoolean("atakScreenLock", oldScreenLockSetting).apply();
 
             AtakBroadcast.getInstance().unregisterReceiver(gpsReceiver);
             AtakBroadcast.getInstance().unregisterReceiver(navReceiver);

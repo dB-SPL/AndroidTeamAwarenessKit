@@ -11,17 +11,14 @@ import android.os.Bundle;
 
 import com.atakmap.android.imagecapture.CapturePP;
 import com.atakmap.android.imagecapture.PointA;
-import com.atakmap.android.maps.MapView;
 import com.atakmap.android.maps.Polyline;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
 import com.atakmap.coremap.log.Log;
-import com.atakmap.coremap.maps.coords.DistanceCalculations;
 import com.atakmap.coremap.maps.coords.GeoBounds;
 import com.atakmap.coremap.maps.coords.GeoPoint;
 import com.atakmap.coremap.maps.coords.GeoCalculations;
 import com.atakmap.coremap.maps.coords.GeoPointMetaData;
 import com.atakmap.coremap.maps.coords.MutableGeoBounds;
-import com.atakmap.map.elevation.ElevationManager;
 import com.atakmap.math.RectD;
 
 import java.util.HashMap;
@@ -32,7 +29,6 @@ public class Circle extends Polyline {
     private static final int RESOLUTION = 31; //Changing this value will impact the label
     public static final double MAX_RADIUS = 40075160.0 / 4.0 + 10.0; //10 is an error value to make SG/WinTAK happy
 
-    private boolean touchable = true;
     private GeoPointMetaData _center;
     private double _radius;
     private final int res;
@@ -92,47 +88,22 @@ public class Circle extends Polyline {
         setHeightStyle(HEIGHT_STYLE_POLYGON | HEIGHT_STYLE_OUTLINE_SIMPLE);
     }
 
+    /**
+     * Returns the radius in meters for the circle.
+     * @return the radius in meters.
+     */
     public double getRadius() {
         return _radius;
     }
 
+    /**
+     * Sets the radius of the circle in meters.
+     * @param radius the radius in meters.
+     */
     public void setRadius(double radius) {
         _radius = radius;
         calculateCircle();
         setLabel(_text);
-    }
-
-    /*
-     * We have to define this because polyline does not, and its parent MapItem always
-     * returns false.
-     */
-
-    @Override
-    public boolean testOrthoHit(final int xpos, final int ypos, GeoPoint point,
-            MapView view) {
-        if (getCenter() == null || !touchable)
-            return false;
-
-        GeoBounds bounds = view.createHitbox(point, getHitRadius(view));
-        if (!bounds.intersects(getBounds(null)))
-            return false;
-
-        double bearing = DistanceCalculations.bearingFromSourceToTarget(
-                getCenter().get(), point);
-        GeoPoint p = DistanceCalculations.computeDestinationPoint(
-                getCenter().get(), bearing, getRadius());
-        if (bounds.contains(p)) {
-            GeoPointMetaData gpmd = new GeoPointMetaData(p);
-            ElevationManager.getElevation(p.getLatitude(), p.getLongitude(),
-                    null, gpmd);
-            setTouchPoint(gpmd.get());
-            return true;
-        }
-        return false;
-    }
-
-    public void setTouchable(final boolean touchable) {
-        this.touchable = touchable;
     }
 
     @Override
@@ -140,6 +111,10 @@ public class Circle extends Polyline {
         return _center;
     }
 
+    /**
+     * Sets the center point of the circle.
+     * @param point the point with metadata used as the center point.
+     */
     public void setCenterPoint(GeoPointMetaData point) {
         _center = point;
         calculateCircle();
@@ -159,7 +134,6 @@ public class Circle extends Polyline {
         setStrokeWeight(2d);
         setStrokeColor(0xFFFFFFFF);
         setFillColor(0x00FFFFFF); // new rings are automatically transparent
-        setClickable(true);
         setMetaBoolean("unwrapLongitude", true);
         calculateCircle();
     }
@@ -208,24 +182,28 @@ public class Circle extends Polyline {
             offsetLength = (360d / res) / 2d;
         }
 
+        GeoPoint center = _center.get();
+
         RectD extents = new RectD();
-        extents.top = _center.get().getLatitude();
-        extents.left = _center.get().getLongitude();
-        extents.bottom = _center.get().getLatitude();
-        extents.right = _center.get().getLongitude();
+        extents.top = center.getLatitude();
+        extents.left = center.getLongitude();
+        extents.bottom = center.getLatitude();
+        extents.right = center.getLongitude();
 
         GeoPointMetaData[] points = new GeoPointMetaData[res];
         for (int i = 0; i < res; i++) {
             final double theta = (i * (360.0 / res)) - offsetLength;
-            GeoPoint point = DistanceCalculations.computeDestinationPoint(
-                    _center.get(), theta, _radius);
+            GeoPoint point = GeoCalculations.pointAtDistance(center,
+                    theta, _radius);
+            point = new GeoPoint(point.getLatitude(), point.getLongitude(),
+                    center.getAltitude());
             points[i] = GeoPointMetaData.wrap(point);
 
             double lat = point.getLatitude();
             double lng = point.getLongitude();
 
             // check if the radius crosses the IDL
-            if (_center.get().getLongitude() >= 0d) {
+            if (center.getLongitude() >= 0d) {
                 // point to the east is in western hemisphere
                 if (theta < 180d && lng < 0d) {
                     lng += 360d;
@@ -246,10 +224,10 @@ public class Circle extends Polyline {
             else if (lng < extents.left)
                 extents.left = lng;
         }
-        this.relativeBounds.set(extents.top - _center.get().getLatitude(),
-                extents.left - _center.get().getLongitude(),
-                extents.bottom - _center.get().getLatitude(),
-                extents.right - _center.get().getLongitude());
+        this.relativeBounds.set(extents.top - center.getLatitude(),
+                extents.left - center.getLongitude(),
+                extents.bottom - center.getLatitude(),
+                extents.right - center.getLongitude());
         setPoints(points);
     }
 
@@ -259,10 +237,10 @@ public class Circle extends Polyline {
         Bundle data = new Bundle();
         GeoPointMetaData center = getCenter();
         double radius = getRadius();
-        GeoPoint edgeY = DistanceCalculations
-                .computeDestinationPoint(center.get(), 0, radius);
-        GeoPoint edgeX = DistanceCalculations
-                .computeDestinationPoint(center.get(), 90, radius);
+        GeoPoint edgeY = GeoCalculations.pointAtDistance(center.get(), 0,
+                radius);
+        GeoPoint edgeX = GeoCalculations.pointAtDistance(center.get(), 90,
+                radius);
         PointF c = cap.forward(center.get()), rx = cap.forward(edgeX), ry = cap
                 .forward(edgeY);
         PointF[] p = new PointF[2];
@@ -291,10 +269,10 @@ public class Circle extends Polyline {
                     angle = 270;
                     break;
             }
-            lp[0] = DistanceCalculations.computeDestinationPoint(
-                    center.get(), angle + 6, radius);
-            lp[1] = DistanceCalculations.computeDestinationPoint(
-                    center.get(), angle - 6, radius);
+            lp[0] = GeoCalculations.pointAtDistance(center.get(), angle + 6,
+                    radius);
+            lp[1] = GeoCalculations.pointAtDistance(center.get(), angle - 6,
+                    radius);
             if (bounds.contains(lp[0]) || bounds.contains(lp[1]))
                 break;
         }

@@ -1,5 +1,115 @@
 # Version History
 
+## 4.4.0.0
+
+* Bug Fixes
+  * Renamed CoT 2525B to 2525C in Point Dropper to aligh with actual version of included symbology dataset
+  * Removed vehicle outlines from Point Dropper which are also supplied by 2D/3D models (custom user outlines are still available)
+  * Fixed issue in Overlay Manager where blank pane would be displayed
+  * Various issues reported through Google Play Store distribution
+* Feature Additions
+  * Map Controls
+    * Enhanced Depth Perception
+    * Lollipop Visibility
+  * DTED0 default elevation source. App will automatically download DTED0 from tak.gov when no elevation data is available. The Elevation Overlays preferences allow the user to configure the server and disable the feature.
+  * Mapbox Vector Tiles (MVT) support
+  * GeoChat read/unread indicators for chat messages
+  * Basic style editing for File Overlays (KML, Shapefile, etc.)
+  * 3D Tactical Rectangles
+  * Cesium 3D Tiles import from .3tz containers
+* Security
+  * An extra step is now required on first ATAK start to allow GPS while ATAK is in the background for Android 11
+  * Incorporated Google required text to inform user that data is not collected
+
+## 4.3.1.9
+
+* Bug Fix
+  * Account for possible `NullPointerException` in `FeatureDetailsView`
+  
+## 4.3.1.8
+
+* Bug Fix
+  * for hit testing for areas in high altitude
+  
+## 4.3.1.7
+
+* Bug Fixes
+  * fixed crash caused synchronized the invalidate labels call since it touches the points field
+
+* Feature Additions
+  * enabled KML/KMZ export in plugins by not filtering list items that implement Exportable and support the target class (usability)
+  * added support NGA GRiD streaming tile URLS
+
+## 4.3.1.6
+
+* Bug Fix
+  * for plugins toggling feature labels
+
+## 4.3.1.5
+
+* Bug Fix
+  * for misidentification of PDF files on a remote system
+
+## 4.3.1.4
+
+* Bug Fix
+  * for video playback issue detected in Thomas_Fire_Video with regards when projecting to the ground.
+
+## 4.3.1.3
+
+* Bug Fix
+  * for crash caused by trying to query map view controls which using them (Playstore Crash Log)
+
+## 4.3.1.2
+
+* Bug Fix
+  * for crash when video encoding is being used by plugins such as UAS Tool
+
+## 4.3.1.1
+
+* Bug Fix
+  * for crash caused by an Android Toast being used improperly. (Playstore Crash Log)
+
+## 4.3.1.0
+
+* Bug Fixes
+  * will avoid leak of local reference in Java/JNI VSI layer's seek implementation
+  * corrected issues with strings found during translation to Japanese
+  * migrated the name of the directory for the icons from the incorrect mil-std-2525b to mil-std-2525c
+  * will resize the text widget if needed when the bloodhound is started
+  * migrated over fix for GlArrow2 so that the association arrow is not render sub-terrain when no altitude/elevation is present
+  * corrected issue with FAH being clipped incorrectly in areas greater than 90 degree longitude
+  * corrected issue with countries using translation for All Chat Room
+* Feature Additions
+  * can turn off enhanced depth perception mode
+  * can modify the styling of features (preliminary capability)
+  * migrated to Label Manager
+
+## 4.3.0.4
+
+* Fix various typos
+* Implement _latitude_ wrapping for routes
+* Fix bounds check for FAH arrow renderer
+* Update logic for chat room handling to support translations for well-known chat room names
+* Guard against potential NPE for geometry collections
+
+## 4.3.0.3
+
+* Reorder logic for FAH arrow rendering to ensure text validated before drawing
+
+## 4.3.0.2
+
+* Add auto-download DTED0
+* Support integer-only representations for fill color for CoT shapes
+
+
+## 4.3.0.1
+
+* Throw out invalid polyline points
+* Fix R&B arrow direction on globe tilt
+* Handle potential invalid memory accesses for meshes that may not have textures
+* Set a default tessellation threshold (160km) for polyine rendering
+
 ## 4.3.0.0
 
 * Lasso tool to create imagery download regions

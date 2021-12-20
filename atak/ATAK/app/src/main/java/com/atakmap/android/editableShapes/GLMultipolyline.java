@@ -3,8 +3,8 @@ package com.atakmap.android.editableShapes;
 
 import com.atakmap.android.drawing.mapItems.DrawingShape;
 import com.atakmap.android.maps.MultiPolyline;
+import com.atakmap.annotations.DeprecatedApi;
 import com.atakmap.coremap.maps.coords.MutableGeoBounds;
-import com.atakmap.map.MapControl;
 import com.atakmap.map.MapRenderer;
 import com.atakmap.map.MapRenderer3;
 import com.atakmap.map.layer.control.SurfaceRendererControl;
@@ -16,6 +16,11 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 
+/**
+ * @deprecated {@link MultiPolyline} no longer uses its own special renderer
+ */
+@Deprecated
+@DeprecatedApi(since = "4.4", forRemoval = true, removeAt = "4.7")
 public class GLMultipolyline extends GLEditablePolyline {
 
     private final MultiPolyline mp;
@@ -42,7 +47,7 @@ public class GLMultipolyline extends GLEditablePolyline {
                     _surfaceCtrl = object;
                 }
             }, SurfaceRendererControl.class);
-        List<DrawingShape> _lines = subject.get_lines();
+        List<DrawingShape> _lines = subject.getLines();
 
         mp = subject;
 
@@ -101,7 +106,7 @@ public class GLMultipolyline extends GLEditablePolyline {
      * could be a little slow as this gets called everytime draw gets called
      */
     private void update() {
-        List<DrawingShape> lines = mp.get_lines();
+        List<DrawingShape> lines = mp.getLines();
         int startSize = _glLines.size();
         int totalSize = lines.size();
 
@@ -164,5 +169,4 @@ public class GLMultipolyline extends GLEditablePolyline {
             }
         }
     }
-
 }

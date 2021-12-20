@@ -5,7 +5,7 @@ import android.content.SharedPreferences;
 import android.graphics.Color;
 
 import com.atakmap.android.hierarchy.filters.FOVFilter;
-import com.atakmap.android.icons.Icon2525bIconAdapter;
+import com.atakmap.android.icons.Icon2525cIconAdapter;
 
 import com.atakmap.android.track.crumb.Crumb;
 import com.atakmap.android.track.crumb.CrumbDatabase;
@@ -100,7 +100,8 @@ public class CrumbTrail extends MapItem implements FOVFilter.Filterable,
     private void init() {
         this.setClickable(false);
         this.setMetaBoolean("addToObjList", false);
-        this.setMetaBoolean("movable", false);
+        this.setMovable(false);
+        this.toggleMetaData("ignoreRender", true);
 
         this.crumbItemChangedListener = new CrumbItemChangedListener();
 
@@ -299,7 +300,7 @@ public class CrumbTrail extends MapItem implements FOVFilter.Filterable,
                     && t.getIcon() != null) {
                 if (t.getUID().equals(
                         _mapView.getSelfMarker().getUID()))
-                    color = Icon2525bIconAdapter.teamToColor(
+                    color = Icon2525cIconAdapter.teamToColor(
                             prefs.getString("locationTeam", "Cyan"));
                 else
                     color = t.getIcon().getColor(0);

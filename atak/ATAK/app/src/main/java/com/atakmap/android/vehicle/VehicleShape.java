@@ -18,12 +18,11 @@ import com.atakmap.android.util.ATAKUtilities;
 import com.atakmap.android.util.EditAction;
 import com.atakmap.android.util.Undoable;
 import com.atakmap.app.R;
-import com.atakmap.coremap.conversions.Span;
 import com.atakmap.coremap.cot.event.CotDetail;
 import com.atakmap.coremap.cot.event.CotEvent;
 import com.atakmap.coremap.cot.event.CotPoint;
 import com.atakmap.coremap.maps.assets.Icon;
-import com.atakmap.coremap.maps.coords.DistanceCalculations;
+import com.atakmap.coremap.maps.coords.GeoCalculations;
 import com.atakmap.coremap.maps.coords.GeoPoint;
 import com.atakmap.coremap.maps.coords.GeoPointMetaData;
 import com.atakmap.coremap.maps.coords.NorthReference;
@@ -53,7 +52,6 @@ public class VehicleShape extends EditablePolyline implements VehicleMapItem {
     public VehicleShape(MapView mapView, final String uid) {
         super(mapView, uid);
         _mapGroup = VehicleMapComponent.getVehicleGroup(mapView);
-        setClickable(true);
         setClosed(true);
         setMetaString("closed_line", "true");
         setMetaBoolean("static_shape", true);
@@ -85,7 +83,6 @@ public class VehicleShape extends EditablePolyline implements VehicleMapItem {
         setMetaDouble("length", dimen[0]);
         setMetaDouble("width", dimen[1]);
         setHeight(dimen[2]);
-        setMetaInteger("height_unit", Span.FOOT.getValue());
         setMetaDouble("azimuth", trueDeg);
         if (fromUser)
             setMetaString("entry", "user");
@@ -191,10 +188,10 @@ public class VehicleShape extends EditablePolyline implements VehicleMapItem {
                 // Move entire vehicle rather than single point
                 GeoPointMetaData old = getPoint(index);
                 moveClosedSet(getCenter(),
-                        GeoPointMetaData.wrap(DistanceCalculations
-                                .computeDestinationPoint(getCenter().get(),
-                                        old.get().bearingTo(gp.get()),
-                                        old.get().distanceTo(gp.get()))));
+                        GeoPointMetaData.wrap(GeoCalculations.pointAtDistance(
+                                getCenter().get(),
+                                old.get().bearingTo(gp.get()),
+                                old.get().distanceTo(gp.get()))));
                 return true;
             }
             return false;

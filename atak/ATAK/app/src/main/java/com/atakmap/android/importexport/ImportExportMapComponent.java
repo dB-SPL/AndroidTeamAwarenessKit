@@ -52,6 +52,7 @@ import com.atakmap.android.network.ui.CredentialsPreference;
 import com.atakmap.android.util.ServerListDialog;
 import com.atakmap.app.R;
 import com.atakmap.app.preferences.NetworkConnectionPreferenceFragment;
+import com.atakmap.comms.TAKServer;
 import com.atakmap.coremap.cot.event.CotEvent;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
 import com.atakmap.coremap.log.Log;
@@ -70,7 +71,6 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.TimeUnit;
 
 /**
  * Map component to support data input and output from/to KML, CoT and survey XML.
@@ -372,18 +372,19 @@ public class ImportExportMapComponent extends AbstractMapComponent implements
                                 _mapView.getContext().getString(
                                         R.string.select_server),
                                 servers,
-                                new ServerListDialog.ServerSelectCallback() {
+                                new ServerListDialog.Callback() {
                                     @Override
                                     public void onSelected(
-                                            CotPortListActivity.CotPort port) {
+                                            TAKServer takServer) {
                                         // cancel
-                                        if (port == null) {
+                                        if (takServer == null) {
                                             editor.remove(
                                                     "autoUploadLogServer")
                                                     .apply();
                                             return;
                                         }
-                                        String server = port.getConnectString();
+                                        String server = takServer
+                                                .getConnectString();
                                         editor.putString("autoUploadLogServer",
                                                 server).apply();
                                         if (logFile != null) {

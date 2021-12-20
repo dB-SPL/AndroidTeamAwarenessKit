@@ -16,7 +16,6 @@ import com.atakmap.android.track.crumb.CrumbDatabase;
 import com.atakmap.android.track.maps.TrackPolyline;
 import com.atakmap.android.util.AltitudeUtilities;
 import com.atakmap.android.util.SpeedFormatter;
-import com.atakmap.coremap.conversions.ConversionFactors;
 import com.atakmap.coremap.conversions.Span;
 import com.atakmap.coremap.conversions.SpanUtilities;
 import com.atakmap.coremap.log.Log;
@@ -430,7 +429,7 @@ public class TrackDetails
     }
 
     public String getMinAltString() {
-        return AltitudeUtilities.format(_minAlt, _prefs);
+        return AltitudeUtilities.format(_minAlt);
     }
 
     public void setMaxAlt(GeoPointMetaData d) {
@@ -442,7 +441,7 @@ public class TrackDetails
     }
 
     public String getMaxAltString() {
-        return AltitudeUtilities.format(_maxAlt, _prefs);
+        return AltitudeUtilities.format(_maxAlt);
     }
 
     public void setMaxSpeed(double d, GeoPointMetaData point) {
@@ -472,12 +471,15 @@ public class TrackDetails
     private String getSpeedString(final double speed, final int units) {
         switch (units) {
             case Span.NM:
-                return SpeedFormatter.getInstance().getSpeedFormatted(speed, SpeedFormatter.KTS);
+                return SpeedFormatter.getInstance().getSpeedFormatted(speed,
+                        SpeedFormatter.KTS);
             case Span.METRIC:
-                return SpeedFormatter.getInstance().getSpeedFormatted(speed, SpeedFormatter.KMPH);
+                return SpeedFormatter.getInstance().getSpeedFormatted(speed,
+                        SpeedFormatter.KMPH);
             case Span.ENGLISH:
             default:
-               return SpeedFormatter.getInstance().getSpeedFormatted(speed, SpeedFormatter.MPH);
+                return SpeedFormatter.getInstance().getSpeedFormatted(speed,
+                        SpeedFormatter.MPH);
         }
 
     }

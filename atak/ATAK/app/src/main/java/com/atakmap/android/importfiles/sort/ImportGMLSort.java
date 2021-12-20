@@ -10,14 +10,12 @@ import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.spatial.file.GMLSpatialDb;
 
+import java.io.BufferedReader;
 import java.io.File;
-import java.io.FilenameFilter;
 import java.io.IOException;
 import java.io.InputStream;
-import java.util.ArrayList;
-import java.util.Arrays;
+import java.io.InputStreamReader;
 import java.util.Collections;
-import java.util.List;
 import java.util.Set;
 
 /**
@@ -29,7 +27,7 @@ public class ImportGMLSort extends ImportInPlaceResolver {
 
     private static final String TAG = "ImportGMLSort";
 
-    private static final int MAGIC_NUMBER = 99941;
+    private final static String GMLMATCH = "<gml";
 
     public ImportGMLSort(Context context, boolean validateExt,
             boolean copyFile, boolean importInPlace) {
@@ -45,8 +43,40 @@ public class ImportGMLSort extends ImportInPlaceResolver {
             return false;
         }
 
-        // TODO parse to make sure it is reasonable
-        return true;
+        try (InputStream fis = IOProviderFactory.getInputStream(file)) {
+            return isGML(fis);
+        } catch (IOException e) {
+            Log.e(TAG, "Error checking if GPX: " + file.getAbsolutePath(), e);
+        }
+
+        return false;
+    }
+
+    private static boolean isGML(InputStream stream) {
+        try {
+            // read first few hundred bytes and search for known GML strings
+            char[] buffer = new char[2048];
+            BufferedReader reader = new BufferedReader(new InputStreamReader(
+                    stream));
+            int numRead = reader.read(buffer);
+            reader.close();
+
+            if (numRead < 1) {
+                Log.d(TAG, "Failed to read .gml stream");
+                return false;
+            }
+
+            String content = String.valueOf(buffer, 0, numRead);
+            boolean match = content.contains(GMLMATCH);
+            if (!match) {
+                Log.d(TAG, "Failed to match gml content");
+            }
+
+            return match;
+        } catch (Exception e) {
+            Log.d(TAG, "Failed to match .gml", e);
+            return false;
+        }
     }
 
     /**

@@ -7,7 +7,6 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.preference.PreferenceManager;
-import android.util.Log;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -16,21 +15,14 @@ import com.atakmap.android.ipc.AtakBroadcast;
 import com.atakmap.android.overlay.DefaultMapGroupOverlay;
 import com.atakmap.android.routes.Route;
 import com.atakmap.android.routes.RouteMapReceiver;
-import com.atakmap.annotations.DeprecatedApi;
-import com.atakmap.util.Disposable;
 
 import java.util.List;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
 
 public class DoghouseReceiver extends BroadcastReceiver implements
         MapItem.OnVisibleChangedListener,
         SharedPreferences.OnSharedPreferenceChangeListener,
         MapEventDispatcher.MapEventDispatchListener,
-        Route.OnRoutePointsChangedListener, Shape.OnPointsChangedListener,
+        Shape.OnPointsChangedListener,
         Route.OnRouteMethodChangedListener, Route.OnStrokeColorChangedListener {
 
     private static final String TAG = "DoghouseReceiver";
@@ -54,6 +46,8 @@ public class DoghouseReceiver extends BroadcastReceiver implements
     public static final String PERCENT_ALONG_LEG = "dhPrefs_percentDownLeg";
     /** Set the location preference relative to the associated route */
     public static final String RELATIVE_LOCATION = "dhPrefs_displayLocation";
+
+    public static final String NORTH_REFERENCE_KEY = "rab_north_ref_pref";
 
     // constants
     /** Maximum distance from the associated route */
@@ -95,6 +89,10 @@ public class DoghouseReceiver extends BroadcastReceiver implements
                 MapEvent.ITEM_ADDED, this);
         _mapView.getMapEventDispatcher().addMapEventListener(
                 MapEvent.ITEM_REMOVED, this);
+        _mapView.getMapEventDispatcher()
+                .removeMapEventListener(MapEvent.ITEM_REFRESH, this);
+        _mapView.getMapEventDispatcher()
+                .addMapEventListener(MapEvent.ITEM_PERSIST, this);
 
         // ensure default data are visible
         SharedPreferences prefs = PreferenceManager
@@ -118,6 +116,10 @@ public class DoghouseReceiver extends BroadcastReceiver implements
                 MapEvent.ITEM_ADDED, this);
         _mapView.getMapEventDispatcher().removeMapEventListener(
                 MapEvent.ITEM_REMOVED, this);
+        _mapView.getMapEventDispatcher()
+                .removeMapEventListener(MapEvent.ITEM_REFRESH, this);
+        _mapView.getMapEventDispatcher()
+                .removeMapEventListener(MapEvent.ITEM_PERSIST, this);
         PreferenceManager.getDefaultSharedPreferences(_mapView.getContext())
                 .unregisterOnSharedPreferenceChangeListener(this);
         AtakBroadcast.getInstance().unregisterReceiver(this);
@@ -173,8 +175,6 @@ public class DoghouseReceiver extends BroadcastReceiver implements
             route.addOnVisibleChangedListener(this);
             route.addOnStrokeColorChangedListener(this);
             route.addOnRouteMethodChangedListener(this);
-            // TODO: remove commented out line when method is removed
-            //            route.addOnRoutePointsChangedListener(this);
             route.addOnPointsChangedListener(this);
         } else if (MapEvent.ITEM_REMOVED.equals(event.getType())) {
             if (route.getRouteMethod() == Route.RouteMethod.Flying
@@ -184,9 +184,17 @@ public class DoghouseReceiver extends BroadcastReceiver implements
             route.removeOnVisibleChangedListener(this);
             route.removeOnStrokeColorChangedListener(this);
             route.removeOnRouteMethodChangedListener(this);
-            // TODO: remove commented out line when method is removed
-            //            route.removeOnRoutePointsChangedListener(this);
             route.removeOnPointsChangedListener(this);
+        } else if (MapEvent.ITEM_REFRESH.equals(event.getType())) {
+            if (route.getRouteMethod() == Route.RouteMethod.Flying
+                    && route.getMetaBoolean(META_SHOW_DOGHOUSES, true)) {
+                _viewModel.updateDoghouses(route);
+            }
+        } else if (MapEvent.ITEM_PERSIST.equals(event.getType())) {
+            if (route.getRouteMethod() == Route.RouteMethod.Flying
+                    && route.getMetaBoolean(META_SHOW_DOGHOUSES, true)) {
+                _viewModel.updateDoghouses(route);
+            }
         }
     }
 
@@ -201,7 +209,7 @@ public class DoghouseReceiver extends BroadcastReceiver implements
                     .getDoghousesForRoute((Route) item);
             if (doghouses != null) {
                 for (Doghouse dh : doghouses) {
-                    dh.setVisible(item.getVisible());
+                    dh.setVisible(item.getVisible(false));
                 }
             }
         }
@@ -218,45 +226,11 @@ public class DoghouseReceiver extends BroadcastReceiver implements
             Route r = (Route) s;
             int alpha = Color.alpha(r.getStrokeColor());
             if (alpha <= 50) {
-                _viewModel.hideDoghousesForRoute(r);
+                if (r.getVisible())
+                    _viewModel.hideDoghousesForRoute(r);
             } else {
-                _viewModel.showDoghousesForRoute(r);
-            }
-        }
-    }
-
-    /**
-     * If a route is edited, re-compute the doghouses for the new route points.
-     *
-     * Deprecating because I think that Shape.OnPointsChanged events are sufficient.
-     *
-     * @param route The route that was edited
-     */
-    @Override
-    @Deprecated
-    @DeprecatedApi(since = "4.2", forRemoval = true, removeAt = "4.5")
-    public void onRoutePointsChanged(final Route route) {
-        // TODO: Remove excessive debugging statements.
-        final List<Doghouse> doghouses = _viewModel.getDoghousesForRoute(route);
-        if (doghouses != null) {
-            for (int i = 0; i < route.getNumPoints() - 1; i++) {
-                Doghouse dh = doghouses.get(i);
-                PointMapItem pmi = route.getPointMapItem(i + 1);
-                if (pmi != null) {
-                    String callsign = pmi.getTitle() != null
-                            ? pmi.getTitle()
-                            : pmi.getMetaString("callsign",
-                                    Integer.toString(i + 1));
-                    if (callsign == null || callsign.length() == 0) {
-                        callsign = Integer.toString(i + 1);
-                    }
-                    if (dh != null) {
-                        dh.setMetaString(
-                                Doghouse.DoghouseFields.NEXT_CHECKPOINT
-                                        .toString(),
-                                callsign);
-                    }
-                }
+                if (r.getVisible())
+                    _viewModel.showDoghousesForRoute(r);
             }
         }
     }
@@ -290,18 +264,6 @@ public class DoghouseReceiver extends BroadcastReceiver implements
 
     public DoghouseViewModel getDoghouseViewModel() {
         return _viewModel;
-    }
-
-    /**
-     * Legacy method signature.
-     * @param route The route to add Doghouses for
-     * @deprecated Use {@link #addDoghousesForRoute(Route)}
-     */
-    @Deprecated
-    @DeprecatedApi(since = "4.1", forRemoval = true, removeAt = "4.4")
-    public void addDoghouse(@NonNull
-    final Route route) {
-        addDoghousesForRoute(route);
     }
 
     /**
@@ -348,18 +310,6 @@ public class DoghouseReceiver extends BroadcastReceiver implements
     public List<Doghouse> getDoghousesForRoute(@NonNull
     final Route route) {
         return _viewModel.getDoghousesForRoute(route);
-    }
-
-    /**
-     * Legacy method signature.
-     * @param route The route to remove doghouses for
-     * @deprecated Use {@link #removeDoghousesForRoute(Route)}
-     */
-    @Deprecated
-    @DeprecatedApi(since = "4.1", forRemoval = true, removeAt = "4.4")
-    public void removeDoghouse(@NonNull
-    final Route route) {
-        removeDoghousesForRoute(route);
     }
 
     /**

@@ -8,7 +8,6 @@ import com.atakmap.android.rubbersheet.data.ModelTransformListener;
 import com.atakmap.android.rubbersheet.data.RubberModelData;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
 import com.atakmap.coremap.log.Log;
-import com.atakmap.coremap.maps.coords.DistanceCalculations;
 import com.atakmap.coremap.maps.coords.GeoCalculations;
 import com.atakmap.coremap.maps.coords.GeoPoint;
 import com.atakmap.map.layer.feature.geometry.Envelope;
@@ -40,6 +39,7 @@ public class ModelLoader implements ModelSpi.Callback {
     private final ModelProjection _projection;
     private final Callback _callback;
 
+    private Matrix _transformMat;
     private int _totalModels = 1;
     private int _modelProgress = 0;
 
@@ -53,6 +53,15 @@ public class ModelLoader implements ModelSpi.Callback {
 
     public ModelLoader(RubberModelData data, Callback cb) {
         this(data.file, data.subModel, data.projection, cb);
+    }
+
+    /**
+     * Set the transform matrix to be applied to the model after center alignment
+     * with the ground
+     * @param transformMat Transform matrix
+     */
+    public void setTransform(Matrix transformMat) {
+        _transformMat = transformMat;
     }
 
     public boolean load() {
@@ -160,16 +169,19 @@ public class ModelLoader implements ModelSpi.Callback {
                                 0, 0, 1);
                     PointD loc = new PointD(offset);
                     trOffset.transform(offset, loc);
-                    trInfo.location = DistanceCalculations
-                            .computeDestinationPoint(
-                                    trInfo.location,
-                                    Math.toDegrees(Math.atan2(loc.x, loc.y)),
-                                    Math.hypot(loc.x, loc.y));
+                    trInfo.location = GeoCalculations.pointAtDistance(
+                            trInfo.location,
+                            Math.toDegrees(Math.atan2(loc.x, loc.y)),
+                            Math.hypot(loc.x, loc.y));
                 }
 
                 // Center the model with the bottom level to the ground
                 if (needsCenter)
                     trInfo.localFrame.translate(offset.x, offset.y);
+
+                // Apply transform matrix if specified
+                if (_transformMat != null)
+                    trInfo.localFrame.concatenate(_transformMat);
 
                 // TODO: maybe use the new aabb of the transformed model to find the location offset
                 model = Models.transform(info, model, trInfo,

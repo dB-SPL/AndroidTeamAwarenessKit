@@ -38,7 +38,6 @@ import com.atakmap.map.layer.raster.DatasetProjection2;
 import com.atakmap.math.PointD;
 
 import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
@@ -170,7 +169,7 @@ public class ImageryCapturePP extends CapturePP {
 
     /**
      * Get the full map range
-     * @return Full map range in feet/yards
+     * @return Full map range in user-preferred display units
      */
     public double getMapRange() {
         return _mapRange;

@@ -17,6 +17,7 @@ import android.os.AsyncTask;
 import android.os.Bundle;
 import android.preference.PreferenceManager;
 import android.text.Editable;
+import android.text.InputType;
 import android.view.LayoutInflater;
 import android.view.MotionEvent;
 import android.view.View;
@@ -73,7 +74,7 @@ import com.atakmap.coremap.filesystem.FileSystemUtils;
 import com.atakmap.coremap.locale.LocaleUtil;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.coremap.maps.assets.Icon;
-import com.atakmap.coremap.maps.coords.DistanceCalculations;
+import com.atakmap.coremap.maps.coords.GeoCalculations;
 import com.atakmap.coremap.maps.coords.GeoPoint;
 import com.atakmap.coremap.maps.coords.GeoPointMetaData;
 import com.atakmap.spatial.file.GpxFileSpatialDb;
@@ -516,10 +517,8 @@ public class RouteMapReceiver extends BroadcastReceiver implements
                             double tBearing = ATAKUtilities
                                     .convertFromMagneticToTrue(
                                             waypoint.getPoint(), bearing);
-                            GeoPoint newPoint = DistanceCalculations
-                                    .computeDestinationPoint(
-                                            waypoint.getPoint(),
-                                            tBearing, range);
+                            GeoPoint newPoint = GeoCalculations.pointAtDistance(
+                                    waypoint.getPoint(), tBearing, range);
 
                             final Marker addMarker = Route.createWayPoint(
                                     GeoPointMetaData.wrap(newPoint),
@@ -1143,6 +1142,10 @@ public class RouteMapReceiver extends BroadcastReceiver implements
                 .from(_mapView.getContext());
         View v = inflater.inflate(R.layout.nav_edit_cues, _mapView, false);
         final EditText et = v.findViewById(R.id.messageBox);
+
+        // required for a multi line edit text to have a DONE button
+        et.setRawInputType(InputType.TYPE_CLASS_TEXT);
+
         final NavigationCue nc = route.getCueForPoint(pmi.getUID());
 
         // Cue buttons
@@ -1399,11 +1402,11 @@ public class RouteMapReceiver extends BroadcastReceiver implements
                     r.setAlpha(50);
                     r.hideLabels(true);
                     if (stopTouch)
-                        r.setTouchable(false);
+                        r.setClickable(false);
                 } else {
                     r.resetAlpha();
                     r.hideLabels(false);
-                    r.setTouchable(true);
+                    r.setClickable(true);
                 }
             }
         }
@@ -1423,7 +1426,7 @@ public class RouteMapReceiver extends BroadcastReceiver implements
         String uid = excluded != null ? excluded.getUID() : null;
         synchronized (routes_) {
             for (Route r : routes_)
-                r.setTouchable(!stopTouch
+                r.setClickable(!stopTouch
                         || !FileSystemUtils.isEmpty(uid)
                                 && uid.equals(r.getUID()));
         }

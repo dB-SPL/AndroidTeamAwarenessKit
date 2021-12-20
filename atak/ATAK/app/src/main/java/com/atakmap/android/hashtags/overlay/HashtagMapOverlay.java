@@ -28,7 +28,7 @@ import com.atakmap.android.hierarchy.HierarchyListItem;
 import com.atakmap.android.hierarchy.HierarchyListReceiver;
 import com.atakmap.android.hierarchy.HierarchySelectHandler;
 import com.atakmap.android.hierarchy.action.Action;
-import com.atakmap.android.hierarchy.action.Delete;
+import com.atakmap.android.hierarchy.action.GroupDelete;
 import com.atakmap.android.hierarchy.action.Search;
 import com.atakmap.android.hierarchy.action.Visibility;
 import com.atakmap.android.hierarchy.action.Visibility2;
@@ -62,17 +62,17 @@ public class HashtagMapOverlay extends AbstractMapOverlay2 implements
         HashtagManager.OnUpdateListener, AttachmentWatcher.Listener {
 
     private static final String TAG = "HashtagMapOverlay";
-    private static final String TAG_CONTENT = "com.atakmap.android.hashtags.overlay.TAG_CONTENT";
+    protected static final String TAG_CONTENT = "com.atakmap.android.hashtags.overlay.TAG_CONTENT";
 
     private static final int ORDER = 8;
 
     private final MapView _mapView;
-    private final Context _context;
-    private final HashtagMap<HashtagListItem> _lists = new HashtagMap<>();
+    protected final Context _context;
+    protected final HashtagMap<HashtagListItem> _lists = new HashtagMap<>();
     private final View _listHeader;
 
-    private ListModel _listModel;
-    private HierarchyListAdapter _om;
+    protected ListModel _listModel;
+    protected HierarchyListAdapter _om;
 
     public HashtagMapOverlay(MapView view) {
         _mapView = view;
@@ -236,12 +236,12 @@ public class HashtagMapOverlay extends AbstractMapOverlay2 implements
                 .show();
     }
 
-    private class ListModel extends AbstractHierarchyListItem2 implements
-            View.OnClickListener, Visibility2, Search, Delete {
+    protected class ListModel extends AbstractHierarchyListItem2 implements
+            View.OnClickListener, Visibility2, Search, GroupDelete {
 
-        private boolean _vizSupported;
+        protected boolean _vizSupported;
 
-        private ListModel() {
+        protected ListModel() {
             this.asyncRefresh = true;
             this.reusable = true;
         }

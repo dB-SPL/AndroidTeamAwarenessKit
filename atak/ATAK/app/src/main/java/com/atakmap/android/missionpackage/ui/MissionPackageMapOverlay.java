@@ -12,14 +12,9 @@ import android.os.SystemClock;
 import android.util.Pair;
 import android.view.LayoutInflater;
 import android.view.View;
-import android.view.Window;
 import android.widget.BaseAdapter;
 import android.widget.CheckBox;
 import android.widget.Toast;
-
-import android.graphics.Point;
-import android.view.WindowManager;
-import android.view.Display;
 
 import com.atakmap.android.cot.CotUtils;
 import com.atakmap.android.data.URIContentHandler;
@@ -27,9 +22,11 @@ import com.atakmap.android.data.URIContentListener;
 import com.atakmap.android.data.URIContentManager;
 import com.atakmap.android.data.URIContentProvider;
 import com.atakmap.android.data.URIHelper;
+import com.atakmap.android.gui.AlertDialogHelper;
 import com.atakmap.android.gui.TileButtonDialog;
 import com.atakmap.android.hierarchy.HierarchyListAdapter;
 import com.atakmap.android.hierarchy.action.Export;
+import com.atakmap.android.hierarchy.action.GroupDelete;
 import com.atakmap.android.image.ImageDropDownReceiver;
 import com.atakmap.android.importexport.ExportFilters;
 import com.atakmap.android.importexport.Exportable;
@@ -47,7 +44,6 @@ import com.atakmap.android.hierarchy.HierarchyListFilter;
 import com.atakmap.android.hierarchy.HierarchyListItem;
 import com.atakmap.android.hierarchy.HierarchyListReceiver;
 import com.atakmap.android.hierarchy.action.Action;
-import com.atakmap.android.hierarchy.action.Delete;
 import com.atakmap.android.hierarchy.action.Search;
 import com.atakmap.android.hierarchy.action.Visibility;
 import com.atakmap.android.hierarchy.action.Visibility2;
@@ -82,6 +78,7 @@ import com.atakmap.android.toolbar.ToolManagerBroadcastReceiver;
 import com.atakmap.android.util.ATAKUtilities;
 import com.atakmap.android.util.AttachmentManager;
 import com.atakmap.android.util.ServerListDialog;
+import com.atakmap.annotations.DeprecatedApi;
 import com.atakmap.app.R;
 import com.atakmap.comms.TAKServer;
 import com.atakmap.comms.TAKServerListener;
@@ -122,7 +119,8 @@ public class MissionPackageMapOverlay extends AbstractMapOverlay2 implements
     private static final int ORDER = 4;
     private static final int SMALLMISSIONPACKAGE_SIZE_INBYTES = 3 * 1024 * 1024;
 
-    // XXX - No longer used in this class - might be used elsewhere?
+    @Deprecated
+    @DeprecatedApi(since = "4.4", forRemoval = true, removeAt = "4.7")
     public static final FilenameFilter FeatureSetFilter = new FilenameFilter() {
         @Override
         public boolean accept(File dir, String fn) {
@@ -679,7 +677,8 @@ public class MissionPackageMapOverlay extends AbstractMapOverlay2 implements
     }
 
     private class MissionPackageOverlayListModel extends
-            AbstractHierarchyListItem2 implements Search, Visibility2, Delete,
+            AbstractHierarchyListItem2
+            implements Search, Visibility2, GroupDelete,
             Export, View.OnClickListener {
 
         private final static String TAG = "MissionPackageOverlayListModel";
@@ -882,6 +881,7 @@ public class MissionPackageMapOverlay extends AbstractMapOverlay2 implements
             setViz(save, hasOutstandingChanges() ? View.VISIBLE : View.GONE);
 
             setViz(_header.findViewById(R.id.edit), View.GONE);
+            setViz(_header.findViewById(R.id.delete), View.GONE);
 
             return _header;
         }
@@ -916,15 +916,6 @@ public class MissionPackageMapOverlay extends AbstractMapOverlay2 implements
             boolean ret = !actions.isEmpty();
             for (Visibility viz : actions)
                 ret &= viz.setVisible(visible);
-            return ret;
-        }
-
-        @Override
-        public boolean delete() {
-            List<Delete> actions = getChildActions(Delete.class);
-            boolean ret = !actions.isEmpty();
-            for (Delete del : actions)
-                ret &= del.delete();
             return ret;
         }
 
@@ -1171,6 +1162,7 @@ public class MissionPackageMapOverlay extends AbstractMapOverlay2 implements
         importView.setExtensionTypes(new String[] {
                 "*"
         });
+        importView.allowDirectorySelect(false);
         AlertDialog.Builder b = new AlertDialog.Builder(_view.getContext());
         b.setView(importView);
         b.setNegativeButton(R.string.cancel, null);
@@ -1200,27 +1192,11 @@ public class MissionPackageMapOverlay extends AbstractMapOverlay2 implements
             }
         });
         final AlertDialog alert = b.create();
-        // Find the current width of the window, we will use this in a minute to determine how large
-        // to make the dialog.
-        WindowManager wm = (WindowManager) _view.getContext()
-                .getSystemService(Context.WINDOW_SERVICE);
-        Display display = wm.getDefaultDisplay();
-        Point p = new Point();
-        display.getSize(p);
 
         // Show the dialog
         alert.show();
 
-        // Copy over the attributes from the displayed window and then set the width
-        // to be 70% of the total window width
-        Window w = alert.getWindow();
-        if (w != null) {
-            WindowManager.LayoutParams lp = new WindowManager.LayoutParams();
-            lp.copyFrom(w.getAttributes());
-            lp.width = Math.min((int) (p.x * .90), 2160);
-            lp.height = WindowManager.LayoutParams.MATCH_PARENT;
-            w.setAttributes(lp);
-        }
+        AlertDialogHelper.adjustWidth(alert, 0.90d);
     }
 
     void deletePackage(MissionPackageListGroup group, boolean toast,

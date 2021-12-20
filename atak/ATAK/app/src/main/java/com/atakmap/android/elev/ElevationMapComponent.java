@@ -11,7 +11,6 @@ import android.content.Intent;
 
 import com.atakmap.android.elev.dt2.Dt2OutlineMapOverlay;
 import com.atakmap.android.elev.dt2.Dt2ElevationData;
-import com.atakmap.android.elev.dt2.Dt2ElevationModel;
 import com.atakmap.android.elev.dt2.Dt2MosaicDatabase;
 import com.atakmap.android.maps.AbstractMapComponent;
 import com.atakmap.android.maps.MapEvent;
@@ -36,6 +35,7 @@ public class ElevationMapComponent extends AbstractMapComponent {
     private final Set<Dt2MosaicDatabase> dt2dbs = Collections
             .newSetFromMap(new IdentityHashMap<Dt2MosaicDatabase, Boolean>());
     private Dt2OutlineMapOverlay _outlineOverlay;
+    private ElevationDownloader _downloader;
 
     @Override
     public void onCreate(Context context, Intent intent, MapView view) {
@@ -70,7 +70,11 @@ public class ElevationMapComponent extends AbstractMapComponent {
         for (String srtmPath : srtmPaths)
             SrtmElevationSource.mountDirectory(new File(srtmPath));
 
+        // DTED tile outlines
         _outlineOverlay = new Dt2OutlineMapOverlay(view);
+
+        // Automatic DTED downloader
+        _downloader = new ElevationDownloader(view);
     }
 
     public static String[] findDtedPaths() {
@@ -100,6 +104,7 @@ public class ElevationMapComponent extends AbstractMapComponent {
 
         ElevationManager.unregisterDataSpi(Dt2ElevationData.SPI);
         _outlineOverlay.dispose();
+        _downloader.dispose();
     }
 
     private final OnPointChangedListener _onPointChangedListener = new OnPointChangedListener() {
@@ -109,10 +114,8 @@ public class ElevationMapComponent extends AbstractMapComponent {
             final GeoPoint gp = item.getPoint();
             if (gp != null && item.getGroup() != null
                     && !gp.isAltitudeValid()) {
-                GeoPointMetaData gpm = Dt2ElevationModel.getInstance()
-                        .queryPoint(
-                                gp.getLatitude(),
-                                gp.getLongitude());
+                GeoPointMetaData gpm = ElevationManager
+                        .getElevationMetadata(gp);
 
                 if (gpm.get().isAltitudeValid()) {
                     GeoPoint newgp = new GeoPoint(gp.getLatitude(),

@@ -1,10 +1,10 @@
 
 package com.atakmap.android.video;
 
-import android.net.Uri;
 import java.net.URI;
 
 import com.atakmap.android.video.manager.VideoManager;
+import com.atakmap.annotations.FortifyFinding;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
 import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
@@ -110,11 +110,7 @@ public class ConnectionEntry implements Serializable {
     private boolean ignoreEmbeddedKLV = false;
     private String path = "";
 
-    /**
-     * Fortify has flagged this as Password Management: Hardcoded Password
-     * This is a empty assignment just for the purposes of making the code simpler instead of
-     * extra null pointer checks.    This is not hardcoded.
-     */
+    @FortifyFinding(finding = "Password Management: Hardcoded Password", rational = "This is a empty assignment just for the purposes of making the code simpler instead of extra null pointer checks.    This is not hardcoded.")
     private String passphrase = "";
 
     private Protocol protocol = Protocol.UDP;
@@ -248,10 +244,6 @@ public class ConnectionEntry implements Serializable {
         setBufferTime(-1);
         setNetworkTimeout(5000);
 
-
-
-
-
         URI u = URI.create(uri);
 
         final Protocol protocol = Protocol.getProtocol(uri);
@@ -263,9 +255,8 @@ public class ConnectionEntry implements Serializable {
 
         final String userInfo = u.getUserInfo();
 
-
         String host = u.getHost();
-        if (!FileSystemUtils.isEmpty(u.getUserInfo()) )
+        if (!FileSystemUtils.isEmpty(u.getUserInfo()))
             host = u.getUserInfo() + "@" + host;
 
         setProtocol(protocol);
@@ -541,6 +532,7 @@ public class ConnectionEntry implements Serializable {
      * Returns non-empty string if one is to be used to access the video source.
      * @return passphrase for the source if used, else empty string
      */
+    @FortifyFinding(finding = "Privacy Violation", rational = "according to the Fortify flow stack where this is leakage indicated, the password will never print")
     public String getPassphrase() {
         return this.passphrase;
     }

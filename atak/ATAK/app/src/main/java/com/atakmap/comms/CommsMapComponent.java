@@ -3,7 +3,6 @@ package com.atakmap.comms;
 
 import java.io.FileInputStream;
 import java.io.OutputStream;
-import java.io.OutputStream;
 import java.net.*;
 import java.security.cert.Certificate;
 import java.util.*;
@@ -270,7 +269,8 @@ public class CommsMapComponent extends AbstractMapComponent implements
         }
 
         @Override
-        public synchronized void log(Level level, String s) {
+        public synchronized void log(Level level, Type type, String s,
+                LoggingDetail detail) {
             int priority;
             switch (level) {
                 case DEBUG:
@@ -384,7 +384,7 @@ public class CommsMapComponent extends AbstractMapComponent implements
                     "callsign", "nocallsign");
 
             try {
-                commo = new Commo(new Logger(TAG), uid, callsign);
+                commo = new Commo(new Logger(TAG + "Commo"), uid, callsign);
                 commo.addCoTMessageListener(this);
                 commo.addInterfaceStatusListener(this);
                 commo.addContactPresenceListener(this);

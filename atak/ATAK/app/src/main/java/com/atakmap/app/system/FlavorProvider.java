@@ -4,12 +4,11 @@ package com.atakmap.app.system;
 import android.view.View;
 
 import com.atakmap.android.maps.MapComponent;
+import com.atakmap.annotations.DeprecatedApi;
 
 import java.io.InputStream;
 
-import transapps.mapi.MapView;
-
-public interface FlavorProvider {
+public interface FlavorProvider extends MapComponentProvider {
 
     /**
      * Modifies the splash screen based on information directly from the flavor.   This will include
@@ -50,6 +49,10 @@ public interface FlavorProvider {
 
     /**
      * Load components
+     * @deprecated see MapComponentProvider::getMapComponents
      */
+    @Deprecated
+    @DeprecatedApi(since = "4.4", forRemoval = true, removeAt = "4.7")
     MapComponent[] getFlavorMapComponents();
+
 }

@@ -16,24 +16,20 @@ import android.widget.BaseAdapter;
 import android.widget.ImageButton;
 import android.widget.TextView;
 
-import com.atakmap.android.filesystem.ResourceFile;
-import com.atakmap.android.importexport.ExportFileMarshal;
+import com.atakmap.android.importexport.send.SendDialog;
 import com.atakmap.android.importfiles.sort.ImportUserIconSetSort;
 import com.atakmap.android.ipc.AtakBroadcast;
 import com.atakmap.android.maps.MapView;
+import com.atakmap.android.util.ATAKConstants;
 import com.atakmap.android.util.NotificationUtil;
 import com.atakmap.app.R;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
 import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
-import com.atakmap.util.zip.IoUtils;
 
-import java.io.BufferedOutputStream;
 import java.io.ByteArrayInputStream;
 import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -347,12 +343,11 @@ public class IconsetAdapter extends BaseAdapter {
                         new DialogInterface.OnClickListener() {
                             @Override
                             public void onClick(DialogInterface d, int w) {
-                                ExportFileMarshal.promptSendFile(_context,
-                                        ICONSET_CONTENTTYPE,
-                                        ResourceFile.MIMEType.ZIP.MIME,
-                                        com.atakmap.android.util.ATAKConstants
-                                                .getIconId(),
-                                        _zip);
+                                SendDialog.Builder b = new SendDialog.Builder(
+                                        MapView.getMapView());
+                                b.addFile(_zip, ICONSET_CONTENTTYPE);
+                                b.setIcon(ATAKConstants.getIcon());
+                                b.show();
                             }
                         });
                 b.setNegativeButton(R.string.cancel, null);

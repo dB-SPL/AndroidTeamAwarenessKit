@@ -270,6 +270,8 @@
 -keep class com.atakmap.map.formats.c3dt.ContentSource {*;}
 -keep class com.atakmap.map.formats.c3dt.GLTFBitmap {*;}
 -keep class com.atakmap.map.formats.c3dt.GLTF {*;}
+-keep class com.atakmap.map.formats.quantizedmesh.QMESourceLayer {*;}
+-keep class com.atakmap.map.formats.quantizedmesh.TileExtents {*;}
 -keep class com.atakmap.map.gdal.VSIStatBuf {*;}
 -keep class com.atakmap.map.gdal.VSIJFileFilesystemHandler {*;}
 -keep class com.atakmap.map.layer.Layer {*;}
@@ -308,6 +310,7 @@
 -keep class com.atakmap.math.NativeGeometryModel {*;}
 -keep class com.atakmap.math.PointD {*;}
 -keep class com.atakmap.math.Ray {*;}
+-keep class com.atakmap.math.Rectangle {*;}
 -keep class com.atakmap.math.Vector3D {*;}
 -keep class com.atakmap.map.layer.feature.falconview.FalconViewFeatureDataSource {*;}
 
@@ -320,4 +323,11 @@
 
 # make sure jassimp is happy
 -keep class jassimp.** {*;}
--keep class com.atakmap.coremap.filesystem.RemovableStorageHelper {*;}
+
+
+# specifically introduced on the maintenance-4.3 branch to keep the mapping happy
+-keepclassmembers class com.atakmap.map.layer.feature.geometry.opengl.GLBatchGeometryRenderer {
+    private ** points;
+    private ** lastPoints;
+
+}

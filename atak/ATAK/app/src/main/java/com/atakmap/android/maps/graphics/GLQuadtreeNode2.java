@@ -6,6 +6,8 @@ import android.opengl.GLES30;
 import com.atakmap.android.importexport.handlers.ParentMapItem;
 import com.atakmap.android.maps.MapGroup;
 import com.atakmap.android.maps.MapItem;
+import com.atakmap.map.layer.control.ClampToGroundControl;
+import com.atakmap.map.layer.control.LollipopControl;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.coremap.maps.coords.GeoBounds;
 import com.atakmap.coremap.maps.coords.GeoCalculations;
@@ -13,26 +15,19 @@ import com.atakmap.coremap.maps.coords.GeoPoint;
 import com.atakmap.coremap.maps.coords.MutableGeoBounds;
 import com.atakmap.lang.Unsafe;
 import com.atakmap.map.MapSceneModel;
-import com.atakmap.map.layer.feature.geometry.Envelope;
-import com.atakmap.map.layer.feature.geometry.Geometry;
-import com.atakmap.map.layer.feature.geometry.GeometryFactory;
+import com.atakmap.map.RenderContext;
 import com.atakmap.map.opengl.GLAsynchronousMapRenderable2;
 import com.atakmap.map.opengl.GLMapBatchable;
 import com.atakmap.map.opengl.GLMapBatchable2;
-import com.atakmap.map.opengl.GLMapRenderable;
 import com.atakmap.map.opengl.GLMapRenderable2;
 import com.atakmap.map.opengl.GLMapView;
-import com.atakmap.map.projection.EquirectangularMapProjection;
-import com.atakmap.map.projection.Projection;
-import com.atakmap.math.AABB;
-import com.atakmap.math.Frustum;
+import com.atakmap.map.hittest.LayerHitTestControl;
 import com.atakmap.math.MathUtils;
-import com.atakmap.math.Matrix;
 import com.atakmap.math.PointD;
 import com.atakmap.opengl.GLES20FixedPipeline;
 import com.atakmap.opengl.GLRenderBatch;
 import com.atakmap.opengl.GLRenderBatch2;
-import com.atakmap.spatial.GeometryTransformer;
+import com.atakmap.util.Collections2;
 
 import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
@@ -46,7 +41,9 @@ import java.util.List;
 import java.util.Set;
 
 public class GLQuadtreeNode2 extends
-        GLAsynchronousMapRenderable2<Collection<GLMapItem2>> {
+        GLAsynchronousMapRenderable2<Collection<GLMapItem2>>
+        implements LollipopControl, ClampToGroundControl,
+        LayerHitTestControl {
 
     /*
      * THREAD SAFETY Much of GLAsynchronousMapRenderable is synchronized on
@@ -76,11 +73,17 @@ public class GLQuadtreeNode2 extends
     private final MutableGeoBounds queryBounds;
     private GLRenderBatch2 batch;
     private GLRenderBatch batchLegacy;
-
+    private final List<GLMapRenderable2> renderables;
     private final List<GLMapRenderable2> surfaceRenderables;
     private final List<GLMapRenderable2> spriteRenderables;
     private final Renderable renderable;
     private final Collection<GLMapRenderable2> renderList;
+    /** only to be accessed on query thread */
+    private final Collection<GLMapItem2> lastFetch;
+    private RenderContext context;
+
+    private boolean lollipopsVisible = true;
+    private boolean clampToGroundAtNadir = false;
 
     /**
      * Provides better information as to the nature of of the item that triggered the warning.
@@ -105,11 +108,13 @@ public class GLQuadtreeNode2 extends
         this.root = new QuadTreeNode();
         this.queryBounds = new MutableGeoBounds(0, 0, 0, 0);
 
+        this.renderables = new ArrayList<>();
         this.surfaceRenderables = new ArrayList<>();
         this.spriteRenderables = new ArrayList<>();
         this.renderable = new Renderable();
         this.renderList = Collections
-                .<GLMapRenderable2> singleton(this.renderable);
+                .singleton(this.renderable);
+        this.lastFetch = Collections2.newIdentityHashSet();
     }
 
     /**
@@ -161,6 +166,7 @@ public class GLQuadtreeNode2 extends
 
         this.batch = new GLRenderBatch2();
         this.batchLegacy = new GLRenderBatch(this.batch);
+        this.context = view.getRenderContext();
     }
 
     @Override
@@ -204,6 +210,7 @@ public class GLQuadtreeNode2 extends
         if (this.invalid)
             return false;
 
+        this.renderables.clear();
         this.surfaceRenderables.clear();
         this.spriteRenderables.clear();
 
@@ -217,6 +224,7 @@ public class GLQuadtreeNode2 extends
                     GLMapView.RENDER_PASS_SURFACE))
                 process(item, surfaceRenderables, surfaceBatch);
         }
+        this.renderables.addAll(pendingData);
 
         if (spriteBatch[0] != null && spriteBatch[0].batchables.size() > 1)
             this.spriteRenderables.add(spriteBatch[0]);
@@ -234,6 +242,13 @@ public class GLQuadtreeNode2 extends
     private void process(GLMapItem2 item,
             Collection<GLMapRenderable2> renderables,
             GLBatchRenderer[] batchRenderer) {
+
+        if (item instanceof LollipopControl)
+            ((LollipopControl) item).setLollipopsVisible(lollipopsVisible);
+        if (item instanceof ClampToGroundControl)
+            ((ClampToGroundControl) item)
+                    .setClampToGroundAtNadir(clampToGroundAtNadir);
+
         // XXX - need to be conscious of render pass given 2D batch
         if (item instanceof GLMapBatchable2) {
             // push the sprite into the current batch renderer
@@ -292,6 +307,22 @@ public class GLQuadtreeNode2 extends
                     state.drawMapResolution, result);
         }
 
+        // build out the list to be released
+        final Collection<GLMapItem2> toRelease = Collections2
+                .newIdentityHashSet(lastFetch);
+        toRelease.removeAll(result);
+        lastFetch.clear();
+        lastFetch.addAll(result);
+
+        if (this.context != null && !toRelease.isEmpty())
+            this.context.queueEvent(new Runnable() {
+                @Override
+                public void run() {
+                    for (GLMapItem2 item : toRelease)
+                        item.release();
+                }
+            });
+
         try {
             Collections.sort((ArrayList<GLMapItem2>) result,
                     (state.drawTilt > 0d) ? new DepthComparator(state)
@@ -323,6 +354,41 @@ public class GLQuadtreeNode2 extends
 
     boolean accessCheckQueryThreadAbort() {
         return this.checkQueryThreadAbort();
+    }
+
+    @Override
+    public boolean getLollipopsVisible() {
+        return lollipopsVisible;
+    }
+
+    @Override
+    public void setLollipopsVisible(boolean v) {
+        lollipopsVisible = v;
+        invalidateNoSync();
+    }
+
+    @Override
+    public void setClampToGroundAtNadir(boolean v) {
+        clampToGroundAtNadir = v;
+        invalidateNoSync();
+    }
+
+    @Override
+    public boolean getClampToGroundAtNadir() {
+        return lollipopsVisible;
+    }
+
+    @Override
+    public synchronized Collection<?> getHitTestList() {
+        List<GLMapRenderable2> items = new ArrayList<>(this.renderables);
+        Collections.reverse(items); // Reverse so items drawn last are hit-tested first
+        return items;
+    }
+
+    /**************************************************************************/
+
+    private static double getOrIfNan(double v, double ifnan) {
+        return Double.isNaN(v) ? ifnan : v;
     }
 
     /**************************************************************************/
@@ -368,6 +434,8 @@ public class GLQuadtreeNode2 extends
                     break;
                 if (mapResolution > item.getMinDrawResolution())
                     continue;
+                bnds.setMinAltitude(Double.NaN);
+                bnds.setMaxAltitude(Double.NaN);
                 item.getBounds(bnds);
                 boolean intersects;
                 do {
@@ -394,15 +462,25 @@ public class GLQuadtreeNode2 extends
                         if (slant > (radius + scene.camera.farMeters))
                             break;
 
-                        // XXX - renderables only have surface MBB defined with
-                        //       current API, create a pillar at the location
-                        //       and check for intersection with the frustum
-                        double maxAlt = 19000d;
-                        double minAlt = -900d;
+                        // ensure there are testable vertical bounds
+                        {
+                            final double ominAlt = bnds.getMinAltitude();
+                            final double omaxAlt = bnds.getMaxAltitude();
+                            if (Double.isNaN(ominAlt)) {
+                                bnds.setMinAltitude(
+                                        getOrIfNan(ominAlt - 20d, -900));
+                            }
+                            if (Double.isNaN(omaxAlt)) {
+                                bnds.setMaxAltitude(
+                                        getOrIfNan(ominAlt + 20d, 19000));
+                            }
+                        }
 
                         intersects |= MapSceneModel.intersects(scene,
-                                bnds.getWest(), bnds.getSouth(), minAlt,
-                                bnds.getEast(), bnds.getNorth(), maxAlt);
+                                bnds.getWest(), bnds.getSouth(),
+                                bnds.getMinAltitude(),
+                                bnds.getEast(), bnds.getNorth(),
+                                bnds.getMaxAltitude());
                     }
                 } while (false);
                 if (intersects)
@@ -420,12 +498,11 @@ public class GLQuadtreeNode2 extends
                 boolean intersects = child.bounds.intersects(queryBounds);
                 // if no surface intersection, check for frustum intersection
                 if (!intersects) {
-                    double maxAlt = 19000d;
-                    double minAlt = -900d;
-
                     intersects |= MapSceneModel.intersects(scene,
-                            bnds.getWest(), bnds.getSouth(), minAlt,
-                            bnds.getEast(), bnds.getNorth(), maxAlt);
+                            bnds.getWest(), bnds.getSouth(),
+                            bnds.getMinAltitude(),
+                            bnds.getEast(), bnds.getNorth(),
+                            bnds.getMaxAltitude());
                 }
                 if (!intersects)
                     continue;
@@ -758,7 +835,8 @@ public class GLQuadtreeNode2 extends
         }
     }
 
-    private class GLBatchRenderer implements GLMapRenderable2 {
+    private class GLBatchRenderer
+            implements GLMapRenderable2, LayerHitTestControl {
         final LinkedList<GLMapItem2> batchables;
 
         public GLBatchRenderer() {
@@ -842,6 +920,11 @@ public class GLQuadtreeNode2 extends
             for (GLMapItem2 item : this.batchables)
                 item.release();
             this.batchables.clear();
+        }
+
+        @Override
+        public Collection<?> getHitTestList() {
+            return batchables;
         }
     }
 

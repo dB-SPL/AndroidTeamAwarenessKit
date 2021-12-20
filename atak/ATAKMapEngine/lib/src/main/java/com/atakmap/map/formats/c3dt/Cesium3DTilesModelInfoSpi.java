@@ -5,6 +5,7 @@ import android.net.Uri;
 import android.util.Log;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
 import com.atakmap.coremap.io.IOProviderFactory;
+import com.atakmap.coremap.locale.LocaleUtil;
 import com.atakmap.coremap.maps.coords.GeoPoint;
 import com.atakmap.io.UriFactory;
 import com.atakmap.io.ZipVirtualFile;
@@ -44,34 +45,27 @@ public final class Cesium3DTilesModelInfoSpi implements ModelInfoSpi {
     }
 
     @Override
-    public boolean isSupported(String s) {
+    public boolean isSupported(String uriString) {
         // URI must have tileset.json
         try {
-            URI uri = new URI(s);
+            URI uri = new URI(uriString);
             String path = uri.getPath();
             String[] parts = path.split("/");
-            if (parts.length > 0 && parts[parts.length - 1].compareToIgnoreCase("tileset.json") == 0)
+            if (parts.length > 0 && parts[parts.length - 1].toLowerCase(LocaleUtil.getCurrent()).contains("tileset.json"))
+                return true;
+            else if(uri.getScheme() != null && uri.getScheme().equals("http") || uri.getScheme().equals("https"))
+                // we will allow through all HTTPS URLs, but then subsequently
+                // filter in `create`
                 return true;
         } catch (Exception e) {
             // ignore
         }
 
         // fallback on File test
-        File f = new File(s);
-        if(FileSystemUtils.checkExtension(f, "zip") ||
-                FileSystemUtils.checkExtension(f, "3tz")) {
-            try {
-                f = new ZipVirtualFile(f);
-            } catch(Throwable ignored) {}
+        File f = FileSystemUtils.getFile(uriString);
+        final File tilesetJson = getTilesetJson(f, true);
+        return (tilesetJson != null);
         }
-        if(!IOProviderFactory.isDirectory(f))
-            return false; // XXX - workaround for ATAK-12324
-        else if(f instanceof ZipVirtualFile)
-            f = new ZipVirtualFile(f, "tileset.json");
-        else
-            f = new File(f, "tileset.json");
-        return IOProviderFactory.exists(f) && f.getName().equals("tileset.json");
-    }
 
     @Override
     public Set<ModelInfo> create(String s) {
@@ -84,6 +78,23 @@ public final class Cesium3DTilesModelInfoSpi implements ModelInfoSpi {
         }
         // remote URL load
         if(!IOProviderFactory.exists(f)) {
+            // if the URL does not specifically reference the `tileset.json` file, try to insert
+            if(!s.toLowerCase(LocaleUtil.getCurrent()).contains("tileset.json")) {
+                try {
+                    URI uri = new URI(s);
+                    String baseUri = s;
+                    if(baseUri.indexOf('?') >= 0)
+                        baseUri = s.substring(0, baseUri.indexOf('?'));
+                    if(!baseUri.endsWith("/"))
+                        baseUri += "/";
+                    s = baseUri + "tileset.json";
+                    if(uri.getRawQuery() != null)
+                        s += "?" + uri.getRawQuery();
+                } catch(Throwable t) {
+                    // insert of `tileset.json` file failed, halt further processing
+                    return null;
+                }
+            }
             try(UriFactory.OpenResult uriOpenResult = UriFactory.open(s)) {
                 if (uriOpenResult != null) {
                     try {
@@ -108,16 +119,10 @@ public final class Cesium3DTilesModelInfoSpi implements ModelInfoSpi {
         }
 
         if (IOProviderFactory.isDirectory(f)) {
-            if(f instanceof ZipVirtualFile) {
-                try {
-                    f = new ZipVirtualFile(f, "tileset.json");
-                } catch(Throwable t) {
-                    return null;
+            final File tilesetJson = getTilesetJson(f, true);
+            if(tilesetJson != null)
+                f = tilesetJson;
                 }
-            } else {
-                f = new File(f, "tileset.json");
-            }
-        }
         if (!IOProviderFactory.exists(f) || !f.getName().equals("tileset.json"))
             return null;
 
@@ -192,4 +197,39 @@ public final class Cesium3DTilesModelInfoSpi implements ModelInfoSpi {
         return Collections.singleton(info);
     }
 
+    private static File getTilesetJson(File f, boolean recurseOnZip) {
+        if(FileSystemUtils.checkExtension(f, "zip") ||
+                FileSystemUtils.checkExtension(f, "3tz")) {
+            try {
+                f = new ZipVirtualFile(f);
+            } catch(Throwable ignored) {}
+        }
+        // attempt to recurse if flag is set and source is a zip file
+        final boolean recurse = (recurseOnZip && f instanceof ZipVirtualFile);
+        // locate the `tileset.json` file
+        File tilesetJson;
+        if(!IOProviderFactory.isDirectory(f))
+            return null; // XXX - workaround for ATAK-12324
+        else if(f instanceof ZipVirtualFile)
+            tilesetJson = new ZipVirtualFile(f, "tileset.json");
+        else
+            tilesetJson = new File(f, "tileset.json");
+        if(!IOProviderFactory.exists(tilesetJson) && recurse) {
+            // recurse 1 level if `tileset.json` was not found at root
+            File[] children = IOProviderFactory.listFiles(f);
+            if(children != null) {
+                for (File c : children) {
+                    tilesetJson = getTilesetJson(c, false);
+                    if(tilesetJson != null)
+                        break;
+                }
+            }
+        }
+
+        if (tilesetJson == null)
+            return null;
+
+        return (IOProviderFactory.exists(tilesetJson) &&
+                tilesetJson.getName().equals("tileset.json")) ? tilesetJson : null;
+    }
 }

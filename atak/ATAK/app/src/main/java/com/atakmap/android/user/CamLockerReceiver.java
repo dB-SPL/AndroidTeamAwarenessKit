@@ -201,7 +201,7 @@ public class CamLockerReceiver extends BroadcastReceiver implements
         if (_lockedItem != null) {
             _lockedItem.removeOnPointChangedListener(this);
             _lockedItem
-                    .removeOnMetadataChangedListener(this);
+                    .removeOnMetadataChangedListener("driving", this);
             if (_lockedItem instanceof Marker)
                 ((Marker) _lockedItem)
                         .removeOnTrackChangedListener(this);
@@ -225,7 +225,7 @@ public class CamLockerReceiver extends BroadcastReceiver implements
     synchronized public void lockItem(final PointMapItem pointItem) {
         _lockedItem = pointItem;
         pointItem.addOnPointChangedListener(this);
-        pointItem.addOnMetadataChangedListener(this);
+        pointItem.addOnMetadataChangedListener("driving", this);
 
         if (pointItem instanceof Marker)
             ((Marker) pointItem)
@@ -338,7 +338,6 @@ public class CamLockerReceiver extends BroadcastReceiver implements
                             focuslla.set(localEl);
                     }
 
-
                     if (_mapView.isPortrait())
                         focusy = sm.height * (float) BOTTOM_PORTRAIT_PERCENT;
                     else
@@ -411,7 +410,11 @@ public class CamLockerReceiver extends BroadcastReceiver implements
     }
 
     public void dispose() {
+        if (_lockedItem != null)
+            _lockedItem.removeOnPointChangedListener(this);
+
         prefs.unregisterOnSharedPreferenceChangeListener(this);
+
         disposed = true;
     }
 }

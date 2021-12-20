@@ -10,20 +10,20 @@ import android.os.Bundle;
 import com.atakmap.android.imagecapture.CanvasHelper;
 import com.atakmap.android.imagecapture.CapturePP;
 import com.atakmap.android.imagecapture.PointA;
-import com.atakmap.android.maps.graphics.GLMapItem;
+import com.atakmap.annotations.DeprecatedApi;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.log.Log;
 import com.atakmap.coremap.maps.coords.DistanceCalculations;
 import com.atakmap.coremap.maps.coords.GeoBounds;
 import com.atakmap.coremap.maps.coords.GeoPoint;
 import com.atakmap.coremap.maps.coords.GeoPointMetaData;
 import com.atakmap.coremap.maps.coords.MutableGeoBounds;
-import com.atakmap.map.layer.feature.Feature;
-import com.atakmap.map.layer.feature.Feature.AltitudeMode;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
@@ -71,15 +71,14 @@ public class Polyline extends Shape {
      */
     public static final int STYLE_OUTLINE_HALO_MASK = 16;
 
-
-
     /**
      * Height styles (bit masks)
      */
     public static final int HEIGHT_STYLE_NONE = 0, // Do not draw height in 3D
             HEIGHT_STYLE_POLYGON = 1, // Draw the 3D height polygon
-            HEIGHT_STYLE_OUTLINE = 2, // Draw an outline representing the height
-            HEIGHT_STYLE_OUTLINE_SIMPLE = 4; // Simplified height outline
+            HEIGHT_STYLE_OUTLINE = 1 << 1, // Draw an outline representing the height
+            HEIGHT_STYLE_OUTLINE_SIMPLE = 1 << 2, // Simplified height outline
+            HEIGHT_STYLE_TOP_ONLY = 1 << 3; // Only render the top plane of the shape
 
     /**
      * Methods for how to extrude the shape's height (mutually exclusive)
@@ -90,19 +89,50 @@ public class Polyline extends Shape {
             HEIGHT_EXTRUDE_CENTER_ALT = 3, // Extrude from the center elevation
             HEIGHT_EXTRUDE_PER_POINT = 4; // Extrude from each point's elevation
 
+    // The maximum number of points per touch partition
+    public static final int PARTITION_SIZE = 25;
+
+    private static final GeoPointMetaData[] _EMPTY_POINTS = {};
+
+    @Deprecated
+    @DeprecatedApi(since = "4.4", forRemoval = true, removeAt = "4.6")
+    public interface OnAltitudeModeChangedListener
+            extends MapItem.OnAltitudeModeChangedListener {
+    }
+
+    public interface OnHeightStyleChangedListener {
+        /**
+         * Height style flag has been modified
+         * This flag controls how 3D extruded height is drawn
+         * @param p Polyline
+         */
+        void onHeightStyleChanged(Polyline p);
+    }
+
+    public interface OnLabelsChangedListener {
+        void onLabelsChanged(Polyline p);
+    }
+
+    public interface OnLabelTextSizeChanged {
+        void onLabelTextSizeChanged(Polyline p);
+    }
+
+    protected final ArrayList<GeoPointMetaData> _points = new ArrayList<>();
+    protected final MutableGeoBounds minimumBoundingBox = new MutableGeoBounds(
+            0, 0,
+            0, 0);
+
+    private final ConcurrentLinkedQueue<OnLabelsChangedListener> _onLabelsChanged = new ConcurrentLinkedQueue<>();
+    private final ConcurrentLinkedQueue<OnLabelTextSizeChanged> _onLabelTextSizeChanged = new ConcurrentLinkedQueue<>();
+    private final ConcurrentLinkedQueue<OnHeightStyleChangedListener> _onHeightStyleChanged = new ConcurrentLinkedQueue<>();
+
+    private int heightStyle = HEIGHT_STYLE_POLYGON | HEIGHT_STYLE_OUTLINE;
+    private int extrudeMode = HEIGHT_EXTRUDE_DEFAULT;
+
     private Map<String, Object> labels;
 
     private int _labelTextSize = MapView.getDefaultTextFormat().getFontSize();
     private Typeface _labelTypeface = Typeface.DEFAULT;
-
-    private AltitudeMode altitudeMode = AltitudeMode.ClampToGround;
-
-    // The maximum number of points per touch partition
-    public static final int PARTITION_SIZE = 25;
-
-    /*
-     * public Polyline() { this(MapItem.createSerialId(), new DefaultMetaDataHolder()); }
-     */
 
     public Polyline(final String uid) {
         super(uid);
@@ -162,6 +192,7 @@ public class Polyline extends Shape {
      * Set the points for the polyline.   These points have metadata.
      * 
      * @param points the array of points
+     * @throws IllegalArgumentException if one of the points is not valid
      */
     public void setPoints(GeoPointMetaData[] points) {
         this.setPoints(points, 0, points.length);
@@ -171,6 +202,7 @@ public class Polyline extends Shape {
      * Set the points for the polyline.   These points do not have any metadata.
      *
      * @param points the array of points, cannot be null.
+     * @throws IllegalArgumentException if one of the points is not valid
      */
     public void setPoints(GeoPoint[] points) {
         this.setPoints(GeoPointMetaData.wrap(points), 0, points.length);
@@ -182,6 +214,7 @@ public class Polyline extends Shape {
      * @param points lat/lon/alt
      * @param off the offset into the points array
      * @param len the length to be used within the points array.
+     * @throws IllegalArgumentException if one of the points is not valid
      */
     public void setPoints(GeoPoint[] points, int off, int len) {
         this.setPoints(GeoPointMetaData.wrap(points), off, len);
@@ -193,6 +226,7 @@ public class Polyline extends Shape {
      * @param points metadata enhanced points
      * @param off the offset into the points array
      * @param len the length to be used within the points array.
+     * @throws IllegalArgumentException if one of the points is not valid
      */
     synchronized public void setPoints(final GeoPointMetaData[] points,
             final int off, final int len) {
@@ -211,6 +245,18 @@ public class Polyline extends Shape {
                 this.onPointsChanged();
                 return;
 
+            }
+        }
+
+        // Validate
+        for (int i = off; i < off + len; i++) {
+            GeoPoint gp = points[i].get();
+            if (Double.isNaN(gp.getLatitude())
+                    || Double.isNaN(gp.getLongitude())) {
+                Log.e(getClass().getName(), "Invalid point " + points[i].get(),
+                        new Throwable());
+                // Abandon
+                return;
             }
         }
 
@@ -237,6 +283,11 @@ public class Polyline extends Shape {
     }
 
     synchronized public double getTotalDistance() {
+        return getPerimeterOrLength();
+    }
+
+    @Override
+    public double getPerimeterOrLength() {
         if (_points.size() < 1)
             return 0.0d;
         double distance = 0.0d;
@@ -251,52 +302,6 @@ public class Polyline extends Shape {
             last = current;
         }
         return distance;
-    }
-
-    private static final GeoPointMetaData[] _EMPTY_POINTS = {};
-    protected final ArrayList<GeoPointMetaData> _points = new ArrayList<>();
-    protected final MutableGeoBounds minimumBoundingBox = new MutableGeoBounds(
-            0, 0,
-            0, 0);
-
-    /**
-     * Starts BasicLineStyle
-     */
-
-    private final ConcurrentLinkedQueue<OnLabelsChangedListener> _onLabelsChanged = new ConcurrentLinkedQueue<>();
-    private final ConcurrentLinkedQueue<OnLabelTextSizeChanged> _onLabelTextSizeChanged = new ConcurrentLinkedQueue<>();
-    private final ConcurrentLinkedQueue<OnAltitudeModeChangedListener> _onAltitudeModeChanged = new ConcurrentLinkedQueue<>();
-    private final ConcurrentLinkedQueue<OnHeightStyleChangedListener> _onHeightStyleChanged = new ConcurrentLinkedQueue<>();
-
-
-    private int heightStyle = HEIGHT_STYLE_POLYGON | HEIGHT_STYLE_OUTLINE;
-    private int extrudeMode = HEIGHT_EXTRUDE_DEFAULT;
-
-    public interface OnLabelsChangedListener {
-        void onLabelsChanged(Polyline p);
-    }
-
-
-
-    public interface OnLabelTextSizeChanged {
-        void onLabelTextSizeChanged(Polyline p);
-    }
-
-    public interface OnAltitudeModeChangedListener {
-        /**
-         * Called when the altitude mode is changed for the specific Polyline.
-         * @param altitudeMode the altitude mode that the polyline was set to.
-         */
-        void onAltitudeModeChanged(Feature.AltitudeMode altitudeMode);
-    }
-
-    public interface OnHeightStyleChangedListener {
-        /**
-         * Height style flag has been modified
-         * This flag controls how 3D extruded height is drawn
-         * @param p Polyline
-         */
-        void onHeightStyleChanged(Polyline p);
     }
 
     public void setLabels(final Map<String, Object> labels) {
@@ -345,27 +350,6 @@ public class Polyline extends Shape {
         for (Polyline.OnLabelTextSizeChanged l : _onLabelTextSizeChanged) {
             l.onLabelTextSizeChanged(this);
         }
-    }
-
-    public void addOnAltitudeModeChangedListener(
-            OnAltitudeModeChangedListener listener) {
-        _onAltitudeModeChanged.add(listener);
-    }
-
-    public void removeOnAltitudeModeChangedListener(
-            OnAltitudeModeChangedListener listener) {
-        _onAltitudeModeChanged.remove(listener);
-    }
-
-    protected void onAltitudeModeChanged() {
-        for (OnAltitudeModeChangedListener l : _onAltitudeModeChanged) {
-            l.onAltitudeModeChanged(altitudeMode);
-        }
-    }
-
-    public void setAltitudeMode(AltitudeMode altitudeMode) {
-        this.altitudeMode = altitudeMode;
-        onAltitudeModeChanged();
     }
 
     public void addOnHeightStyleChangedListener(
@@ -494,14 +478,6 @@ public class Polyline extends Shape {
     }
 
     /**
-     * Gets the current Altitude Mode for the polyline.
-     * @return the altitude mode.
-     */
-    public AltitudeMode getAltitudeMode() {
-        return altitudeMode;
-    }
-
-    /**
      * Sets the text size and typeface to use for the rendering label
      * @param labelTextSize the int value size to use on the default format
      * @param typeface the typeface graphic to use to draw the label text
@@ -543,22 +519,11 @@ public class Polyline extends Shape {
     }
 
     @Override
-    public void toggleMetaData(String key, boolean value) {
-        super.toggleMetaData(key, value);
+    protected void onMetadataChanged(String key) {
+        super.onMetadataChanged(key);
 
-        // TODO 4.4: Better way of listening for metadata changes
-        // Refresh labels
-        if (key.equals("labels_on"))
-            onLabelsChanged();
-    }
-
-    @Override
-    public void setMetaString(String key, String value) {
-        super.setMetaString(key, value);
-
-        // TODO 4.4: Better way of listening for metadata changes
-        // Refresh labels
-        if (key.equals("polylineLabel"))
+        // Call label changed listener when any related meta values change
+        if (key.equals("labels_on") || key.equals("polylineLabel"))
             onLabelsChanged();
     }
 
@@ -596,25 +561,19 @@ public class Polyline extends Shape {
                 boolean inside = c.x > 0 && c.x < width && c.y > 0
                         && c.y < height;
                 if (!inside) {
-                    PointF[] ip = GLMapItem._getIntersectionPoint(
+                    List<PointF> ip = CanvasHelper.findIntersectionPoints(
                             clipRect, s, e);
-                    if (ip[0] != null || ip[1] != null) {
-                        if (ip[0] != null && ip[1] != null) {
-                            c.set((ip[0].x + ip[1].x) / 2.0f,
-                                    (ip[0].y + ip[1].y) / 2.0f);
-                        } else {
-                            PointF origin = s;
-                            if (0 < e.x && e.x < width && 0 < e.y
-                                    && e.y < height)
-                                origin = e;
+                    if (ip.size() == 2) {
+                        c.set((ip.get(0).x + ip.get(1).x) / 2.0f,
+                                (ip.get(0).y + ip.get(1).y) / 2.0f);
+                    } else if (ip.size() == 1) {
+                        PointF origin = s;
+                        if (0 < e.x && e.x < width && 0 < e.y
+                                && e.y < height)
+                            origin = e;
 
-                            if (ip[0] != null)
-                                c.set((ip[0].x + origin.x) / 2.0f,
-                                        (ip[0].y + origin.y) / 2.0f);
-                            else
-                                c.set((ip[1].x + origin.x) / 2.0f,
-                                        (ip[1].y + origin.y) / 2.0f);
-                        }
+                        c.set((ip.get(0).x + origin.x) / 2.0f,
+                                (ip.get(0).y + origin.y) / 2.0f);
                     }
                 }
                 labelPoints[i] = c;

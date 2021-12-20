@@ -24,7 +24,7 @@ import com.atakmap.coremap.conversions.Angle;
 import com.atakmap.coremap.conversions.AngleUtilities;
 import com.atakmap.coremap.conversions.CoordinateFormat;
 import com.atakmap.coremap.conversions.CoordinateFormatUtilities;
-import com.atakmap.coremap.maps.coords.DistanceCalculations;
+import com.atakmap.coremap.maps.coords.GeoCalculations;
 import com.atakmap.coremap.maps.coords.GeoPoint;
 import com.atakmap.coremap.maps.coords.NorthReference;
 
@@ -89,8 +89,7 @@ public class ResectionLandmarkAdapter extends BaseAdapter implements
                 newBearingTrue) == 0)
             return;
         Marker m = (Marker) tag;
-        m.setMetaDouble("bearing", newBearingTrue);
-        m.notifyMetadataChanged("bearing");
+        m.setMetaDouble("landmarkBearing", newBearingTrue);
         notifyDataSetChanged();
     }
 
@@ -135,11 +134,11 @@ public class ResectionLandmarkAdapter extends BaseAdapter implements
 
         row.findViewById(R.id.panto_location).setOnClickListener(h);
 
-        double bearing = m.getMetaDouble("bearing", 0);
+        double bearing = m.getMetaDouble("landmarkBearing", 0);
 
         if (ref == NorthReference.GRID) {
-            GeoPoint endPoint = DistanceCalculations.computeDestinationPoint(
-                    point, bearing, 1000);
+            GeoPoint endPoint = GeoCalculations.pointAtDistance(point, bearing,
+                    1000);
             double gridConvergence = ATAKUtilities
                     .computeGridConvergence(point, endPoint);
             bearing -= gridConvergence;
@@ -169,7 +168,7 @@ public class ResectionLandmarkAdapter extends BaseAdapter implements
                                 .putExtra("uid", marker.getUID()));
             } else if (v == bearing) {
                 // Set marker bearing
-                double bearing = marker.getMetaDouble("bearing", 0);
+                double bearing = marker.getMetaDouble("landmarkBearing", 0);
                 ResectionBearingDialog d = new ResectionBearingDialog(_mapView);
                 d.setTitle(_context.getString(R.string.resection_bearing_title,
                         _mapView.getDeviceCallsign(), marker.getTitle()));
@@ -216,6 +215,7 @@ public class ResectionLandmarkAdapter extends BaseAdapter implements
                     WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE
                             | WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN);
         d.show();
+        et.requestFocus();
     }
 
     private CoordinateFormat getCoordinateFormat() {

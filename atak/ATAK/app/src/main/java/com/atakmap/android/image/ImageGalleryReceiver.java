@@ -2,7 +2,6 @@
 package com.atakmap.android.image;
 
 import java.io.File;
-import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.ArrayList;
@@ -12,12 +11,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
-import android.graphics.Point;
-import android.view.Window;
-import android.view.WindowManager;
-import android.view.Display;
-
-import android.os.Environment;
 import android.content.SharedPreferences;
 import android.preference.PreferenceManager;
 import com.atakmap.android.attachment.AttachFileTask;
@@ -32,6 +25,7 @@ import com.atakmap.android.data.URIContentManager;
 import com.atakmap.android.data.URIContentProvider;
 import com.atakmap.android.dropdown.DropDown;
 import com.atakmap.android.dropdown.DropDownReceiver;
+import com.atakmap.android.gui.AlertDialogHelper;
 import com.atakmap.android.gui.TileButtonDialog;
 import com.atakmap.android.image.gallery.GalleryContentProvider;
 import com.atakmap.android.importfiles.ui.ImportManagerFileBrowser;
@@ -52,7 +46,6 @@ import com.atakmap.android.tools.menu.ActionBroadcastData;
 import com.atakmap.android.util.ATAKUtilities;
 import com.atakmap.android.util.AfterTextChangedWatcher;
 import com.atakmap.android.util.AttachmentManager;
-import com.atakmap.annotations.DeprecatedApi;
 import com.atakmap.app.ATAKActivity;
 import com.atakmap.app.R;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
@@ -71,7 +64,6 @@ import android.content.DialogInterface;
 import android.content.Intent;
 import com.atakmap.android.ipc.AtakBroadcast.DocumentedIntentFilter;
 import com.atakmap.map.layer.feature.geometry.Envelope;
-import com.atakmap.spatial.file.FileOverlayContentHandler;
 
 import android.database.Cursor;
 import android.database.DataSetObserver;
@@ -838,27 +830,10 @@ public class ImageGalleryReceiver extends DropDownReceiver implements
         });
         final AlertDialog alert = b.create();
 
-        // Find the current width of the window, we will use this in a minute to determine how large
-        // to make the dialog.
-        WindowManager wm = (WindowManager) mapView.getContext()
-                .getSystemService(Context.WINDOW_SERVICE);
-        Display display = wm.getDefaultDisplay();
-        Point p = new Point();
-        display.getSize(p);
-
         // Show the dialog
         alert.show();
 
-        // Copy over the attributes from the displayed window and then set the width
-        // to be 70% of the total window width
-        Window w = alert.getWindow();
-        if (w != null) {
-            WindowManager.LayoutParams lp = new WindowManager.LayoutParams();
-            lp.copyFrom(w.getAttributes());
-            lp.width = Math.min((int) (p.x * .90), 2160);
-            lp.height = WindowManager.LayoutParams.MATCH_PARENT;
-            w.setAttributes(lp);
-        }
+        AlertDialogHelper.adjustWidth(alert, 0.90d);
     }
 
     /**
@@ -1344,52 +1319,6 @@ public class ImageGalleryReceiver extends DropDownReceiver implements
                     + dataUri + " to " + outFile, e);
             return false;
         }
-    }
-
-    /**
-     * Get a feature's bounds given its associated file
-     * @param f Feature file
-     * @return Feature envelope or null if not found
-     *
-     * @deprecated Use {@link URIContentManager#getHandler(File)} instead
-     */
-    @Deprecated
-    @DeprecatedApi(since = "4.1", forRemoval = true, removeAt = "4.4")
-    public static Envelope getFeatureBounds(File f) {
-        URIContentHandler h = URIContentManager.getInstance().getHandler(f);
-        if (!(h instanceof FileOverlayContentHandler))
-            return null;
-        GeoBounds b = ((FileOverlayContentHandler) h).getBounds(null);
-        if (b == null)
-            return null;
-        return new Envelope(b.getWest(), b.getSouth(), 0,
-                b.getEast(), b.getNorth(), 0);
-    }
-
-    /**
-     * Find a raster feature envelope from the map overlays
-     * @param f Associated file
-     * @return Feature object
-     *
-     * @deprecated Use {@link URIContentManager#getHandler(File)} instead
-     */
-    @Deprecated
-    @DeprecatedApi(since = "4.1", forRemoval = true, removeAt = "4.4")
-    public static Envelope findRasterFeatureBounds(File f) {
-        return getFeatureBounds(f);
-    }
-
-    /**
-     * Get feature bounds for a vector-based feature (KML, SHP, etc.)
-     * @param f Feature file
-     * @return Feature set boundaries (no more than 100 points processed)
-     *
-     * @deprecated Use {@link URIContentManager#getHandler(File)} instead
-     */
-    @Deprecated
-    @DeprecatedApi(since = "4.1", forRemoval = true, removeAt = "4.4")
-    public static Envelope findVectorFeatureBounds(File f) {
-        return getFeatureBounds(f);
     }
 
     /**

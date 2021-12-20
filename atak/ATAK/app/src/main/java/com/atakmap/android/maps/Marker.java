@@ -14,6 +14,8 @@ import android.graphics.Typeface;
 import android.os.Bundle;
 import android.util.Pair;
 
+import com.atakmap.android.icons.Icon2525cIconAdapter;
+import com.atakmap.android.maps.graphics.AbstractGLMapItem2;
 import com.atakmap.android.util.AttachmentManager;
 import com.atakmap.annotations.DeprecatedApi;
 import com.atakmap.coremap.conversions.CoordinateFormat;
@@ -39,11 +41,7 @@ import com.atakmap.coremap.log.Log;
 import com.atakmap.coremap.maps.assets.Icon;
 import com.atakmap.coremap.maps.coords.GeoPoint;
 import com.atakmap.coremap.maps.coords.GeoPointMetaData;
-import com.atakmap.map.layer.feature.Feature.AltitudeMode;
-import com.atakmap.map.opengl.GLMapSurface;
-import com.atakmap.map.opengl.GLMapView;
-import com.atakmap.math.PointD;
-import com.atakmap.opengl.GLText;
+import com.atakmap.map.hittest.HitTestQueryParameters;
 import com.atakmap.spatial.file.export.GPXExportWrapper;
 import com.atakmap.spatial.file.export.KMZFolder;
 import com.atakmap.spatial.file.export.OGRFeatureExportWrapper;
@@ -62,10 +60,7 @@ import org.gdal.ogr.ogr;
 
 import java.io.File;
 import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 /**
@@ -121,6 +116,13 @@ public class Marker extends PointMapItem implements Exportable, Capturable {
     private final ConcurrentLinkedQueue<OnTrackChangedListener> _onTrackChanged = new ConcurrentLinkedQueue<>();
     private final ConcurrentLinkedQueue<OnStyleChangedListener> _onStyleChanged = new ConcurrentLinkedQueue<>();
     private final ConcurrentLinkedQueue<OnLabelTextSizeChangedListener> _onLabelSizeChanged = new ConcurrentLinkedQueue<>();
+    private final ConcurrentLinkedQueue<OnLabelPriorityChangedListener> _onLabelPriorityChanged = new ConcurrentLinkedQueue<>();
+
+    public enum LabelPriority {
+        Low,
+        Standard,
+        High
+    }
 
     private int _style = 0;
     private Icon _icon;
@@ -129,11 +131,13 @@ public class Marker extends PointMapItem implements Exportable, Capturable {
     private int _state;
     private double _heading = Double.NaN, _speed = Double.NaN; // track property
     private final Rect _hitBounds = new Rect(0, 0, 0, 0);
-    private final Rect _textBounds = new Rect(0, 0, 0, 0);
     private int _textColor = Color.WHITE;
     private int _labelTextSize = (MapView.getDefaultTextFormat() == null) ? 14
             : MapView.getDefaultTextFormat().getFontSize();
     private Typeface _labelTypeface = Typeface.DEFAULT;
+
+    private LabelPriority _labelPriority = LabelPriority.Standard;
+    private LabelPriority _userSetLabelPriority = null;
 
     // Icon visibility states - similar to View visibility
     public static final int ICON_VISIBLE = 0;
@@ -223,12 +227,20 @@ public class Marker extends PointMapItem implements Exportable, Capturable {
 
     /* Listener interfaces for marker events */
 
+    public interface OnLabelPriorityChanged {
+        void onLabelPriorityChanged(Marker marker);
+    }
+
     public interface OnIconChangedListener {
         void onIconChanged(Marker marker);
     }
 
     public interface OnTitleChangedListener {
         void onTitleChanged(Marker marker);
+    }
+
+    public interface OnLabelPriorityChangedListener {
+        void onLabelPriorityChanged(Marker marker);
     }
 
     public interface OnLabelTextSizeChangedListener {
@@ -243,6 +255,11 @@ public class Marker extends PointMapItem implements Exportable, Capturable {
         void onStateChanged(Marker marker);
     }
 
+    /**
+     * @deprecated No longer used for hit-testing
+     */
+    @Deprecated
+    @DeprecatedApi(since = "4.4", forRemoval = true, removeAt = "4.7")
     public interface OnMarkerHitBoundsChangedListener {
         void onMarkerHitBoundsChanged(Marker marker);
     }
@@ -303,70 +320,34 @@ public class Marker extends PointMapItem implements Exportable, Capturable {
             final String uid) {
         super(serialId, metadata, point, uid);
         this.setZOrder(-100);
-
-        // Markers are clickable by default
-        this.setMarkerHitBounds(new Rect(-32, -32, 32, 32));
-        this.setClickable(true);
     }
 
     /**
-     * Test for a ortho-hit (collision test) based on the hitBounds property
+     * Called when any of the following changes: the type, team or summary
      */
-    @Override
-    public boolean testOrthoHit(int xpos, int ypos, GeoPoint point,
-            MapView view) {
+    private void calculateLabelPriority() {
+        if (_userSetLabelPriority != null)
+            return;
 
-        // if the marker is not touchable, bypass the test ortho hit logic and return false
-        if (!isTouchable())
-            return false;
+        LabelPriority calculatedPriority = LabelPriority.Standard;
 
-        // XXX - not really ideal to reach down into the renderer, but the hit
-        //       test should be totally deferred to the renderer
-        final GeoPoint geo = getRenderElevationAdjustedPoint(view);
-        PointD p = new PointD(0d, 0d, 0d);
-        view.getSceneModel().forward(geo, p);
-        if (Double.isNaN(p.x) || Double.isNaN(p.y) || p.z >= 1d)
-            return false;
+        // User/team markers
+        if (hasMetaValue("team"))
+            calculatedPriority = LabelPriority.High;
 
-        p.x -= xpos;
-        p.y -= ypos;
-        return _hitBounds.contains((int) p.x, (int) p.y)
-                || (_iconVisibility == ICON_GONE
-                        && _textBounds.contains((int) p.x, (int) p.y));
-    }
+        // Hostile markers
+        final String type = getType();
+        if (type != null && type.startsWith("a-h-"))
+            calculatedPriority = LabelPriority.High;
 
-    // XXX - copied from MapView. Need to perform below terrain adjustments for
-    //       consistency with `GLMarker2`
-    /** @deprecated should be deferred to renderer */
-    @Deprecated
-    private GeoPoint getRenderElevationAdjustedPoint(final MapView view) {
-        GeoPoint point = getPoint();
-        if (point == null)
-            return point;
+        // Marker with a summary defined
+        if (!FileSystemUtils.isEmpty(_summary))
+            calculatedPriority = LabelPriority.High;
 
-        final GLMapView glview = view.getGLSurface().getGLMapView();
-
-        double height = getHeight();
-        AltitudeMode altMode = getAltitudeMode();
-
-        // XXX - not really ideal to reach down into the renderer, but the hit
-        //       test should be totally deferred to the renderer
-        double alt = point.getAltitude();
-        double localEl = glview
-                    .getElevation(point.getLatitude(), point.getLongitude());
-        if (!point.isAltitudeValid() || altMode == AltitudeMode.ClampToGround)
-            alt = localEl;
-        else if (altMode == AltitudeMode.Relative)
-            alt += localEl;
-        if (!Double.isNaN(height))
-            alt += height;
-        if(alt < localEl)
-            alt = localEl;
-        return new GeoPoint(
-                point.getLatitude(),
-                point.getLongitude(),
-                (alt + GLMapView.elevationOffset)
-                        * view.getElevationExaggerationFactor());
+        if (_labelPriority != calculatedPriority) {
+            _labelPriority = calculatedPriority;
+            onLabelPriorityChanged();
+        }
     }
 
     /**
@@ -377,6 +358,7 @@ public class Marker extends PointMapItem implements Exportable, Capturable {
     public void setIcon(Icon icon) {
         if (icon != _icon) {
             _icon = icon;
+            calculateLabelPriority();
             onIconChanged();
         }
     }
@@ -409,7 +391,6 @@ public class Marker extends PointMapItem implements Exportable, Capturable {
             // XXX - title should be more benign than callsign -- this should
             //       really just be a metadata property and not a member
             super.setTitle(title);
-            updateTextBounds();
             onTitleChanged();
         }
     }
@@ -429,16 +410,39 @@ public class Marker extends PointMapItem implements Exportable, Capturable {
      * @param summary - The string
      */
     public void setSummary(String summary) {
-        if (summary == null) {
+        if (summary == null)
             summary = "";
-            onSummaryChanged();
-        }
         if (!FileSystemUtils.isEquals(_summary, summary)) {
             _summary = summary;
             this.setMetaString("summary", _summary);
-            updateTextBounds();
+            calculateLabelPriority();
             onSummaryChanged();
         }
+    }
+
+    /**
+     * Set the label priority on a case by case basis given a label priority.
+     * @param priority the label priority, null if a default priority calculation is expected.
+     */
+    public void setLabelPriority(LabelPriority priority) {
+
+        // the user/plugin has set the priority so it should be used above all others.
+        _userSetLabelPriority = priority;
+
+        // User-set label priority has been turned off - fallback to default
+        if (_userSetLabelPriority == null) {
+            calculateLabelPriority();
+            return;
+        }
+
+        if (_labelPriority != priority) {
+            _labelPriority = priority;
+            onLabelPriorityChanged();
+        }
+    }
+
+    public LabelPriority getLabelPriority() {
+        return _labelPriority;
     }
 
     @Override
@@ -448,7 +452,8 @@ public class Marker extends PointMapItem implements Exportable, Capturable {
                 : super.getRemarksKey();
     }
 
-    /**sets the text size to use for the rendering label
+    /**
+     * sets the text size to use for the rendering label
      * convenience method for setting label size meta
      * @param size the int value size to use on the labels for this marker
      * If not set the default MapView format size is used
@@ -508,30 +513,12 @@ public class Marker extends PointMapItem implements Exportable, Capturable {
     }
 
     /**
-     * Update the text bounds used for hit detection on label-only markers
-     * Call whenever title or summary has been changed
+     * @deprecated Implementation moved to
+     * {@link AbstractGLMapItem2#hitTest(com.atakmap.map.MapRenderer3, HitTestQueryParameters)}
      */
+    @Deprecated
+    @DeprecatedApi(since = "4.4", forRemoval = true, removeAt = "4.7")
     protected void updateTextBounds() {
-        String title = getTitle();
-        String summary = getSummary();
-        if (title == null)
-            title = "";
-        GLText glText = GLText.getInstance(MapView.getDefaultTextFormat());
-        float textWidth = glText.getStringWidth(title);
-        float textHeight = glText.getStringHeight();
-        if (summary != null) {
-            textWidth = Math.max(textWidth, glText.getStringWidth(summary));
-            textHeight *= 2;
-        }
-        float marqueeMax = Math.round(80 * MapView.DENSITY) * MapView.DENSITY;
-        if (GLMapSurface.SETTING_shortenLabels
-                && (getStyle() & Marker.STYLE_MARQUEE_TITLE_MASK) != 0
-                && textWidth > marqueeMax)
-            textWidth = marqueeMax;
-        _textBounds.right = (int) (textWidth / 2f);
-        _textBounds.left = -_textBounds.right;
-        _textBounds.bottom = (int) (textHeight / 2);
-        _textBounds.top = -_textBounds.bottom;
     }
 
     /**
@@ -708,7 +695,7 @@ public class Marker extends PointMapItem implements Exportable, Capturable {
     }
 
     /**
-     * Add a title property listener
+     * Add a summary changed listener
      *
      * @param listener the listener
      */
@@ -717,13 +704,33 @@ public class Marker extends PointMapItem implements Exportable, Capturable {
     }
 
     /**
-     * Remove a title property listener
+     * Remove a summary changed listener
      *
      * @param listener the listener
      */
     public void removeOnSummaryChangedListener(
             OnSummaryChangedListener listener) {
         _onSummaryChanged.remove(listener);
+    }
+
+    /**
+     * Add a summary changed listener
+     *
+     * @param listener the listener
+     */
+    public void addOnLabelPriorityChangedListener(
+            OnLabelPriorityChangedListener listener) {
+        _onLabelPriorityChanged.add(listener);
+    }
+
+    /**
+     * Remove a summary changed listener
+     *
+     * @param listener the listener
+     */
+    public void removeOnLabelPriorityChangedListener(
+            OnLabelPriorityChangedListener listener) {
+        _onLabelPriorityChanged.remove(listener);
     }
 
     /**
@@ -748,7 +755,10 @@ public class Marker extends PointMapItem implements Exportable, Capturable {
      * Add a hitBounds property listener
      *
      * @param listener the listener
+     * @deprecated No longer used for hit-testing
      */
+    @Deprecated
+    @DeprecatedApi(since = "4.4", forRemoval = true, removeAt = "4.7")
     public void addOnMarkerHitBoundsChangedListener(
             OnMarkerHitBoundsChangedListener listener) {
         _onMarkerHitBoundsChanged.add(listener);
@@ -758,7 +768,10 @@ public class Marker extends PointMapItem implements Exportable, Capturable {
      * Remove a hitBounds property listener
      *
      * @param listener the listener
+     * @deprecated No longer used for hit-testing
      */
+    @Deprecated
+    @DeprecatedApi(since = "4.4", forRemoval = true, removeAt = "4.7")
     public void removeOnMarkerHitBoundsChangedListener(
             OnMarkerHitBoundsChangedListener listener) {
         _onMarkerHitBoundsChanged.remove(listener);
@@ -780,7 +793,11 @@ public class Marker extends PointMapItem implements Exportable, Capturable {
      * @param top offset above MapIcon anchor
      * @param right offset right of MapIcon anchor
      * @param bottom offset below MapIcon anchor
+     *
+     * @deprecated No longer used for hit-testing
      */
+    @Deprecated
+    @DeprecatedApi(since = "4.4", forRemoval = true, removeAt = "4.7")
     public void setMarkerHitBounds(int left, int top, int right, int bottom) {
         _hitBounds.left = Math.round(left * MapView.DENSITY);
         _hitBounds.right = Math.round(right * MapView.DENSITY);
@@ -793,7 +810,10 @@ public class Marker extends PointMapItem implements Exportable, Capturable {
      * Set the hitBounds property.
      *
      * @param hitBounds offset values from MapIcon anchor
+     * @deprecated No longer used for hit-testing
      */
+    @Deprecated
+    @DeprecatedApi(since = "4.4", forRemoval = true, removeAt = "4.7")
     public void setMarkerHitBounds(Rect hitBounds) {
         setMarkerHitBounds(hitBounds.left, hitBounds.top, hitBounds.right,
                 hitBounds.bottom);
@@ -803,7 +823,10 @@ public class Marker extends PointMapItem implements Exportable, Capturable {
      * Get the hitBounds property
      *
      * @return offset values from MapIcon anchor
+     * @deprecated No longer used for hit-testing
      */
+    @Deprecated
+    @DeprecatedApi(since = "4.4", forRemoval = true, removeAt = "4.7")
     public Rect getMarkerHitBounds() {
         return getMarkerHitBounds(null);
     }
@@ -813,7 +836,10 @@ public class Marker extends PointMapItem implements Exportable, Capturable {
      *
      * @param out the Rect to use (may be null)
      * @return offset values from MapIcon anchor
+     * @deprecated No longer used for hit-testing
      */
+    @Deprecated
+    @DeprecatedApi(since = "4.4", forRemoval = true, removeAt = "4.7")
     public Rect getMarkerHitBounds(Rect out) {
         if (out == null) {
             out = new Rect();
@@ -891,7 +917,10 @@ public class Marker extends PointMapItem implements Exportable, Capturable {
 
     /**
      * Invoked when hitBounds property changes
+     * @deprecated No longer used for hit-testing
      */
+    @Deprecated
+    @DeprecatedApi(since = "4.4", forRemoval = true, removeAt = "4.7")
     protected void onMarkerHitBoundsChanged() {
         for (OnMarkerHitBoundsChangedListener l : _onMarkerHitBoundsChanged) {
             l.onMarkerHitBoundsChanged(this);
@@ -919,6 +948,12 @@ public class Marker extends PointMapItem implements Exportable, Capturable {
     protected void onLabelTextSizeChanged() {
         for (OnLabelTextSizeChangedListener l : _onLabelSizeChanged) {
             l.onLabelSizeChanged(this);
+        }
+    }
+
+    protected void onLabelPriorityChanged() {
+        for (OnLabelPriorityChangedListener l : _onLabelPriorityChanged) {
+            l.onLabelPriorityChanged(this);
         }
     }
 
@@ -961,7 +996,7 @@ public class Marker extends PointMapItem implements Exportable, Capturable {
             return Color.WHITE;
 
         if (t.hasMetaValue("team")) {
-            return com.atakmap.android.icons.Icon2525bIconAdapter.teamToColor(t
+            return Icon2525cIconAdapter.teamToColor(t
                     .getMetaString("team", "white"));
         }
 
@@ -1082,7 +1117,8 @@ public class Marker extends PointMapItem implements Exportable, Capturable {
 
             Point centerPoint = new Point();
             centerPoint.setCoordinates(coord);
-            centerPoint.setAltitudeMode(KMLUtil.convertAltitudeMode(getAltitudeMode()));
+            centerPoint.setAltitudeMode(
+                    KMLUtil.convertAltitudeMode(getAltitudeMode()));
 
             List<Geometry> pointGeomtries = new ArrayList<>();
             pointGeomtries.add(centerPoint);
@@ -1193,7 +1229,8 @@ public class Marker extends PointMapItem implements Exportable, Capturable {
 
             Point centerPoint = new Point();
             centerPoint.setCoordinates(coord);
-            centerPoint.setAltitudeMode(KMLUtil.convertAltitudeMode(getAltitudeMode()));
+            centerPoint.setAltitudeMode(
+                    KMLUtil.convertAltitudeMode(getAltitudeMode()));
 
             List<Geometry> geometryList = new ArrayList<>();
             geometryList.add(centerPoint);
@@ -1396,73 +1433,6 @@ public class Marker extends PointMapItem implements Exportable, Capturable {
             description += (" " + remarks);
         wp.setDesc(description);
         return new GPXExportWrapper(wp);
-    }
-
-    @Deprecated
-    @DeprecatedApi(since = "4.1", forRemoval = true, removeAt = "4.4")
-    public static Marker toMarker(String json_string) {
-        try {
-            org.json.JSONObject json = new org.json.JSONObject(json_string);
-            String uid = (String) org.json.JSONUtil.unwrap(json, "uid");
-            GeoPoint gp = GeoPoint.parseGeoPoint((String) org.json.JSONUtil
-                    .unwrap(json, "geopoint"));
-            Marker retval = new Marker(gp, uid);
-
-            Iterator<String> keys = json.keys();
-            Map<String, Object> bundle = new HashMap<>();
-            while (keys.hasNext()) {
-                String k = keys.next();
-                Object o = json.opt(k);
-                bundle.put(k, org.json.JSONUtil.unwrap(o));
-            }
-            retval.copyMetaData(bundle);
-
-            String[] group = (String[]) bundle.get("mapgroup");
-            addToGroup(group, retval);
-            bundle.remove("mapgroup");
-
-            return retval;
-        } catch (org.json.JSONException e) {
-            Log.e(TAG, "exception converting to json", e);
-            return null;
-        }
-    }
-
-    @Deprecated
-    @DeprecatedApi(since = "4.1", forRemoval = true, removeAt = "4.4")
-    public String toJSON() {
-        final Map<String, Object> bundle = new HashMap<>();
-        setMetaString("geopoint", getPoint().toStringRepresentation());
-        getMetaData(bundle);
-        org.json.JSONObject json = new org.json.JSONObject();
-        for (Map.Entry e : bundle.entrySet()) {
-            try {
-                Object o = org.json.JSONUtil.wrap(e.getValue());
-                /**
-                 * If the JSONUtil is unable to wrap the object, it returns
-                 * null.  The whole bundle currently would be ineligable for
-                 * conversion to JSON.
-                 */
-                if (o == null) {
-                    return null;
-                }
-
-                json.put((String) e.getKey(), o);
-
-            } catch (org.json.JSONException ex) {
-                Log.e(TAG, "exception converting to json", ex);
-                return null;
-            }
-
-        }
-        try {
-            json.put("mapgroup", org.json.JSONUtil.wrap(getGroupPath()));
-        } catch (org.json.JSONException e) {
-            Log.e(TAG, "exception recording path to json", e);
-            return null;
-        }
-
-        return json.toString();
     }
 
     public static void addToGroup(String[] path, Marker m) {

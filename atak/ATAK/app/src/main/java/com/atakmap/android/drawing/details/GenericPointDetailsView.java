@@ -14,6 +14,7 @@ import android.widget.Button;
 import android.widget.EditText;
 import android.widget.ImageButton;
 
+import com.atakmap.android.cot.detail.AddressDetailHandler;
 import com.atakmap.android.cotdetails.CoTInfoView;
 import com.atakmap.android.maps.MapItem;
 import com.atakmap.coremap.maps.coords.GeoPointMetaData;
@@ -226,7 +227,7 @@ public class GenericPointDetailsView extends GenericDetailsView implements
                 }
             });
             double height = _point.getHeight();
-            Span unit = getUnitSpan(_point);
+            Span unit = _unitPrefs.getAltitudeUnits();
             if (!Double.isNaN(height)) {
                 _heightButton.setText(SpanUtilities.format(height, Span.METER,
                         unit));
@@ -382,7 +383,7 @@ public class GenericPointDetailsView extends GenericDetailsView implements
             // geopoint location must be equal to the current point
             // on the map for the address to be valid
             _point.setMetaString("address_geopoint",
-                    locationHash(p.get()));
+                    AddressDetailHandler.locationHash(p.get()));
             _point.setMetaString("address_text", addr);
 
             String src = coordView.getAddressLookupSource();
@@ -424,7 +425,8 @@ public class GenericPointDetailsView extends GenericDetailsView implements
         MapView.getMapView().post(new Runnable() {
             public void run() {
                 if (address_geopoint != null && address_text != null) {
-                    if (address_geopoint.equals(locationHash(m.getPoint()))) {
+                    if (address_geopoint.equals(
+                            AddressDetailHandler.locationHash(m.getPoint()))) {
                         _addressText.setText(address_text);
 
                         if (_addressInfoText != null) {
@@ -454,15 +456,6 @@ public class GenericPointDetailsView extends GenericDetailsView implements
         });
     }
 
-    private static String locationHash(GeoPoint gp) {
-        // The fifth decimal place is worth up to 1.1 m for lat/lon
-        final double PRECISION_5 = 100000;
-        final String retval = Math.round(gp.getLatitude() * PRECISION_5)
-                / PRECISION_5 + "," +
-                Math.round(gp.getLongitude() * PRECISION_5) / PRECISION_5;
-        return retval;
-    }
-
     @Override
     public void refresh() {
     }
@@ -470,14 +463,6 @@ public class GenericPointDetailsView extends GenericDetailsView implements
     @Override
     protected void _onHeightSelected() {
         createHeightDialog(_point, R.string.enter_point_height, null);
-    }
-
-    @Override
-    protected void heightSelected(double height, Span u, double h) {
-        // This is always saved as a string in feet for some reason
-        _point.setHeight(height);
-        _point.setMetaInteger("height_unit", u.getValue());
-        _heightButton.setText(SpanUtilities.format(h, u, 2));
     }
 
     @Override

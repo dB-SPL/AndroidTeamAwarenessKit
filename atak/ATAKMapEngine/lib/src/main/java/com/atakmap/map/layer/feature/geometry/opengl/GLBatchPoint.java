@@ -9,19 +9,21 @@ import java.util.concurrent.Future;
 
 import android.graphics.Bitmap;
 import android.graphics.Color;
-import android.opengl.GLES10;
-import android.opengl.Matrix;
 import android.util.Pair;
 
 
 import com.atakmap.android.maps.MapTextFormat;
+import com.atakmap.map.MapRenderer3;
+import com.atakmap.map.hittest.HitTestResult;
+import com.atakmap.map.opengl.GLLabelManager;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.maps.coords.GeoPoint;
 import com.atakmap.lang.Objects;
 import com.atakmap.lang.Unsafe;
 import com.atakmap.map.AtakMapView;
 import com.atakmap.map.MapRenderer;
 import com.atakmap.map.RenderContext;
-import com.atakmap.map.layer.feature.Feature;
+import com.atakmap.map.layer.feature.Feature.AltitudeMode;
 import com.atakmap.map.layer.feature.style.Style;
 import com.atakmap.map.layer.feature.geometry.Geometry;
 import com.atakmap.map.layer.feature.geometry.Point;
@@ -32,12 +34,11 @@ import com.atakmap.map.layer.feature.style.LabelPointStyle;
 import com.atakmap.map.opengl.GLMapSurface;
 import com.atakmap.map.opengl.GLMapView;
 import com.atakmap.map.opengl.GLRenderGlobals;
+import com.atakmap.map.hittest.HitTestQueryParameters;
 import com.atakmap.math.MathUtils;
 import com.atakmap.math.PointD;
 import com.atakmap.opengl.GLES20FixedPipeline;
-import com.atakmap.opengl.GLNinePatch;
 import com.atakmap.opengl.GLRenderBatch2;
-import com.atakmap.opengl.GLText;
 import com.atakmap.opengl.GLTextureAtlas;
 
 public class GLBatchPoint extends GLBatchGeometry {
@@ -52,7 +53,7 @@ public class GLBatchPoint extends GLBatchGeometry {
 
     final static Map<String, Pair<Future<Bitmap>, int[]>> iconLoaders = new HashMap<String, Pair<Future<Bitmap>, int[]>>();
 
-    private GLText glText = null;
+    private LabelState label;
 
     private static ByteBuffer tiltLineBuffer = null;
     private static long tiltLineBufferPtr = 0L;
@@ -69,7 +70,7 @@ public class GLBatchPoint extends GLBatchGeometry {
     public double latitude;
     public double longitude;
     public double altitude = 0d;
-    public Feature.AltitudeMode altitudeMode = Feature.AltitudeMode.ClampToGround;
+    public AltitudeMode altitudeMode = AltitudeMode.ClampToGround;
     public double extrude = 0d;
 
     public PointD posProjected;
@@ -81,6 +82,7 @@ public class GLBatchPoint extends GLBatchGeometry {
     PointD surfaceProjected;
     int surfaceProjectedSrid;
     double surfaceProjectedEl;
+    double surfaceProjectedLng;
 
     int color;
     float colorR;
@@ -120,6 +122,124 @@ public class GLBatchPoint extends GLBatchGeometry {
 
     float iconScale = 1.0f;
 
+    private static class LabelState {
+        int id;
+        int layoutVersion = -1;
+        boolean visible = true;
+        AltitudeMode altMode;
+        GLLabelManager _labelManager;
+
+        LabelState(GLLabelManager labelManager, String txt, int labelTextSize) {
+            _labelManager = labelManager;
+            id = _labelManager.addLabel(txt);
+            setTextFormat(labelTextSize);
+            _labelManager.setFill(id, true);
+            _labelManager.setVerticalAlignment(id, GLLabelManager.VerticalAlignment.Middle);
+            _labelManager.setAlignment(id, GLLabelManager.TextAlignment.Center);
+        }
+
+        public void setTextFormat(int labelTextSize) {
+            MapTextFormat textFormat = AtakMapView.getDefaultTextFormat();
+            if (labelTextSize > 0) {
+                textFormat = new MapTextFormat(
+                        textFormat.getTypeface(),
+                        textFormat.isOutlined(),
+                        (int)labelTextSize);
+            }
+            setTextFormat(textFormat);
+        }
+
+        public void setTextFormat(MapTextFormat textFormat) {
+            _labelManager.setTextFormat(id, textFormat);
+        }
+
+        public void release() {
+            if (id != GLLabelManager.NO_ID) {
+                _labelManager.removeLabel(id);
+                id = GLLabelManager.NO_ID;
+            }
+        }
+
+        public void setAlignment(double iconWidth, double iconHeight,
+                                    boolean drawTilt,
+                                    int alignX, int alignY) {
+
+            double offy = 0;
+            double offx = 0;
+
+            GLLabelManager.VerticalAlignment valign = GLLabelManager.VerticalAlignment.Middle;
+            GLLabelManager.TextAlignment talign = GLLabelManager.TextAlignment.Center;
+
+            if (drawTilt)
+                alignY = -1;
+
+            if(alignY > 0) {
+                offy = -iconHeight / 2.0;
+                valign = GLLabelManager.VerticalAlignment.Bottom;
+            } else if(alignY < 0) {
+                offy = iconHeight / 2.0;
+                valign = GLLabelManager.VerticalAlignment.Top;
+            }
+
+            if(alignX > 0) {
+                offx = -iconWidth / 2.0;
+                talign = GLLabelManager.TextAlignment.Left;
+            } else if(alignX < 0) {
+                //offx = iconWidth / 2f;
+                talign = GLLabelManager.TextAlignment.Right;
+            }
+
+            _labelManager.setDesiredOffset(id, (int)offx, (int)offy, 0);
+            _labelManager.setAlignment(id, talign);
+            _labelManager.setVerticalAlignment(id, valign);
+        }
+
+        public void setText(String text) {
+            _labelManager.setText(id, text);
+        }
+
+        public void setPlacement(GeoPoint geo, double alt, float labelRotation, boolean labelRotationAbsolute) {
+            Point labelPoint = new Point(geo.getLongitude(), geo.getLatitude(),
+                    alt);
+            _labelManager.setGeometry(id, labelPoint);
+            _labelManager.setRotation(id, labelRotation, labelRotationAbsolute);
+        }
+
+        public void updateVisible(boolean visible) {
+            if (this.visible != visible) {
+                _labelManager.setVisible(id, visible);
+                this.visible = visible;
+            }
+        }
+
+        public void updateLayout(int layoutVersion, GeoPoint geo, double alt, float labelRotation, boolean labelRotationAbsolute,
+                                 double iconWidth, double iconHeight,
+                                 boolean drawTilt,
+                                 int alignX, int alignY) {
+            if (layoutVersion != this.layoutVersion) {
+                setPlacement(geo, alt, labelRotation, labelRotationAbsolute);
+                setAlignment(iconWidth, iconHeight, drawTilt, alignX, alignY);
+                this.layoutVersion = layoutVersion;
+            }
+        }
+
+        public void setColors(int color, int bgColor) {
+            _labelManager.setColor(id, color);
+            _labelManager.setBackgroundColor(id, bgColor);
+        }
+
+        public void setMinResolution(double lblMinRenderResolution) {
+            _labelManager.setMaxDrawResolution(id, lblMinRenderResolution);
+        }
+
+        public void setAltMode(AltitudeMode altitudeMode) {
+            if (altitudeMode != altMode) {
+                altMode = altitudeMode;
+                _labelManager.setAltitudeMode(id, altitudeMode);
+                layoutVersion = -1;
+            }
+        }
+    }
 
     public GLBatchPoint(GLMapSurface surface) {
         this(surface.getGLMapView());
@@ -129,6 +249,10 @@ public class GLBatchPoint extends GLBatchGeometry {
         super(surface, 0);
 
         this.color = 0xFFFFFFFF;
+        this.colorR = 1.0f;
+        this.colorG = 1.0f;
+        this.colorB = 1.0f;
+        this.colorA = 1.0f;
         this.posProjected = new PointD(0d, 0d);
         this.posProjectedEl = 0d;
         this.posProjectedSrid = -1;
@@ -139,8 +263,20 @@ public class GLBatchPoint extends GLBatchGeometry {
     }
 
     private void setIcon(String uri, int color) {
+        if (color != this.color) {
+            this.color = color;
+            this.colorR = Color.red(this.color) / 255f;
+            this.colorG = Color.green(this.color) / 255f;
+            this.colorB = Color.blue(this.color) / 255f;
+            this.colorA = Color.alpha(this.color) / 255f;
+            this.iconDirty = true;
+        }
+
+
         if (Objects.equals(uri, this.iconUri))
             return;
+
+        this.iconDirty = true;
 
         if (this.iconLoader != null) {
             this.iconLoader = null;
@@ -148,12 +284,6 @@ public class GLBatchPoint extends GLBatchGeometry {
         }
 
         this.iconUri = uri;
-        this.color = color;
-        this.colorR = Color.red(this.color) / 255f;
-        this.colorG = Color.green(this.color) / 255f;
-        this.colorB = Color.blue(this.color) / 255f;
-        this.colorA = Color.alpha(this.color) / 255f;
-        this.iconDirty = true;
     }
 
     void checkIcon(final RenderContext surface) {
@@ -161,6 +291,9 @@ public class GLBatchPoint extends GLBatchGeometry {
             getOrFetchIcon(surface, this);
     }
 
+    protected AltitudeMode getAltitudeMode() {
+        return isNadirClampEnabled() ? AltitudeMode.ClampToGround : altitudeMode;
+    }
 
     /**
      * Helper method that computes the altitude based on the set value of the localTerrainValue and
@@ -169,7 +302,7 @@ public class GLBatchPoint extends GLBatchGeometry {
      */
     double computeAltitude(GLMapView ortho) {
         validateLocalElevation(ortho);
-        switch (altitudeMode) {
+        switch (getAltitudeMode()) {
             case Absolute:
                 return altitude;
             case Relative:
@@ -198,6 +331,8 @@ public class GLBatchPoint extends GLBatchGeometry {
         if (this.iconUri != null)
             this.checkIcon(ortho.getRenderContext());
 
+        updateNadirClamp(ortho);
+
         final double wrappedLng = ortho.idlHelper.wrapLongitude(this.longitude);
         ortho.scratch.geo.set(this.latitude, wrappedLng);
         
@@ -218,6 +353,8 @@ public class GLBatchPoint extends GLBatchGeometry {
         ortho.scratch.geo.set(adjustedAlt);
         posEl = Double.isNaN(adjustedAlt) ? 0d : adjustedAlt;
 
+        validateLabel(ortho, GLMapSurface.SETTING_displayLabels, ortho.scratch.geo, posEl);
+
         if( Double.compare(posProjectedEl,posEl) != 0 || posProjectedSrid != ortho.drawSrid || wrappedLng != posProjectedLng) {
             ortho.scene.mapProjection.forward(ortho.scratch.geo, posProjected);
             posProjectedEl = posEl;
@@ -232,8 +369,8 @@ public class GLBatchPoint extends GLBatchGeometry {
         float zpos = (float)ortho.scratch.pointD.z;
 
         boolean tilted = ortho.currentScene.drawTilt > 0d;
-        boolean renderZ = (tilted || ortho.currentScene.scene.camera.perspective)
-                && zpos < 1f;
+        boolean renderZ = (tilted || ortho.currentScene.scene.camera.perspective
+                && !isNadirClampEnabled());
 
         if (tilted && this.textureKey != 0L) {
             // move up half icon height
@@ -247,41 +384,65 @@ public class GLBatchPoint extends GLBatchGeometry {
 
         // if tilted, draw a line segment from the center of the point into the
         // earth's surface
-        if(renderZ) {
+        if(renderZ && (getLollipopsVisible() || !tilted) ) {
             final double terrain = this.validateLocalElevation(ortho);
             final double surfaceEl = (Math.min(terrain,  0d)+ GLMapView.elevationOffset)*ortho.elevationScaleFactor;
             
-            if(Double.compare(surfaceProjectedEl, surfaceEl) != 0 || surfaceProjectedSrid != ortho.drawSrid) {
+            if(Double.compare(surfaceProjectedEl, surfaceEl) != 0
+                    || surfaceProjectedSrid != ortho.drawSrid
+                    || surfaceProjectedLng != wrappedLng) {
                 ortho.scratch.geo.set(surfaceEl);
                 ortho.scene.mapProjection.forward(ortho.scratch.geo, surfaceProjected);
                 surfaceProjectedEl = surfaceEl;
                 surfaceProjectedSrid = ortho.drawSrid;
+                surfaceProjectedLng = wrappedLng;
             }
             
             ortho.scene.forward.transform(surfaceProjected, ortho.scratch.pointD);
-            
-            float xsurface = (float)ortho.scratch.pointD.x;
-            float ysurface = (float)ortho.scratch.pointD.y;
-            float zsurface = (float)ortho.scratch.pointD.z;
-            
-            if(tiltLineBuffer == null) {
-                tiltLineBuffer = ByteBuffer.allocateDirect(24);
-                tiltLineBuffer.order(ByteOrder.nativeOrder());
-                tiltLineBufferPtr = Unsafe.getBufferPointer(tiltLineBuffer);
+            float x1 = (float) ortho.scratch.pointD.x;
+            float y1 = (float) ortho.scratch.pointD.y;
+            float z1 = (float) ortho.scratch.pointD.z;
+
+            float x0 = xpos;
+            float y0 = ypos;
+            float z0 = zpos;
+
+            // if the lollipop end is behind the camera, recompute to avoid
+            // rendering artifacts as non perspective adjusted coordinates
+            // get mirrored
+            if(zpos >= 1f) {
+                // get camera position in LLA
+                ortho.currentPass.scene.mapProjection.inverse(
+                        ortho.currentPass.scene.camera.location, ortho.scratch.geo);
+                // compute lollipop top at camera height
+                ortho.scratch.geo.set(latitude, longitude,
+                        ortho.scratch.geo.getAltitude()-ortho.currentPass.scene.camera.nearMeters);
+                ortho.currentPass.scene.forward(ortho.scratch.geo, ortho.scratch.pointD);
+                x0 = (float) ortho.scratch.pointD.x;
+                y0 = (float) ortho.scratch.pointD.y;
+                z0 = (float) ortho.scratch.pointD.z;
             }
-            
-            Unsafe.setFloats(tiltLineBufferPtr+0, xpos, ypos, zpos);
-            Unsafe.setFloats(tiltLineBufferPtr+12, xsurface, ysurface, zsurface);
-            
-            GLES20FixedPipeline.glColor4f(this.colorR,
-                                          this.colorG,
-                                          this.colorB,
-                                          this.colorA);
-            GLES20FixedPipeline.glLineWidth(2f);
-            GLES20FixedPipeline.glEnableClientState(GLES20FixedPipeline.GL_VERTEX_ARRAY);
-            GLES20FixedPipeline.glVertexPointer(3, GLES20FixedPipeline.GL_FLOAT, 0, tiltLineBuffer);
-            GLES20FixedPipeline.glDrawArrays(GLES20FixedPipeline.GL_LINES, 0, 2);
-            GLES20FixedPipeline.glDisableClientState(GLES20FixedPipeline.GL_VERTEX_ARRAY);
+
+            if(z0 < 1f && z1 < 1f) {
+                if (tiltLineBuffer == null) {
+                    tiltLineBuffer = Unsafe.allocateDirect(24);
+                    tiltLineBuffer.order(ByteOrder.nativeOrder());
+                    tiltLineBufferPtr = Unsafe.getBufferPointer(tiltLineBuffer);
+                }
+
+                Unsafe.setFloats(tiltLineBufferPtr+0, x0, y0, z0);
+                Unsafe.setFloats(tiltLineBufferPtr+12, x1, y1, z1);
+
+                GLES20FixedPipeline.glColor4f(this.colorR,
+                                              this.colorG,
+                                              this.colorB,
+                                              this.colorA);
+                GLES20FixedPipeline.glLineWidth(2f);
+                GLES20FixedPipeline.glEnableClientState(GLES20FixedPipeline.GL_VERTEX_ARRAY);
+                GLES20FixedPipeline.glVertexPointer(3, GLES20FixedPipeline.GL_FLOAT, 0, tiltLineBuffer);
+                GLES20FixedPipeline.glDrawArrays(GLES20FixedPipeline.GL_LINES, 0, 2);
+                GLES20FixedPipeline.glDisableClientState(GLES20FixedPipeline.GL_VERTEX_ARRAY);
+            }
         }
 
         GLES20FixedPipeline.glPushMatrix();
@@ -359,104 +520,19 @@ public class GLBatchPoint extends GLBatchGeometry {
             GLES20FixedPipeline.glPopMatrix();
         }
 
-
-        // if the displayLables preference is checked display the text if
-        // the marker requested to always have the text show or if the scale is zoomed in enough
-        if (name != null &&
-            labelScale > 0 &&
-            (GLMapSurface.SETTING_displayLabels &&
-             ortho.drawMapResolution < labelMinRenderResolution)) {
-
-            final String text = this.name;
-            if (text != null && text.length() > 0) {
-                if (glText == null) {
-                    MapTextFormat textFormat = AtakMapView.getDefaultTextFormat();
-                    if (labelTextSize > 0) {
-                        textFormat = new MapTextFormat(
-                                textFormat.getTypeface(),
-                                textFormat.isOutlined(),
-                                (int)labelTextSize);
-                    }
-                    glText = GLText.getInstance(textFormat);
-                }
-
-                float offy;
-                float offtx = 0;
-                final float textWidth = glText.getStringWidth(text);
-
-                final float textHeight = glText.getStringHeight();// _glText.getBaselineSpacing();
-                if (this.textureKey != 0L) {
-                    if(labelAlignY > 0)
-                        offy = -iconHeight * iconScale / 2f;
-                    else if(labelAlignY < 0)
-                        offy = iconHeight * iconScale / 2f;
-                    else
-                        offy = -textHeight / 2;
-
-                    if(labelAlignX > 0)
-                        offtx = -iconWidth * iconScale / 2f;
-                    else if(labelAlignX < 0)
-                        offtx = iconWidth * iconScale / 2f;
-
-                    if(tilted)
-                        offy = (offy*-1f) + textHeight + glText.getDescent();
-                } else {
-                    offy = -textHeight / 2;
-                }
-
-                float textTx = offtx;
-                if(labelAlignX > 0)
-                    textTx -= textWidth + textHeight;
-                else if(labelAlignX == 0)
-                    textTx -= textWidth / 2f;
-                else // labelAlignX < 0
-                    textTx += textHeight; // no-op, text already aligned to right of xpos
-
-                float textTy = offy;
-                if(labelAlignY > 0)
-                    textTy -= textHeight;
-                else if(labelAlignY == 0)
-                    textTy += glText.getDescent();
-                else // labelAlignY < 0
-                    textTy += textHeight;
-
-                GLES20FixedPipeline.glTranslatef(textTx, textTy, 0f);
-
-                if (labelRotationAbsolute || tilted) {
-                    // rotate relative to screen up
-                    GLES20FixedPipeline.glRotatef(labelRotation, 0f, 0f, 1f);
-                } else {
-                    // rotate relative to north (screen up + map rotation)
-                    GLES20FixedPipeline.glTranslatef(-textTx, -textTy, 0f);
-                    GLES20FixedPipeline.glRotatef((float)ortho.drawRotation + labelRotation, 0f, 0f, 1f);
-                    GLES20FixedPipeline.glTranslatef(textTx, textTy, 0f);
-                }
-
-                // XXX - avoid cast
-                GLNinePatch smallNinePatch = GLRenderGlobals.get(this.renderContext).getSmallNinePatch();
-                if (smallNinePatch != null && Color.alpha(labelBgColor) != 0) {
-                    GLES20FixedPipeline.glColor4f(Color.red(labelBgColor) / 255f,
-                                                  Color.green(labelBgColor) / 255f,
-                                                  Color.blue(labelBgColor) / 255f,
-                                                  Color.alpha(labelBgColor) / 255f);
-                    GLES20FixedPipeline.glPushMatrix();
-                    GLES20FixedPipeline.glTranslatef(-4f, -glText.getDescent(), 0f);
-                    smallNinePatch.draw(textWidth + 8f, textHeight);
-                    GLES20FixedPipeline.glPopMatrix();
-                }
-
-                glText.draw(text, Color.red(labelTextColor) / 255f,
-                        Color.green(labelTextColor) / 255f,
-                        Color.blue(labelTextColor) / 255f,
-                        Color.alpha(labelTextColor) / 255f);
-            }
-        }
-
         GLES20FixedPipeline.glPopMatrix();
     }
 
     @Override
+    public void releaseLabel() {
+        if (this.label != null)
+            this.label.release();
+        this.label = null;
+    }
+
+    @Override
     public void release() {
+        releaseLabel();
         Unsafe.free(this.texCoords);
         this.texCoords = null;
         Unsafe.free(this.verts);
@@ -477,8 +553,6 @@ public class GLBatchPoint extends GLBatchGeometry {
         this.latitude = blob.getDouble();
         if (type == TYPE_XYZ || type == TYPE_XYZM)
             this.altitude = blob.getDouble();
-
-
 
         this.posProjectedSrid = -1;
         this.surfaceProjectedSrid = -1;
@@ -529,7 +603,7 @@ public class GLBatchPoint extends GLBatchGeometry {
         if(lstyle != null) {
             // mimics GoogleEarth when the label point style does not contain a textString
             if (!FileSystemUtils.isEmpty(lstyle.getText()))
-                this.name = GLText.localize(lstyle.getText());
+                this.name = lstyle.getText();
             lblAlignX = lstyle.getLabelAlignmentX();
             lblAlignY = lstyle.getLabelAlignmentY();
             lblTextColor = lstyle.getTextColor();
@@ -551,11 +625,23 @@ public class GLBatchPoint extends GLBatchGeometry {
         this.labelRotationAbsolute = lblRotationAbsolute;
         this.labelRotation = lblRotation;
         this.labelMinRenderResolution = lblMinRenderResolution;
+
         this.labelScale = lblScale;
         this.iconScale = iconScale;
 
-        if (lblTextSize > 0f)
+        if (lblTextSize > 0f) {
             this.labelTextSize = lblTextSize;
+        } else {
+            this.labelTextSize = AtakMapView.getDefaultTextFormat().getFontSize();
+        }
+        this.labelTextSize *= this.labelScale;
+
+        if (label != null) {
+            label.setMinResolution(lblMinRenderResolution);
+            label.setColors(lblTextColor, lblBgColor);
+            label.setText(this.name);
+            label.setTextFormat(labelTextSize);
+        }
 
         final String u = iconUri;
         final int c = iconColor;
@@ -586,8 +672,10 @@ public class GLBatchPoint extends GLBatchGeometry {
     }
 
     @Override
-    public void setAltitudeMode(Feature.AltitudeMode altitudeMode) {
+    public void setAltitudeMode(AltitudeMode altitudeMode) {
         this.altitudeMode = altitudeMode;
+        if (label != null)
+            label.setAltMode(getAltitudeMode());
     }
 
     @Override
@@ -602,6 +690,8 @@ public class GLBatchPoint extends GLBatchGeometry {
     public void batch(GLMapView view, GLRenderBatch2 batch, int renderPass) {
         if(!MathUtils.hasBits(renderPass, GLMapView.RENDER_PASS_SPRITES))
             return;
+
+        updateNadirClamp(view);
 
         view.scratch.geo.set(this.latitude, view.idlHelper.wrapLongitude(this.longitude));
         
@@ -625,6 +715,8 @@ public class GLBatchPoint extends GLBatchGeometry {
         view.scratch.geo.set(adjustedAlt);
         posEl = Double.isNaN(adjustedAlt) ? 0d : adjustedAlt;
 
+        validateLabel(view, GLMapSurface.SETTING_displayLabels, view.scratch.geo, posEl);
+
         if( Double.compare(posProjectedEl,posEl) != 0 || posProjectedSrid != view.drawSrid) {
             view.scene.mapProjection.forward(view.scratch.geo, posProjected);
             posProjectedEl = posEl;
@@ -637,8 +729,8 @@ public class GLBatchPoint extends GLBatchGeometry {
         float zpos = (float)view.scratch.pointD.z;
 
         boolean tilted = view.currentScene.drawTilt > 0d;
-        boolean renderZ = (tilted|| view.currentScene.scene.camera.perspective)
-                && zpos < 1f;
+        boolean renderZ = (tilted || view.currentScene.scene.camera.perspective
+                && !isNadirClampEnabled());
 
         if (tilted && this.textureKey != 0L) {
             // move up half icon height
@@ -652,8 +744,8 @@ public class GLBatchPoint extends GLBatchGeometry {
 
         // if tilted, draw a line segment from the center of the point into the
         // earth's surface
-        if(renderZ) {
-            final double surfaceEl = GLMapView.elevationOffset *view.elevationScaleFactor;
+        if(renderZ && (getLollipopsVisible() || !tilted)) {
+            final double surfaceEl = localTerrainValue + GLMapView.elevationOffset * view.elevationScaleFactor;
             
             if(Double.compare(surfaceProjectedEl,surfaceEl) != 0 || surfaceProjectedSrid != view.drawSrid) {
                 view.scratch.geo.set(surfaceEl);
@@ -663,17 +755,39 @@ public class GLBatchPoint extends GLBatchGeometry {
             }
             
             view.scene.forward.transform(surfaceProjected, view.scratch.pointD);
-            float xsurface = (float)view.scratch.pointD.x;
-            float ysurface = (float)view.scratch.pointD.y;
-            float zsurface = (float)view.scratch.pointD.z;
-                        
-            batch.setLineWidth(2f);
-            batch.batch(xpos, ypos, zpos,
-                        xsurface, ysurface, zsurface,
-                        this.colorR,
-                        this.colorG,
-                        this.colorB,
-                        this.colorA);
+            float x1 = (float) view.scratch.pointD.x;
+            float y1 = (float) view.scratch.pointD.y;
+            float z1 = (float) view.scratch.pointD.z;
+
+            float x0 = xpos;
+            float y0 = ypos;
+            float z0 = zpos;
+
+            // if the lollipop end is behind the camera, recompute to avoid
+            // rendering artifacts as non perspective adjusted coordinates
+            // get mirrored
+            if(z0 >= 1f) {
+                // get camera position in LLA
+                view.currentPass.scene.mapProjection.inverse(
+                        view.currentPass.scene.camera.location, view.scratch.geo);
+                // compute lollipop top at camera height
+                view.scratch.geo.set(latitude, longitude,
+                        view.scratch.geo.getAltitude()-view.currentPass.scene.camera.nearMeters);
+                view.currentPass.scene.forward(view.scratch.geo, view.scratch.pointD);
+                x0 = (float) view.scratch.pointD.x;
+                y0 = (float) view.scratch.pointD.y;
+                z0 = (float) view.scratch.pointD.z;
+            }
+
+            if(z0 < 1f && z1 < 1f) {
+                batch.setLineWidth(2f);
+                batch.batch(x0, y0, z0,
+                            x1, y1, z1,
+                            this.colorR,
+                            this.colorG,
+                            this.colorB,
+                            this.colorA);
+            }
         }
 
         if (this.iconUri != null)
@@ -707,109 +821,47 @@ public class GLBatchPoint extends GLBatchGeometry {
                         ulu, lrv,
                         this.colorR, this.colorG, this.colorB, this.colorA);
         }
-        // if the displayLables preference is checked display the text if
-        // the marker requested to always have the text show or if the scale is zoomed in enough
-        if (name != null && labelScale > 0 && GLMapSurface.SETTING_displayLabels && view.drawMapResolution < labelMinRenderResolution) {
-            final String text = this.name;
-            if (text != null && text.length() > 0) {
-                if (glText == null) {
-                    MapTextFormat textFormat = AtakMapView.getDefaultTextFormat();
-                    if (labelTextSize > 0) {
-                        textFormat = new MapTextFormat(
-                                textFormat.getTypeface(),
-                                textFormat.isOutlined(),
-                                (int)labelTextSize);
-                    }
-                    glText = GLText.getInstance(textFormat);
-                }
-                float offy;
-                float offtx = 0;
-                final float textWidth = glText.getStringWidth(text);
+    }
 
-                final float textHeight = glText.getStringHeight();// _glText.getBaselineSpacing();
-                if (this.textureKey != 0L) {
-                    if(labelAlignY > 0)
-                        offy = -iconRenderH / 2f;
-                    else if(labelAlignY < 0)
-                        offy = iconRenderH / 2f;
-                    else
-                        offy = -textHeight / 2;
+    private void validateLabel(GLMapView ortho, boolean visible, GeoPoint geo, double adjustedEl) {
 
-                    if(labelAlignX > 0)
-                        offtx = -iconRenderW / 2f;
-                    else if(labelAlignX < 0)
-                        offtx = iconRenderW / 2f;
-                    
-                    if(tilted)
-                        offy = (offy*-1f) + textHeight + glText.getDescent();
-                } else {
-                    offy = -textHeight / 2;
-                }
-
-                float textTx = xpos + offtx;
-                if(labelAlignX > 0)
-                    textTx -= textWidth + textHeight;
-                else if(labelAlignX == 0)
-                    textTx -= textWidth / 2f;
-                else // labelAlignX < 0
-                    textTx += textHeight; // no-op, text already aligned to right of xpos
-
-                float textTy = ypos + offy;
-                if(labelAlignY > 0)
-                    textTy -= textHeight;
-                else if(labelAlignY == 0)
-                    textTy += glText.getDescent();
-                else // labelAlignY < 0
-                    textTy += textHeight;
-
-
-                batch.pushMatrix(GLES10.GL_MODELVIEW);
-
-                // reset the matrix and set up for the rotation
-                Matrix.setIdentityM(view.scratch.matrixF, 0);
-                Matrix.translateM(view.scratch.matrixF, 0, xpos, ypos, zpos);
-                if (labelRotationAbsolute || tilted) {
-                    Matrix.rotateM(view.scratch.matrixF, 0, labelRotation, 0, 0, 1);
-                } else {
-                    Matrix.rotateM(view.scratch.matrixF, 0, (float) view.drawRotation + labelRotation, 0, 0, 1);
-                }
-                Matrix.scaleM(view.scratch.matrixF, 0, labelScale, labelScale, 1.0f);
-                Matrix.translateM(view.scratch.matrixF, 0, -xpos, -ypos, -zpos);
-                batch.setMatrix(GLES10.GL_MODELVIEW, view.scratch.matrixF, 0);
-
-                // XXX - avoid cast
-                GLNinePatch smallNinePatch = GLRenderGlobals.get(this.renderContext).getSmallNinePatch();
-                if (smallNinePatch != null && Color.alpha(labelBgColor) != 0)
-                    smallNinePatch.batch(batch,
-                            textTx - 4f,
-                            textTy - glText.getDescent(),
-                            zpos,
-                            textWidth + 8f,
-                            textHeight,
-                            Color.red(labelBgColor) / 255f,
-                            Color.green(labelBgColor) / 255f,
-                            Color.blue(labelBgColor) / 255f,
-                            Color.alpha(labelBgColor) / 255f);
-
-                glText.batch(batch,
-                        text,
-                        textTx,
-                        textTy,
-                        zpos,
-                        Color.red(labelTextColor) / 255f,
-                        Color.green(labelTextColor) / 255f,
-                        Color.blue(labelTextColor) / 255f,
-                        Color.alpha(labelTextColor) / 255f);
-
-
-                batch.popMatrix(GLES10.GL_MODELVIEW);
+        String text = this.name;
+        if (!FileSystemUtils.isEmpty(text)) {
+            if (label == null) {
+                label = new LabelState(ortho.getLabelManager(), text, labelTextSize);
+                label.setMinResolution(this.labelMinRenderResolution);
+                label.setColors(labelTextColor, labelBgColor);
             }
-        }
+
+            label.setText(text);
+            label.setAltMode(getAltitudeMode());
+            label.updateVisible(visible);
+
+            label.updateLayout(ortho.currentScene.drawVersion,
+                    geo,
+                    adjustedEl,
+                    labelRotation,
+                    labelRotationAbsolute,
+                    iconWidth * iconScale,
+                    iconHeight * iconScale,
+                    ortho.currentScene.drawTilt > 0,
+                    labelAlignX,
+                    labelAlignY);
+        } else if (label != null)
+            releaseLabel();
     }
 
     @Override
     public int getRenderPass() {
         return GLMapView.RENDER_PASS_SPRITES;
+    }
+
+    @Override
+    public HitTestResult hitTest(MapRenderer3 renderer, HitTestQueryParameters params) {
+        if (params.rect.contains(this.screenX, this.screenY))
+            return new HitTestResult(this.featureId,
+                    new GeoPoint(latitude, longitude, altitude));
+        return null;
     }
 
     /**************************************************************************/

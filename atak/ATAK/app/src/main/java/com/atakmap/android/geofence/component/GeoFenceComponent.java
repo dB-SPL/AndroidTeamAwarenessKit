@@ -9,13 +9,9 @@ import com.atakmap.android.ipc.AtakBroadcast.DocumentedIntentFilter;
 
 import com.atakmap.android.geofence.alert.GeoFenceAlerting;
 import com.atakmap.android.geofence.data.GeoFence;
-import com.atakmap.android.geofence.data.GeoFenceCotEventMarshal;
 import com.atakmap.android.geofence.data.GeoFenceDatabase;
-import com.atakmap.android.geofence.data.GeoFenceImporter;
 import com.atakmap.android.geofence.monitor.GeoFenceManager;
 import com.atakmap.android.geofence.ui.GeoFenceMapOverlay;
-import com.atakmap.android.importexport.ImporterManager;
-import com.atakmap.android.importexport.MarshalManager;
 import com.atakmap.android.ipc.AtakBroadcast;
 import com.atakmap.android.maps.AbstractMapComponent;
 import com.atakmap.android.maps.DefaultMapGroup;
@@ -26,6 +22,8 @@ import com.atakmap.android.maps.MapView;
 
 import com.atakmap.android.geofence.data.ShapeUtils;
 import java.util.concurrent.ConcurrentLinkedQueue;
+
+import com.atakmap.android.util.ATAKUtilities;
 import com.atakmap.android.util.NotificationUtil;
 import com.atakmap.app.R;
 
@@ -72,11 +70,6 @@ public class GeoFenceComponent extends AbstractMapComponent {
         _overlay = new GeoFenceMapOverlay(view, _database, _manager);
         MapOverlayManager overlayManager = view.getMapOverlayManager();
         overlayManager.addAlertsOverlay(_overlay);
-
-        //register CoT import support
-        ImporterManager
-                .registerImporter(new GeoFenceImporter(view.getContext()));
-        MarshalManager.registerMarshal(new GeoFenceCotEventMarshal());
 
         //now create messaging/receiver
         _receiver = new GeoFenceReceiver(this, _database);
@@ -200,7 +193,8 @@ public class GeoFenceComponent extends AbstractMapComponent {
             String message = String
                     .format(_mapView.getContext().getString(
                             R.string.geofence_received_shape),
-                            ShapeUtils.getShapeName(item));
+                            ATAKUtilities.getDisplayName(
+                                    ATAKUtilities.findAssocShape(item)));
             NotificationUtil.getInstance().postNotification(
                     R.drawable.ic_menu_geofence, NotificationUtil.WHITE,
                     _mapView.getContext()

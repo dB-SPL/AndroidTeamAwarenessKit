@@ -321,15 +321,6 @@ public class ModelFileHierarchyListItem extends AbstractHierarchyListItem2
     }
 
     @Override
-    public void onListVisible(HierarchyListAdapter om, boolean visible) {
-    }
-
-    @Override
-    public boolean onBackButton(HierarchyListAdapter om, boolean deviceBack) {
-        return false;
-    }
-
-    @Override
     public int getVisibility() {
         FeatureDataStore2.FeatureQueryParameters params = getQueryParams();
         params.visibleOnly = true;
@@ -373,7 +364,6 @@ public class ModelFileHierarchyListItem extends AbstractHierarchyListItem2
             uri = Uri.fromFile(new File(uri)).toString();
         }
 
-        File modelFile = new File(uri);
         Intent i = new Intent(
                 ImportExportMapComponent.ACTION_DELETE_DATA);
         i.putExtra(ImportReceiver.EXTRA_CONTENT,

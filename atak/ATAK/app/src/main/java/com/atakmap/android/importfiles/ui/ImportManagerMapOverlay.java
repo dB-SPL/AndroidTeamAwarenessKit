@@ -15,7 +15,7 @@ import com.atakmap.android.filesystem.MIMETypeMapper;
 import com.atakmap.android.hierarchy.HierarchyListFilter;
 import com.atakmap.android.hierarchy.HierarchyListItem;
 import com.atakmap.android.hierarchy.HierarchyListReceiver;
-import com.atakmap.android.hierarchy.action.Delete;
+import com.atakmap.android.hierarchy.action.GroupDelete;
 import com.atakmap.android.hierarchy.action.Search;
 import com.atakmap.android.hierarchy.items.AbstractHierarchyListItem2;
 import com.atakmap.android.importexport.ImportExportMapComponent;
@@ -66,7 +66,7 @@ public class ImportManagerMapOverlay extends AbstractMapOverlay2
     private final MapView _view;
     private final Context _context;
     private boolean _firstLoad = true;
-    private Persister _serializer = new Persister();
+    private final Persister _serializer = new Persister();
     private final Map<String, RemoteResource> _resources = new HashMap<>();
 
     public ImportManagerMapOverlay(MapView view,
@@ -109,7 +109,7 @@ public class ImportManagerMapOverlay extends AbstractMapOverlay2
     }
 
     public class RemoteResourcesOverlayListModel extends
-            AbstractHierarchyListItem2 implements Search, Delete,
+            AbstractHierarchyListItem2 implements Search, GroupDelete,
             View.OnClickListener {
 
         private final static String TAG = "RemoteResourcesOverlayListModel";
@@ -197,15 +197,6 @@ public class ImportManagerMapOverlay extends AbstractMapOverlay2
         @Override
         public boolean hideIfEmpty() {
             return true;
-        }
-
-        @Override
-        public boolean delete() {
-            List<Delete> actions = getChildActions(Delete.class);
-            boolean ret = !actions.isEmpty();
-            for (Delete del : actions)
-                ret &= del.delete();
-            return ret;
         }
 
         // Search
@@ -498,6 +489,7 @@ public class ImportManagerMapOverlay extends AbstractMapOverlay2
         File resFile = new File(resource.getLocalPath());
         if (FileSystemUtils.isFile(resFile)) {
             if (FileSystemUtils.checkExtension(resFile, "zip")
+                    && resFile.getParentFile() != null
                     && resFile.getParentFile().getName()
                             .equals("datapackage")) {
                 MissionPackageFileIO.deletePackage(resFile.getAbsolutePath(),

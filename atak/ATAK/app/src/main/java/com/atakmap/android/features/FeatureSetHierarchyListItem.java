@@ -1,16 +1,15 @@
 
 package com.atakmap.android.features;
 
-import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
 import android.database.Cursor;
 import android.database.CursorWindow;
 import android.net.Uri;
-import android.view.LayoutInflater;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.BaseAdapter;
-import android.widget.ImageButton;
+import android.widget.Toast;
 
 import com.atakmap.android.data.URIContentHandler;
 import com.atakmap.android.data.URIContentManager;
@@ -23,7 +22,7 @@ import com.atakmap.android.hierarchy.action.GoTo;
 import com.atakmap.android.hierarchy.action.Search;
 import com.atakmap.android.hierarchy.action.Send;
 import com.atakmap.android.hierarchy.action.Visibility;
-import com.atakmap.android.hierarchy.items.AbstractHierarchyListItem;
+import com.atakmap.android.hierarchy.items.AbstractHierarchyListItem2;
 import com.atakmap.android.importexport.ExportFileMarshal;
 import com.atakmap.android.importexport.ExportFilters;
 import com.atakmap.android.importexport.FormatNotSupportedException;
@@ -53,6 +52,7 @@ import com.atakmap.map.layer.feature.geometry.Point;
 import com.atakmap.map.layer.feature.style.BasicPointStyle;
 import com.atakmap.map.layer.feature.style.BasicStrokeStyle;
 import com.atakmap.math.MathUtils;
+import com.atakmap.spatial.file.MvtSpatialDb;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -60,7 +60,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
 
-public class FeatureSetHierarchyListItem extends AbstractHierarchyListItem
+public class FeatureSetHierarchyListItem extends AbstractHierarchyListItem2
         implements View.OnClickListener, View.OnLongClickListener,
         Visibility, Search, Delete, Export {
 
@@ -232,6 +232,7 @@ public class FeatureSetHierarchyListItem extends AbstractHierarchyListItem
         this.window = new CursorWindow(null);
         this.window.setNumColumns(NUM_WINDOW_COLUMNS);
         this.window.setStartPosition(0);
+        this.asyncRefresh = false;
     }
 
     private void prepareQueryParams(
@@ -273,6 +274,11 @@ public class FeatureSetHierarchyListItem extends AbstractHierarchyListItem
     }
 
     @Override
+    public String getUID() {
+        return String.valueOf(this.entry.fsid);
+    }
+
+    @Override
     public String getIconUri() {
         return this.iconUri;
     }
@@ -280,7 +286,7 @@ public class FeatureSetHierarchyListItem extends AbstractHierarchyListItem
     @Override
     public int getChildCount() {
         if (this.featureChildCount == -1) {
-            FeatureDataStore.FeatureQueryParameters params = new FeatureDataStore.FeatureQueryParameters();
+            FeatureQueryParameters params = new FeatureQueryParameters();
             params.featureSetIds = Collections.singleton(this.entry.fsid);
 
             try {
@@ -296,7 +302,7 @@ public class FeatureSetHierarchyListItem extends AbstractHierarchyListItem
     @Override
     public int getDescendantCount() {
         if (this.descendantCount == -1) {
-            FeatureDataStore.FeatureQueryParameters params = new FeatureDataStore.FeatureQueryParameters();
+            FeatureQueryParameters params = new FeatureQueryParameters();
             params.featureSets = Collections.singleton(this.path + "/%");
             params.featureSetIds = this.entry.childFsids;
 
@@ -450,64 +456,72 @@ public class FeatureSetHierarchyListItem extends AbstractHierarchyListItem
 
     @Override
     public Object getUserObject() {
-        return null;
+        return entry.fsid;
     }
 
     @Override
-    public View getExtraView() {
+    public View getExtraView(View row, ViewGroup parent) {
         final File file = this.getGroupFile();
         if (file == null)
             return null;
 
-        URIContentHandler h = URIContentManager.getInstance().getHandler(file);
+        // Get/create view holder
+        FeatureExtraHolder h = FeatureExtraHolder.get(row, parent);
+        if (h == null)
+            return null;
 
-        LayoutInflater inflater = LayoutInflater.from(context);
-        View view = inflater.inflate(R.layout.feature_set_extra, null);
+        URIContentHandler fh = URIContentManager.getInstance().getHandler(file);
 
-        ImageButton panBtn = view.findViewById(R.id.panButton);
-        panBtn.setVisibility(h != null && h.isActionSupported(GoTo.class)
+        h.pan.setVisibility(fh != null && fh.isActionSupported(GoTo.class)
                 ? View.VISIBLE
                 : View.GONE);
 
-        ImageButton sendBtn = view.findViewById(R.id.sendButton);
-        sendBtn.setVisibility(h != null && h.isActionSupported(Send.class)
-                || FileSystemUtils.isFile(file) ? View.VISIBLE : View.GONE);
+        h.edit.setVisibility(this.contentType == null
+                || this.contentType.equals(MvtSpatialDb.MVT_CONTENT_TYPE)
+                        ? View.GONE
+                        : View.VISIBLE);
 
-        panBtn.setOnClickListener(this);
-        sendBtn.setOnClickListener(this);
+        h.send.setVisibility(this.contentType != null
+                && (fh != null && fh.isActionSupported(Send.class)
+                        || FileSystemUtils.isFile(file)) ? View.VISIBLE
+                                : View.GONE);
 
-        return view;
+        h.pan.setOnClickListener(this);
+        h.edit.setOnClickListener(this);
+        h.send.setOnClickListener(this);
+
+        return h.root;
     }
 
     @Override
-    public Sort refresh(final Sort sort) {
-        MapView mv = MapView.getMapView();
-        if (mv == null)
-            return sort;
-        ((Activity) mv.getContext()).runOnUiThread(new Runnable() {
-            @Override
-            public void run() {
-                // Call this on UI thread so the window is synced up correctly
-                Sort s = sort;
-                if (order != s) {
-                    if (!(s instanceof SortDistanceFrom)
-                            || featureChildCount >= MAX_DISTANCE_SORT)
-                        s = new SortAlphabet();
-                    order = s;
-                    window.clear();
-                    window.setNumColumns(NUM_WINDOW_COLUMNS);
+    protected void refreshImpl() {
+        // Call this on UI thread so the window is synced up correctly
+        Sort s = this.filter.sort;
+        if (order != s) {
+            if (!(s instanceof SortDistanceFrom)
+                    || featureChildCount >= MAX_DISTANCE_SORT)
+                s = new SortAlphabet();
+            order = s;
+            window.clear();
+            window.setNumColumns(NUM_WINDOW_COLUMNS);
 
-                    if (listener != null)
-                        listener.notifyDataSetChanged();
-                }
-            }
-        });
-        return sort;
+            notifyListener();
+        }
+    }
+
+    @Override
+    public boolean isGetChildrenSupported() {
+        return false;
+    }
+
+    @Override
+    public boolean hideIfEmpty() {
+        return false;
     }
 
     @Override
     public Set<HierarchyListItem> find(String terms) {
-        FeatureDataStore.FeatureQueryParameters params = new FeatureDataStore.FeatureQueryParameters();
+        FeatureQueryParameters params = new FeatureQueryParameters();
         prepareQueryParams(params);
         params.ignoredFields = FeatureQueryParameters.FIELD_ATTRIBUTES;
         if (terms.length() >= 2)
@@ -557,9 +571,13 @@ public class FeatureSetHierarchyListItem extends AbstractHierarchyListItem
 
         // Send file
         else if (id == R.id.sendButton) {
+            if (this.contentType == null)
+                return;
+
             MapView mv = MapView.getMapView();
             if (mv == null)
                 return;
+
             if (handler != null && handler.isActionSupported(Send.class))
                 ((Send) handler).promptSend();
             else
@@ -567,10 +585,40 @@ public class FeatureSetHierarchyListItem extends AbstractHierarchyListItem
                         .addFile(file, contentType)
                         .show();
         }
+
+        // Edit features
+        else if (id == R.id.editButton) {
+            // 500 feature limit
+            if (getDescendantCount() > 500) {
+                Toast.makeText(context,
+                        R.string.bulk_feature_edit_limit_msg,
+                        Toast.LENGTH_LONG).show();
+                return;
+            }
+
+            // collect the fsids from the current list item or any children it may have
+            long[] idArray;
+            if (this.entry.fsid == 0) {
+                int i = 0;
+                idArray = new long[this.entry.childFsids.size()];
+                for (long fsid : this.entry.childFsids)
+                    idArray[i++] = fsid;
+            } else
+                idArray = new long[] {
+                        this.entry.fsid
+                };
+            Intent i = new Intent(FeatureEditDropdownReceiver.SHOW_EDIT);
+            i.putExtra("fsids", idArray);
+            i.putExtra("title", this.title);
+            AtakBroadcast.getInstance().sendBroadcast(i);
+        }
     }
 
     @Override
     public boolean onLongClick(View view) {
+        if (this.contentType == null)
+            return false;
+
         final File fileToSend = this.getGroupFile();
         if (fileToSend == null) {
             Log.w(TAG, "Unable to send file");
@@ -658,7 +706,7 @@ public class FeatureSetHierarchyListItem extends AbstractHierarchyListItem
                 return false;
             }
         } else {
-            FeatureDataStore.FeatureQueryParameters params = new FeatureDataStore.FeatureQueryParameters();
+            FeatureQueryParameters params = new FeatureQueryParameters();
             prepareQueryParams(params);
             params.visibleOnly = true;
             params.limit = 1;
@@ -687,8 +735,12 @@ public class FeatureSetHierarchyListItem extends AbstractHierarchyListItem
                         + file.getAbsolutePath());
         Intent deleteIntent = new Intent();
         deleteIntent.setAction(ImportExportMapComponent.ACTION_DELETE_DATA);
-        deleteIntent.putExtra(ImportReceiver.EXTRA_CONTENT, this.contentType);
-        deleteIntent.putExtra(ImportReceiver.EXTRA_MIME_TYPE, this.mimeType);
+        if (this.contentType != null)
+            deleteIntent.putExtra(ImportReceiver.EXTRA_CONTENT,
+                    this.contentType);
+        if (this.mimeType != null)
+            deleteIntent.putExtra(ImportReceiver.EXTRA_MIME_TYPE,
+                    this.mimeType);
         deleteIntent.putExtra(ImportReceiver.EXTRA_URI, Uri.fromFile(file)
                 .toString());
         AtakBroadcast.getInstance().sendBroadcast(deleteIntent);
@@ -697,7 +749,7 @@ public class FeatureSetHierarchyListItem extends AbstractHierarchyListItem
     }
 
     private void fillWindow(CursorWindow resultsWindow, int off, int num) {
-        FeatureDataStore.FeatureQueryParameters params = new FeatureDataStore.FeatureQueryParameters();
+        FeatureQueryParameters params = new FeatureQueryParameters();
 
         FeatureCursor result = null;
         try {
@@ -706,12 +758,12 @@ public class FeatureSetHierarchyListItem extends AbstractHierarchyListItem
                     && this.featureChildCount < MAX_DISTANCE_SORT) {
                 final SortDistanceFrom distanceFrom = (SortDistanceFrom) order;
 
-                params.order = Collections.<FeatureDataStore.FeatureQueryParameters.Order> singleton(
-                        new FeatureDataStore.FeatureQueryParameters.Distance(
+                params.order = Collections.singleton(
+                        new FeatureQueryParameters.Distance(
                                 distanceFrom.location));
             } else { // default to alphabetic sort
-                params.order = Collections.<FeatureDataStore.FeatureQueryParameters.Order> singleton(
-                        FeatureDataStore.FeatureQueryParameters.FeatureName.INSTANCE);
+                params.order = Collections.singleton(
+                        FeatureQueryParameters.FeatureName.INSTANCE);
             }
 
             params.featureSetIds = Collections.singleton(this.entry.fsid);

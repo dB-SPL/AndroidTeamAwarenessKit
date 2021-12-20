@@ -7,7 +7,7 @@ import android.os.SystemClock;
 import android.util.Pair;
 
 import com.atakmap.android.elev.HeatMapOverlay;
-import com.atakmap.android.elev.dt2.Dt2ElevationModel;
+import com.atakmap.android.elev.dt2.Dt2ElevationData;
 import com.atakmap.android.elev.dt2.Dt2FileWatcher;
 import com.atakmap.app.DeveloperOptions;
 import com.atakmap.coremap.conversions.ConversionFactors;
@@ -745,7 +745,7 @@ public class GLHeatMap extends GLAsynchronousMapRenderable<HeatMapParams>
     /** MIL-PRF-89020A 3.11.3.1 */
     private static float getDtedHeight(short s) {
         // note that cast of Double.NaN to float results in Float.NaN
-        return (float) Dt2ElevationModel.interpretSample(s);
+        return (float) Dt2ElevationData.interpretSample(s);
     }
 
     private static boolean isElevValid(float value) {
@@ -801,8 +801,10 @@ public class GLHeatMap extends GLAsynchronousMapRenderable<HeatMapParams>
             final double minLat = this.result.getMinLatitude();
             final double maxLon = this.result.getMaxLongitude();
 
-            this.numCellsX = (int) (Math.floor(maxLon) - Math.floor(minLon)) + 1;
-            this.numCellsY = (int) (Math.floor(maxLat) - Math.floor(minLat)) + 1;
+            this.numCellsX = (int) (Math.floor(maxLon) - Math.floor(minLon))
+                    + 1;
+            this.numCellsY = (int) (Math.floor(maxLat) - Math.floor(minLat))
+                    + 1;
 
             this.geo2img = Matrix.mapQuads(
                     this.result.upperLeft.getLongitude(),
@@ -859,11 +861,14 @@ public class GLHeatMap extends GLAsynchronousMapRenderable<HeatMapParams>
                     }
 
                     int lat = (int) Math.floor(result.getMaxLatitude() - celly);
-                    int lng = (int) Math.floor(result.getMinLongitude() + cellx);
+                    int lng = (int) Math
+                            .floor(result.getMinLongitude() + cellx);
 
                     // Wrap IDL crossing
-                    if (lng >= 180) lng -= 360;
-                    else if (lng < -180) lng += 360;
+                    if (lng >= 180)
+                        lng -= 360;
+                    else if (lng < -180)
+                        lng += 360;
 
                     int cvIdx = Dt2FileWatcher.getCoverageIndex(lat, lng);
                     if (cvIdx < 0 || cvIdx >= coverages[0].size())
@@ -898,7 +903,8 @@ public class GLHeatMap extends GLAsynchronousMapRenderable<HeatMapParams>
                             try {
                                 File file = new File(dtedPath, Dt2FileWatcher
                                         .getRelativePath(level, lat, lng));
-                                channel = IOProviderFactory.getChannel(file, "r");
+                                channel = IOProviderFactory.getChannel(file,
+                                        "r");
 
                                 dted.readHeader(
                                         channel,
@@ -1156,11 +1162,14 @@ public class GLHeatMap extends GLAsynchronousMapRenderable<HeatMapParams>
                     }
 
                     int lat = (int) Math.floor(result.getMaxLatitude() - celly);
-                    int lng = (int) Math.floor(result.getMinLongitude() + cellx);
+                    int lng = (int) Math
+                            .floor(result.getMinLongitude() + cellx);
 
                     // Wrap IDL crossing
-                    if (lng >= 180) lng -= 360;
-                    else if (lng < -180) lng += 360;
+                    if (lng >= 180)
+                        lng -= 360;
+                    else if (lng < -180)
+                        lng += 360;
 
                     int cvIdx = Dt2FileWatcher.getCoverageIndex(lat, lng);
                     if (cvIdx < 0 || cvIdx >= coverages[0].size())
@@ -1235,7 +1244,8 @@ public class GLHeatMap extends GLAsynchronousMapRenderable<HeatMapParams>
                             try {
                                 File file = new File(dtedPath, Dt2FileWatcher
                                         .getRelativePath(level, lat, lng));
-                                channel = IOProviderFactory.getChannel(file, "r");
+                                channel = IOProviderFactory.getChannel(file,
+                                        "r");
 
                                 dted.readHeader(channel, cellMaxLat,
                                         cellMinLng);

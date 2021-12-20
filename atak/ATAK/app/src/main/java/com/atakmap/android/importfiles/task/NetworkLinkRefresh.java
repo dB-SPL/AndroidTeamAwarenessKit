@@ -7,7 +7,6 @@ import android.util.Pair;
 import com.atakmap.android.importfiles.http.NetworkLinkDownloader;
 import com.atakmap.android.importfiles.resource.RemoteResource;
 import com.atakmap.coremap.concurrent.NamedThreadFactory;
-import com.atakmap.coremap.filesystem.FileSystemUtils;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.spatial.kml.KMLUtil;
 
@@ -54,7 +53,7 @@ public class NetworkLinkRefresh {
                 filename);
         if (taskPair != null) {
             // Skip update if nothing has changed
-            NetworkLinkRefreshTask task = (NetworkLinkRefreshTask) taskPair.first;
+            NetworkLinkRefreshTask task = taskPair.first;
             if (task._seconds == res.getRefreshSeconds())
                 return;
 

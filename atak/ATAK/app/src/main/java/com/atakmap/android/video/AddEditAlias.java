@@ -22,6 +22,7 @@ import android.graphics.Color;
 
 import com.atakmap.android.util.SimpleItemSelectedListener;
 import com.atakmap.android.video.manager.VideoManager;
+import com.atakmap.annotations.FortifyFinding;
 import com.atakmap.comms.NetworkDeviceManager;
 import com.atakmap.comms.NetworkDeviceManager.NetworkDevice;
 import com.atakmap.android.video.ConnectionEntry.Protocol;
@@ -94,11 +95,7 @@ public class AddEditAlias {
     private String initialPath = "";
     private String initialTimeout = "";
 
-    /**
-     * Fortify has flagged this as Password Management: Hardcoded Password
-     * This is a empty assignment just for the purposes of making the code simpler instead of
-     * extra null pointer checks.    This is not hardcoded.
-     */
+    @FortifyFinding(finding = "Password Management: Hardcoded Password", rational = "This is a empty assignment just for the purposes of making the code simpler instead of extra null pointer checks.    This is not hardcoded.")
     private String initialPassphrase = "";
     private boolean initialBuffered = false;
     private String initialBufferTime = "";
@@ -187,7 +184,6 @@ public class AddEditAlias {
                     try {
                         String temp = "http://" + host;
 
-
                         URI u = URI.create(temp);
                         if (u.getPort() > 0)
                             portVal = "" + u.getPort();
@@ -195,7 +191,7 @@ public class AddEditAlias {
                         if (host == null)
                             throw new Exception("badhost");
 
-                        if (!FileSystemUtils.isEmpty(u.getUserInfo()) )
+                        if (!FileSystemUtils.isEmpty(u.getUserInfo()))
                             host = u.getUserInfo() + "@" + host;
 
                     } catch (Exception e) {
@@ -205,7 +201,6 @@ public class AddEditAlias {
                                 Toast.LENGTH_LONG).show();
                         return;
                     }
-
 
                 } else {
                     Log.d(TAG,

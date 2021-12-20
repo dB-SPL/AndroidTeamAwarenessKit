@@ -17,7 +17,6 @@ import com.atakmap.android.user.PlacePointTool;
 import com.atakmap.android.util.ATAKUtilities;
 import com.atakmap.app.R;
 import com.atakmap.coremap.maps.assets.Icon;
-import com.atakmap.coremap.maps.coords.DistanceCalculations;
 import com.atakmap.coremap.maps.coords.GeoCalculations;
 import com.atakmap.coremap.maps.coords.GeoPoint;
 
@@ -89,7 +88,7 @@ public class ResectionMapManager implements MapGroup.OnItemListChangedListener,
         m.setType(LANDMARK_TYPE);
         m.setMetaBoolean("nevercot", true);
         m.setMetaString("entry", "user");
-        m.setMetaBoolean("movable", true);
+        m.setMovable(true);
         m.setMetaBoolean("removable", true);
         m.setMetaBoolean("editable", true);
         m.setMetaString("menu", "menus/resection_landmark.xml");
@@ -104,8 +103,7 @@ public class ResectionMapManager implements MapGroup.OnItemListChangedListener,
         Marker self = _mapView.getSelfMarker();
         if (self != null && self.getGroup() != null)
             bearing = self.getPoint().bearingTo(point);
-        m.setMetaDouble("bearing", bearing);
-        m.notifyMetadataChanged("bearing");
+        m.setMetaDouble("landmarkBearing", bearing);
         return m;
     }
 
@@ -162,7 +160,7 @@ public class ResectionMapManager implements MapGroup.OnItemListChangedListener,
         if (isLandmark(item)) {
             Marker m = (Marker) item;
             m.addOnPointChangedListener(this);
-            m.addOnMetadataChangedListener(this);
+            m.addOnMetadataChangedListener("landmarkBearing", this);
             if (!_bulkOperation && _adapter != null)
                 _adapter.notifyDataSetChanged();
         }
@@ -173,7 +171,7 @@ public class ResectionMapManager implements MapGroup.OnItemListChangedListener,
         if (isLandmark(item)) {
             Marker m = (Marker) item;
             m.removeOnPointChangedListener(this);
-            m.removeOnMetadataChangedListener(this);
+            m.removeOnMetadataChangedListener("landmarkBearing", this);
             String uid = m.getUID();
             _mapGroup.removeItem(_mapGroup.deepFindUID(uid + ".line"));
             _mapGroup.removeItem(_mapGroup.deepFindUID(uid + ".end"));
@@ -184,16 +182,16 @@ public class ResectionMapManager implements MapGroup.OnItemListChangedListener,
 
     @Override
     public void onPointChanged(PointMapItem pmi) {
-        onMetadataChanged(pmi, "bearing");
+        onMetadataChanged(pmi, "landmarkBearing");
         if (!_bulkOperation && _adapter != null)
             _adapter.notifyDataSetChanged();
     }
 
     @Override
     public void onMetadataChanged(MapItem item, final String field) {
-        if (isLandmark(item) && field.equals("bearing")) {
+        if (isLandmark(item) && field.equals("landmarkBearing")) {
             Marker m = (Marker) item;
-            double bearing = m.getMetaDouble("bearing", 0);
+            double bearing = m.getMetaDouble("landmarkBearing", 0);
             bearing = (bearing + 180d) % 360d;
             GeoPoint endPoint = GeoPoint.createMutable();
             GeoPoint e = GeoCalculations.pointAtDistance(
@@ -302,7 +300,7 @@ public class ResectionMapManager implements MapGroup.OnItemListChangedListener,
 
         private Matrix getNormal() {
             if (_normal == null) {
-                double bearing = _landmark.getMetaDouble("bearing", 0);
+                double bearing = _landmark.getMetaDouble("landmarkBearing", 0);
                 bearing = (bearing + 180d) % 360d;
                 double aziRad = Math.toRadians(bearing);
                 _normal = new Matrix(new double[] {

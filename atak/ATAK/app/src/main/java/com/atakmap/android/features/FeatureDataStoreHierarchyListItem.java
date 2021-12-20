@@ -212,11 +212,7 @@ public class FeatureDataStoreHierarchyListItem extends
                 featureSet = result.get();
                 final String path = featureSet.getName();
                 // XXX - prefer not to do instance check intra-loop
-                if (spatialDb instanceof DataSourceFeatureDataStore)
-                    file = ((DataSourceFeatureDataStore) spatialDb)
-                            .getFile(featureSet);
-                else
-                    file = null;
+                file = Utils.getSourceFile(spatialDb, featureSet);
                 root = fileToRoot.get(file);
                 if (root == null)
                     fileToRoot.put(file, root = new PathEntry(""));

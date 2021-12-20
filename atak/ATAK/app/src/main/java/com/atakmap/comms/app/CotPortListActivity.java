@@ -9,6 +9,7 @@ import android.content.Intent;
 import android.content.pm.ActivityInfo;
 import android.os.Bundle;
 import androidx.core.app.NavUtils;
+import androidx.core.content.ContextCompat;
 import android.view.LayoutInflater;
 import android.view.Menu;
 import android.view.MenuInflater;
@@ -26,6 +27,7 @@ import android.widget.Toast;
 import com.atakmap.android.metrics.activity.MetricActivity;
 import com.atakmap.android.preference.AtakPreferenceFragment;
 import com.atakmap.android.util.ATAKConstants;
+import com.atakmap.annotations.DeprecatedApi;
 import com.atakmap.app.R;
 import com.atakmap.comms.CotService;
 import com.atakmap.comms.CotServiceRemote;
@@ -39,27 +41,32 @@ import com.atakmap.net.AtakCertificateDatabaseIFace;
 import com.atakmap.net.CertificateEnrollmentClient;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.ListIterator;
 
 public abstract class CotPortListActivity extends MetricActivity {
 
     public static final String TAG = "CotPortListActivity";
+    private boolean ascending = true;
 
     /**
      * Class that encapsulates the relevant attributes of a CotNetPort for display. This is only the
      * UI representation of the port; the actual port is an instance of a class that inherits from
      * AbstractPort.
      * 
-     * 
+     * @deprecated Use {@link TAKServer} instead
      */
+    @Deprecated
+    @DeprecatedApi(since = "4.4", forRemoval = true, removeAt = "4.7")
     public static class CotPort extends TAKServer {
         public CotPort(Bundle bundle) throws IllegalArgumentException {
             super(bundle);
         }
 
         public CotPort(TAKServer other) {
-            super(other.getData());
+            super(other);
         }
     }
 
@@ -90,6 +97,13 @@ public abstract class CotPortListActivity extends MetricActivity {
 
         public void refresh(ArrayList<CotPort> list) {
             this.portDestinations = list;
+
+            try {
+                listActivity.sort();
+            } catch (Exception e) {
+                Log.e(TAG, "exception sorting portDestinations!", e);
+            }
+
             notifyDataSetChanged();
         }
 
@@ -359,12 +373,12 @@ public abstract class CotPortListActivity extends MetricActivity {
                 currentlyEditingCotPort.getConnectString());
         String oldServer = oldNcs.getHost();
 
-        byte[] clientCert = certDB.getCertificateForTypeAndServer(
+        byte[] clientCert = certDB.getCertificateForTypeAndServerAndPort(
                 AtakCertificateDatabaseIFace.TYPE_CLIENT_CERTIFICATE,
-                oldServer);
-        byte[] caCert = certDB.getCertificateForTypeAndServer(
+                oldServer, oldNcs.getPort());
+        byte[] caCert = certDB.getCertificateForTypeAndServerAndPort(
                 AtakCertificateDatabaseIFace.TYPE_TRUST_STORE_CA,
-                oldServer);
+                oldServer, oldNcs.getPort());
         AtakAuthenticationCredentials clientCertPw = authDB
                 .getCredentialsForType(
                         AtakAuthenticationCredentials.TYPE_clientPassword,
@@ -398,15 +412,15 @@ public abstract class CotPortListActivity extends MetricActivity {
         String newServer = newNcs.getHost();
 
         if (clientCert != null) {
-            certDB.saveCertificateForTypeAndServer(
+            certDB.saveCertificateForTypeAndServerAndPort(
                     AtakCertificateDatabaseIFace.TYPE_CLIENT_CERTIFICATE,
-                    newServer, clientCert);
+                    newServer, newNcs.getPort(), clientCert);
         }
 
         if (caCert != null) {
-            certDB.saveCertificateForTypeAndServer(
+            certDB.saveCertificateForTypeAndServerAndPort(
                     AtakCertificateDatabaseIFace.TYPE_TRUST_STORE_CA,
-                    newServer, caCert);
+                    newServer, newNcs.getPort(), caCert);
         }
 
         if (clientCertPw != null && clientCertPw.password != null
@@ -437,13 +451,13 @@ public abstract class CotPortListActivity extends MetricActivity {
 
         // cleanup any dangling certs if the server changed
         if (!newServer.equalsIgnoreCase(oldServer)) {
-            certDB.deleteCertificateForTypeAndServer(
+            certDB.deleteCertificateForTypeAndServerAndPort(
                     AtakCertificateDatabaseIFace.TYPE_CLIENT_CERTIFICATE,
-                    oldServer);
+                    oldServer, oldNcs.getPort());
 
-            certDB.deleteCertificateForTypeAndServer(
+            certDB.deleteCertificateForTypeAndServerAndPort(
                     AtakCertificateDatabaseIFace.TYPE_TRUST_STORE_CA,
-                    oldServer);
+                    oldServer, oldNcs.getPort());
 
             authDB.invalidateForType(
                     AtakAuthenticationCredentials.TYPE_clientPassword,
@@ -484,9 +498,9 @@ public abstract class CotPortListActivity extends MetricActivity {
                 || !FileSystemUtils.isEquals(username, creds.username)
                 || !FileSystemUtils.isEquals(password, creds.password)
                 || CotService.getCertificateDatabase()
-                        .getCertificateForTypeAndServer(
+                        .getCertificateForTypeAndServerAndPort(
                                 AtakCertificateDatabaseIFace.TYPE_CLIENT_CERTIFICATE,
-                                newServer) == null) {
+                                newServer, newNcs.getPort()) == null) {
             CertificateEnrollmentClient.getInstance().enroll(this,
                     description, connectString, cacheCreds, expiration, null,
                     true);
@@ -504,8 +518,45 @@ public abstract class CotPortListActivity extends MetricActivity {
     @Override
     public boolean onCreateOptionsMenu(Menu menu) {
         MenuInflater inflater = getMenuInflater();
-        inflater.inflate(R.menu.add_menu, menu);
+        inflater.inflate(R.menu.network_connections_menu, menu);
+
+        final MenuItem item = menu.findItem(R.id.network_connections_menu_sort);
+        if (item != null) {
+            item.setIcon(ContextCompat.getDrawable(this,
+                    ascending ? R.drawable.alpha_sort
+                            : R.drawable.alpha_sort_desc));
+        }
         return true;
+    }
+
+    private void sort() {
+        try {
+            if (_portList == null) {
+                Log.e(TAG, "_portList! is null in sort!");
+                return;
+            }
+
+            Collections.sort(_portList, new Comparator<CotPort>() {
+                @Override
+                public int compare(CotPort lhs, CotPort rhs) {
+                    if (lhs == null || rhs == null ||
+                            lhs.getDescription() == null
+                            || rhs.getDescription() == null) {
+                        Log.e(TAG, "null CotPort or description in compare!");
+                        return 0;
+                    }
+
+                    return ascending
+                            ? lhs.getDescription()
+                                    .compareToIgnoreCase(rhs.getDescription())
+                            : rhs.getDescription()
+                                    .compareToIgnoreCase(lhs.getDescription());
+                }
+            });
+
+        } catch (Exception e) {
+            Log.e(TAG, "exception in sort!", e);
+        }
     }
 
     @Override
@@ -518,6 +569,15 @@ public abstract class CotPortListActivity extends MetricActivity {
                 Log.d(TAG, "error occurred", iae);
                 finish();
             }
+            return true;
+        } else if (id == R.id.network_connections_menu_sort) {
+            Log.d(TAG, "network_connections_menu_sort selected");
+            ascending = !ascending;
+            item.setIcon(ContextCompat.getDrawable(this,
+                    ascending ? R.drawable.alpha_sort
+                            : R.drawable.alpha_sort_desc));
+            sort();
+            _portAdapter.refresh(_portList);
             return true;
         }
 

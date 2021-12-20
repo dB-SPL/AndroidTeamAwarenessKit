@@ -4,6 +4,8 @@ package com.atakmap.android.importfiles.http;
 import android.content.Context;
 import android.os.Bundle;
 
+import com.atakmap.android.filesystem.ResourceFile;
+import com.atakmap.android.filesystem.ResourceFile.MIMEType;
 import com.atakmap.android.http.rest.NetworkOperationManager;
 import com.atakmap.android.http.rest.operation.GetFileOperation;
 import com.atakmap.android.http.rest.operation.NetworkOperation;
@@ -11,8 +13,14 @@ import com.atakmap.android.importfiles.resource.RemoteResource;
 import com.atakmap.android.importfiles.task.ImportFileTask;
 import com.atakmap.android.importfiles.task.ImportRemoteFileTask;
 import com.atakmap.app.R;
+import com.atakmap.comms.NetConnectString;
+import com.atakmap.comms.TAKServer;
+import com.atakmap.comms.TAKServerListener;
+import com.atakmap.comms.http.TakHttpClient;
+import com.atakmap.comms.http.TakHttpResponse;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
 import com.atakmap.coremap.io.IOProviderFactory;
+import com.atakmap.coremap.locale.LocaleUtil;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.spatial.file.SpatialDbContentSource;
 import com.atakmap.util.zip.IoUtils;
@@ -23,7 +31,10 @@ import com.atakmap.android.http.rest.request.GetFileRequest;
 
 import com.atakmap.net.AtakAuthenticationHandlerHTTP;
 
+import org.apache.http.client.methods.HttpGet;
+
 import java.net.HttpURLConnection;
+import java.net.URI;
 import java.net.URL;
 import java.net.URLConnection;
 import java.io.InputStream;
@@ -101,10 +112,51 @@ public class ImportFileDownloader extends NetworkLinkDownloader {
             public void run() {
                 Log.d(TAG, "start download... ");
                 final String urlStr = r.getUrl();
-                try {
-                    GetFileRequest request = r;
+                _downloading.add(urlStr);
 
-                    _downloading.add(urlStr);
+                try {
+                    InputStream input;
+                    GetFileRequest request = r;
+                    String fileName = request.getFileName();
+
+                    URI uri = new URI(urlStr);
+                    String host = uri.getHost();
+                    String contentType = null;
+
+                    boolean hostIsTakServer = false;
+
+                    TAKServer[] servers = TAKServerListener.getInstance()
+                            .getConnectedServers();
+                    if (servers != null) {
+                        for (TAKServer server : servers) {
+                            NetConnectString netConnectString = NetConnectString
+                                    .fromString(
+                                            server.getConnectString());
+                            if (netConnectString.getHost()
+                                    .equalsIgnoreCase(host)) {
+                                hostIsTakServer = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (hostIsTakServer &&
+                            urlStr.toLowerCase(LocaleUtil.getCurrent())
+                                    .startsWith("https")
+                            &&
+                            uri.getPort() == 8443) {
+
+                        String baseUrl = "https://" + uri.getHost() + ":"
+                                + uri.getPort();
+                        TakHttpClient client = TakHttpClient
+                                .GetHttpClient(baseUrl);
+                        HttpGet httpget = new HttpGet(urlStr);
+                        TakHttpResponse response = client.execute(httpget);
+
+                        input = response.getEntity().getContent();
+                        contentType = response.getContentType();
+
+                    } else {
                     URL url = new URL(urlStr);
                     URLConnection conn = url.openConnection();
                     conn.setRequestProperty("User-Agent", "TAK");
@@ -113,7 +165,6 @@ public class ImportFileDownloader extends NetworkLinkDownloader {
                     conn.setReadTimeout(30000);
 
                     // support authenticated connections
-                    InputStream input;
                     if (conn instanceof HttpURLConnection) {
                         AtakAuthenticationHandlerHTTP.Connection connection;
                         connection = AtakAuthenticationHandlerHTTP
@@ -126,15 +177,26 @@ public class ImportFileDownloader extends NetworkLinkDownloader {
                         input = conn.getInputStream();
                     }
 
-                    File fout = new File(request.getDir(),
-                            request.getFileName());
+                        contentType = conn.getHeaderField("Content-Type");
+
+                    }
+
+                    // Add extension based on response content type
+                    if (!FileSystemUtils.isEmpty(contentType)) {
+                        MIMEType mt = ResourceFile
+                                .getMIMETypeForMIME(contentType);
+                        if (mt != null && !fileName.endsWith("." + mt.EXT))
+                            fileName += "." + mt.EXT;
+                    }
+
+                    File fout = new File(request.getDir(), fileName);
 
                     try (FileOutputStream fos = IOProviderFactory
                             .getOutputStream(fout)) {
                         FileSystemUtils.copy(input, fos);
-                        Log.d(TAG, "success: " + request.getFileName());
+                        Log.d(TAG, "success: " + fileName);
                     } catch (Exception e) {
-                        Log.d(TAG, "failure: " + request.getFileName());
+                        Log.d(TAG, "failure: " + fileName);
                         onRequestConnectionError(new Request(
                                 NetworkOperationManager.REQUEST_TYPE_GET_FILE),
                                 new RequestManager.ConnectionError(900,
@@ -144,6 +206,7 @@ public class ImportFileDownloader extends NetworkLinkDownloader {
                     }
                     Bundle b = new Bundle();
                     b.putParcelable(GetFileOperation.PARAM_GETFILE, request);
+                    b.putString("path", fout.getAbsolutePath());
                     onRequestFinished(new Request(
                             NetworkOperationManager.REQUEST_TYPE_GET_FILE), b);
 
@@ -160,10 +223,6 @@ public class ImportFileDownloader extends NetworkLinkDownloader {
             }
         };
         t.start();
-
-        //HTTPRequestManager.from(_context).execute(
-        //        request.createGetFileRequests(), this);
-
     }
 
     @Override
@@ -195,8 +254,7 @@ public class ImportFileDownloader extends NetworkLinkDownloader {
                 return;
             }
 
-            File downloadedFile = new File(initialRequest.getDir(),
-                    initialRequest.getFileName());
+            File downloadedFile = new File(resultData.getString("path"));
             if (!FileSystemUtils.isFile(downloadedFile)) {
                 Log.e(TAG,
                         "Remote File Download Failed - Failed to create local file");

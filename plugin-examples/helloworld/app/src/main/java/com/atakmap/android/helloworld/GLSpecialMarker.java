@@ -14,6 +14,12 @@ import com.atakmap.android.maps.graphics.GLMapItem2;
 import com.atakmap.android.maps.graphics.GLMapItemSpi3;
 import com.atakmap.android.maps.graphics.GLPointMapItem2;
 import com.atakmap.android.maps.graphics.GLMarker2;
+
+import com.atakmap.map.hittest.HitRect;
+import com.atakmap.map.hittest.HitTestResult;
+import com.atakmap.map.hittest.HitTestQueryParameters;
+import com.atakmap.map.MapRenderer3;
+
 import com.atakmap.coremap.maps.coords.GeoPointMetaData;
 import com.atakmap.map.MapRenderer;
 import com.atakmap.map.opengl.GLMapBatchable2;
@@ -25,7 +31,8 @@ import com.atakmap.opengl.GLNinePatch;
 import com.atakmap.opengl.GLRenderBatch2;
 import com.atakmap.opengl.GLText;
 
-public class GLSpecialMarker extends GLPointMapItem2 implements GLMapBatchable2 {
+public class GLSpecialMarker extends GLPointMapItem2
+        implements GLMapBatchable2 {
 
     private GeoPointMetaData gpm = new GeoPointMetaData();
 
@@ -41,11 +48,10 @@ public class GLSpecialMarker extends GLPointMapItem2 implements GLMapBatchable2 
             final MapRenderer surface = object.first;
             final MapItem item = object.second;
 
-
             if (!("b-g-n-M-O-B".equals(item.getType())))
                 return null;
 
-            if (!(item instanceof Marker)) 
+            if (!(item instanceof Marker))
                 return null;
 
             return new GLSpecialMarker(surface, (Marker) item);
@@ -63,7 +69,7 @@ public class GLSpecialMarker extends GLPointMapItem2 implements GLMapBatchable2 
 
     public GLSpecialMarker(MapRenderer surface, PointMapItem subject) {
         super(surface, subject, GLMapView.RENDER_PASS_SPRITES);
-        markerRenderer = new GLMarker2(surface, (Marker)subject); //, GLMapView.RENDER_PASS_SPRITES);
+        markerRenderer = new GLMarker2(surface, (Marker) subject); //, GLMapView.RENDER_PASS_SPRITES);
         markerRenderer.startObserving();
 
         this.subject = subject;
@@ -132,8 +138,14 @@ public class GLSpecialMarker extends GLPointMapItem2 implements GLMapBatchable2 
 
         GLES20FixedPipeline.glPopMatrix();
 
-
     }
+
+    @Override
+    protected HitTestResult hitTestImpl(MapRenderer3 renderer,
+            HitTestQueryParameters params) {
+        return markerRenderer.hitTest(renderer, params);
+    }
+
 
     /**************************************************************************/
 

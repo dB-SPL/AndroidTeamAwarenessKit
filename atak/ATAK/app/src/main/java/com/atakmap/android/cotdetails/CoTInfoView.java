@@ -45,7 +45,7 @@ import com.atakmap.android.gui.ColorPalette.OnColorSelectedListener;
 import com.atakmap.android.gui.CoordDialogView;
 import com.atakmap.android.gui.RangeAndBearingTableHandler;
 import com.atakmap.android.gui.RangeEntryDialog;
-import com.atakmap.android.icons.Icon2525bTypeResolver;
+import com.atakmap.android.icons.Icon2525cTypeResolver;
 import com.atakmap.android.icons.UserIcon;
 import com.atakmap.android.image.ImageGalleryReceiver;
 import com.atakmap.android.ipc.AtakBroadcast;
@@ -399,7 +399,7 @@ public class CoTInfoView extends RelativeLayout
                 b.setNegativeButton(R.string.cancel, null);
                 coordView.setParameters(_marker.getGeoPointMetaData(),
                         mapView.getPoint(),
-                        _cFormat, !_marker.getMetaBoolean("movable", false));
+                        _cFormat, !_marker.getMovable());
 
                 // Overrides setPositive button onClick to keep the window open when the input is invalid.
                 final AlertDialog locDialog = b.create();
@@ -472,18 +472,13 @@ public class CoTInfoView extends RelativeLayout
                 if (_marker == null)
                     return;
                 double heightM = _marker.getHeight();
-                Span heightUnit = Span.findFromValue(_marker.getMetaInteger(
-                        "height_unit", Span.FOOT.getValue()));
-                if (heightUnit == null)
-                    heightUnit = Span.FOOT;
                 new RangeEntryDialog(mapView).show(
-                        R.string.enter_marker_height, heightM, heightUnit,
+                        R.string.enter_marker_height, heightM,
+                        _prefs.getAltitudeUnits(),
                         new RangeEntryDialog.Callback() {
                             @Override
                             public void onSetValue(double valueM, Span unit) {
                                 _marker.setHeight(valueM);
-                                _marker.setMetaInteger("height_unit",
-                                        unit.getValue());
                                 _marker.persist(
                                         mapView.getMapEventDispatcher(),
                                         null, this.getClass());
@@ -1011,7 +1006,7 @@ public class CoTInfoView extends RelativeLayout
         try {
             if (tsListener != null) {
                 tsListener.typeSet(_iconButton, _cotButton,
-                        (ImageButton) findViewById(R.id.cotInfoModifierButton),
+                        findViewById(R.id.cotInfoModifierButton),
                         _marker);
             }
         } catch (Exception e) {
@@ -1024,12 +1019,12 @@ public class CoTInfoView extends RelativeLayout
             return "";
 
         // get the CoT name from some library
-        String _25b25bName = Icon2525bTypeResolver.mil2525bFromCotType(type);
+        String _25b25bName = Icon2525cTypeResolver.mil2525cFromCotType(type);
 
         String targ = context.getString(R.string.not_recognized);
         boolean includeType = true;
         if (_25b25bName.length() > 3) {
-            targ = Icon2525bTypeResolver.getHumanName(type, context);
+            targ = Icon2525cTypeResolver.getHumanName(type, context);
             includeType = targ.equals(context.getString(
                     R.string.not_recognized));
         } else if (type.equals(QUICK_NAV_COT) || type.equals(WAYPOINT_COT))
@@ -1134,14 +1129,11 @@ public class CoTInfoView extends RelativeLayout
                 point.get().getCE()).getColor());
         // Disable button if marker doesn't belong to our device
         String parentUID = _marker.getMetaString("parent_uid", null);
-        String myUID = _prefs.get("bestDeviceUID", "");
-        _tleButton.setEnabled(parentUID == null || parentUID.equals(myUID));
+        _tleButton.setEnabled(parentUID == null || parentUID.equals(
+                MapView.getDeviceUid()));
 
         double height = _marker.getHeight();
-        Span heightUnit = Span.findFromValue(_marker.getMetaInteger(
-                "height_unit", Span.FOOT.getValue()));
-        if (heightUnit == null)
-            heightUnit = Span.FOOT;
+        Span heightUnit = _prefs.getAltitudeUnits();
         _heightButton.setText(!Double.isNaN(height) ? SpanUtilities.format(
                 height, Span.METER, heightUnit, 2)
                 : "-- " + heightUnit.getAbbrev());

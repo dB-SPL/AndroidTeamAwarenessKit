@@ -6,13 +6,14 @@
 //
 ////////////////////////////////////////////////////////////////////////////////
 
- buildscript {
+buildscript {
+
     ext.PLUGIN_VERSION = "1.0"
-    ext.ATAK_VERSION = "4.2.1"
+    ext.ATAK_VERSION = "4.4.0"
 
-    def takdevVersion = '2.0.0'
+    def takdevVersion = '2.+'
 
-    ext.getValueFromPropertiesFile = { propFile, key ->
+    def getValueFromPropertiesFile = { propFile, key ->
         if(!propFile.isFile() || !propFile.canRead())
             return null
         def prop = new Properties()
@@ -43,9 +44,8 @@
     ext.takdevPlugin = getProperty('takdev.plugin', "${rootDir}/../../atak-gradle-takdev.jar")
 
     repositories {
-        jcenter()
-        google()
         mavenCentral()
+        google()
         mavenLocal()
         maven {
             url "https://jitpack.io"
@@ -59,21 +59,21 @@
         }
     }
     dependencies {
-        classpath 'com.android.tools.build:gradle:4.0.1'
+        classpath 'com.android.tools.build:gradle:4.0.2'
         if(isDevKitEnabled()) {
             classpath "com.atakmap.gradle:atak-gradle-takdev:${takdevVersion}"
         } else {
             classpath files(takdevPlugin)
         }
-     }
+    }
+}
 
- }
 
 allprojects {
     repositories {
-        jcenter()
-        google()
         mavenCentral()
+        google()
+
         mavenLocal()
         maven {
             url "https://jitpack.io"
@@ -83,7 +83,6 @@ allprojects {
 
 apply plugin: 'com.android.application'
 apply plugin: 'atak-takdev-plugin'
-
 
 dependencies {
 
@@ -163,7 +162,6 @@ android {
           abortOnError true
       }
 
-
     signingConfigs {
         debug {
             def kf = project.getValueFromPropertiesFile(project.rootProject.file('local.properties'), 'takDebugKeyFile')
@@ -196,7 +194,6 @@ android {
             if (kp != null) keyPassword kp
         }
     }
-
 
     buildTypes {
         debug {
@@ -251,7 +248,7 @@ android {
             getIsDefault().set(true)
             dimension "application"
             manifestPlaceholders = [atakApiVersion: "com.atakmap.app@" + ATAK_VERSION + ".MIL"]
-            buildConfigField 'String', 'ATAK_PACKAGE_NAME', '"com.atakmap.app"'
+            buildConfigField 'String', 'ATAK_PACKAGE_NAME', '"com.atakmap.app.civ"'
         }
         civ {
             dimension "application"
@@ -261,42 +258,54 @@ android {
         fvey {
             dimension "application"
             manifestPlaceholders = [atakApiVersion: "com.atakmap.app@" + ATAK_VERSION + ".FVEY"]
-            buildConfigField 'String', 'ATAK_PACKAGE_NAME', '"com.atakmap.app.fvey"'
+            buildConfigField 'String', 'ATAK_PACKAGE_NAME', '"com.atakmap.app.civ"'
         }
         aus {
             dimension "application"
             manifestPlaceholders = [atakApiVersion: "com.atakmap.app@" + ATAK_VERSION + ".AUS"]
-            buildConfigField 'String', 'ATAK_PACKAGE_NAME', '"com.atakmap.app.fvey"'
+            buildConfigField 'String', 'ATAK_PACKAGE_NAME', '"com.atakmap.app.civ"'
         }
         nzl {
             dimension "application"
             manifestPlaceholders = [atakApiVersion: "com.atakmap.app@" + ATAK_VERSION + ".NZL"]
-            buildConfigField 'String', 'ATAK_PACKAGE_NAME', '"com.atakmap.app.fvey"'
+            buildConfigField 'String', 'ATAK_PACKAGE_NAME', '"com.atakmap.app.civ"'
         }
         prt {
             dimension "application"
             manifestPlaceholders = [atakApiVersion: "com.atakmap.app@" + ATAK_VERSION + ".PRT"]
-            buildConfigField 'String', 'ATAK_PACKAGE_NAME', '"com.atakmap.app.fvey"'
+            buildConfigField 'String', 'ATAK_PACKAGE_NAME', '"com.atakmap.app.civ"'
         }
         nor {
             dimension "application"
             manifestPlaceholders = [atakApiVersion: "com.atakmap.app@" + ATAK_VERSION + ".NOR"]
-            buildConfigField 'String', 'ATAK_PACKAGE_NAME', '"com.atakmap.app.fvey"'
+            buildConfigField 'String', 'ATAK_PACKAGE_NAME', '"com.atakmap.app.civ"'
         }
         hun {
             dimension "application"
             manifestPlaceholders = [atakApiVersion: "com.atakmap.app@" + ATAK_VERSION + ".HUN"]
-            buildConfigField 'String', 'ATAK_PACKAGE_NAME', '"com.atakmap.app.fvey"'
+            buildConfigField 'String', 'ATAK_PACKAGE_NAME', '"com.atakmap.app.civ"'
         }
         bel {
             dimension "application"
             manifestPlaceholders = [atakApiVersion: "com.atakmap.app@" + ATAK_VERSION + ".BEL"]
-            buildConfigField 'String', 'ATAK_PACKAGE_NAME', '"com.atakmap.app.fvey"'
+            buildConfigField 'String', 'ATAK_PACKAGE_NAME', '"com.atakmap.app.civ"'
+        }
+        gov {
+            dimension "application"
+            manifestPlaceholders = [atakApiVersion: "com.atakmap.app@" + ATAK_VERSION + ".CIV"]  // CIV API with possible distributiion restrictions (see PluginTemplate)
+        }
+        swe {
+            dimension "application"
+            manifestPlaceholders = [atakApiVersion: "com.atakmap.app@" + ATAK_VERSION + ".SWE"]
+        }
+        natosof {
+            dimension "application"
+            manifestPlaceholders = [atakApiVersion: "com.atakmap.app@" + ATAK_VERSION + ".NATOSOF"]
         }
         gbr {
             dimension "application"
             manifestPlaceholders = [atakApiVersion: "com.atakmap.app@" + ATAK_VERSION + ".GBR"]
-            buildConfigField 'String', 'ATAK_PACKAGE_NAME', '"com.atakmap.app.fvey"'
+            buildConfigField 'String', 'ATAK_PACKAGE_NAME', '"com.atakmap.app.civ"'
         }
         gov {
             dimension "application"
@@ -306,24 +315,11 @@ android {
         can {
             dimension "application"
             manifestPlaceholders = [atakApiVersion: "com.atakmap.app@" + ATAK_VERSION + ".CAN"]
-            buildConfigField 'String', 'ATAK_PACKAGE_NAME', '"com.atakmap.app.fvey"'
-        }
-        intl {
-            dimension "application"
-            manifestPlaceholders = [atakApiVersion: "com.atakmap.app@" + ATAK_VERSION + ".INTL"]
-            buildConfigField 'String', 'ATAK_PACKAGE_NAME', '"com.atakmap.app.intl"'
+            buildConfigField 'String', 'ATAK_PACKAGE_NAME', '"com.atakmap.app.civ"'
         }
 
         applicationVariants.all { variant ->
             variant.resValue "string", "versionName", variant.versionName
         }
     }
-
-    if(file("$project.projectDir/../espresso/testSetup.gradle").exists()) {
-         apply from: '../espresso/testSetup.gradle'
-    } else { 
-         println("espresso test harness not found")
-    }
-
-
 }

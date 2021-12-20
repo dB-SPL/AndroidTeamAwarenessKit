@@ -41,7 +41,6 @@ import com.atakmap.coremap.cot.event.CotEvent;
 import com.atakmap.coremap.cot.event.CotPoint;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
 import com.atakmap.coremap.log.Log;
-import com.atakmap.coremap.maps.coords.DistanceCalculations;
 import com.atakmap.coremap.maps.coords.GeoCalculations;
 import com.atakmap.coremap.maps.coords.GeoPoint;
 import com.atakmap.coremap.maps.coords.GeoPointMetaData;
@@ -135,7 +134,7 @@ public class VehicleModel extends RubberModel implements Capturable,
 
     public VehicleModel(VehicleModelData data) {
         super(data);
-        getCenterMarker().setPoint(data.center);
+        setCenterPoint(data.center);
         setType(COT_TYPE);
         setSharedModel(true);
         showLines(false);
@@ -307,7 +306,6 @@ public class VehicleModel extends RubberModel implements Capturable,
     public boolean setShowOutline(boolean outline) {
         if (showOutline() != outline) {
             toggleMetaData("outline", outline);
-            notifyMetadataChanged("outline");
             return true;
         }
         return false;
@@ -351,13 +349,6 @@ public class VehicleModel extends RubberModel implements Capturable,
                 break;
         }
         setMetaString(UserIcon.IconsetPath, iconPath);
-    }
-
-    @Override
-    protected boolean orthoHitModel(int x, int y, GeoPoint point,
-            MapView view) {
-        return showOutline() && orthoHitOutline(x, y, view)
-                || super.orthoHitModel(x, y, point, view);
     }
 
     private boolean orthoHitOutline(int x, int y, MapView view) {
@@ -428,7 +419,6 @@ public class VehicleModel extends RubberModel implements Capturable,
                 point.getLatitude(), point.getLongitude(), null);
         point.set(alt);
         setTouchPoint(point);
-        setMetaString("menu_point", point.toString());
         return true;
     }
 
@@ -495,8 +485,8 @@ public class VehicleModel extends RubberModel implements Capturable,
                     double a = CanvasHelper.angleTo(pCen, src);
                     double d = CanvasHelper.length(pCen, src);
                     a += heading + 180;
-                    outline[i] = cap.forward(DistanceCalculations
-                            .computeDestinationPoint(center, a, d));
+                    outline[i] = cap.forward(
+                            GeoCalculations.pointAtDistance(center, a, d));
                 }
                 data.putSerializable("outline", outline);
             }
@@ -704,7 +694,8 @@ public class VehicleModel extends RubberModel implements Capturable,
                     null);
             if (!FileSystemUtils.isEmpty(desc))
                 pointPlacemark.setDescription(desc);
-            altitudeMode = KMLUtil.convertAltitudeMode(centerMarker.getAltitudeMode());
+            altitudeMode = KMLUtil
+                    .convertAltitudeMode(centerMarker.getAltitudeMode());
         }
 
         Coordinate coord = KMLUtil.convertKmlCoord(getCenter(), false);
@@ -750,10 +741,8 @@ public class VehicleModel extends RubberModel implements Capturable,
         GeoPoint first = null;
         for (PointF p : outline) {
             PointF np = new PointF(p.x, p.y);
-            GeoPoint gp = DistanceCalculations.computeDestinationPoint(center,
-                    angle, np.y);
-            gp = DistanceCalculations.computeDestinationPoint(gp,
-                    angle + 90, np.x);
+            GeoPoint gp = GeoCalculations.pointAtDistance(center, angle, np.y);
+            gp = GeoCalculations.pointAtDistance(gp, angle + 90, np.x);
             OGRFeatureExportWrapper.addPoint(outlineGeom, gp, unwrap);
             if (first == null)
                 first = gp;

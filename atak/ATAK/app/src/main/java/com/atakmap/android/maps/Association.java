@@ -16,8 +16,6 @@ import com.atakmap.coremap.maps.coords.GeoPoint;
 import com.atakmap.coremap.maps.coords.GeoCalculations;
 import com.atakmap.coremap.maps.coords.GeoPointMetaData;
 import com.atakmap.coremap.maps.coords.MutableGeoBounds;
-import com.atakmap.coremap.maps.coords.Vector3D;
-import com.atakmap.math.PointD;
 import com.atakmap.spatial.file.export.KMZFolder;
 import com.atakmap.spatial.kml.KMLUtil;
 import com.ekito.simpleKML.model.Coordinates;
@@ -34,8 +32,6 @@ import com.ekito.simpleKML.model.StyleSelector;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ConcurrentLinkedQueue;
-
-import com.atakmap.annotations.DeprecatedApi;
 
 /**
  * Visible link between two PointMapItems
@@ -150,6 +146,31 @@ public class Association extends Shape implements AnchoredMapItem {
         void onAssociationClampToGroundChanged(Association assoc);
     }
 
+    public interface OnParentChangedListener {
+        void onParentChanged(Association assoc, AssociationSet parent);
+    }
+
+    private final ConcurrentLinkedQueue<OnTextChangedListener> _onTextChanged = new ConcurrentLinkedQueue<>();
+    private final ConcurrentLinkedQueue<OnLinkChangedListener> _onLinkChanged = new ConcurrentLinkedQueue<>();
+    private final ConcurrentLinkedQueue<OnStyleChangedListener> _onStyleChanged = new ConcurrentLinkedQueue<>();
+    private final ConcurrentLinkedQueue<OnFirstItemChangedListener> _onFirstItemChanged = new ConcurrentLinkedQueue<>();
+    private final ConcurrentLinkedQueue<OnSecondItemChangedListener> _onSecondItemChanged = new ConcurrentLinkedQueue<>();
+    private final ConcurrentLinkedQueue<OnColorChangedListener> _onColorChanged = new ConcurrentLinkedQueue<>();
+    private final ConcurrentLinkedQueue<OnStrokeWeightChangedListener> _onStrokeWeightChanged = new ConcurrentLinkedQueue<>();
+    private final ConcurrentLinkedQueue<OnClampToGroundChangedListener> _onClampToGroundChanged = new ConcurrentLinkedQueue<>();
+    private final ConcurrentLinkedQueue<OnParentChangedListener> _onParentChanged = new ConcurrentLinkedQueue<>();
+
+    private Marker _marker = null;
+    private PointMapItem _firstItem;
+    private PointMapItem _secondItem;
+    private int _style;
+    private int _link;
+    private int _color;
+    private double _strokeWeight = 1d;
+    private String _text = "";
+    private boolean _clampToGround;
+    private AssociationSet _parent;
+
     /**
      * Create an Association with no point items
      */
@@ -195,7 +216,7 @@ public class Association extends Shape implements AnchoredMapItem {
 
         this.setMetaBoolean("addToObjList", false);
 
-        this.clampToGround = false;
+        _clampToGround = false;
     }
 
     /**
@@ -299,6 +320,14 @@ public class Association extends Shape implements AnchoredMapItem {
         _onSecondItemChanged.remove(l);
     }
 
+    public void addOnParentChangedListener(OnParentChangedListener l) {
+        _onParentChanged.add(l);
+    }
+
+    public void removeOnParentChangedListener(OnParentChangedListener l) {
+        _onParentChanged.remove(l);
+    }
+
     /**
      * Add a 'style' property listener
      * 
@@ -379,7 +408,6 @@ public class Association extends Shape implements AnchoredMapItem {
             onStyleChanged();
         }
     }
-
 
     /**
      * Set the link style
@@ -497,92 +525,29 @@ public class Association extends Shape implements AnchoredMapItem {
     }
 
     public boolean getClampToGround() {
-        return this.clampToGround;
+        return this._clampToGround;
     }
 
     public void setClampToGround(boolean value) {
-        if (this.clampToGround != value) {
-            this.clampToGround = value;
+        if (this._clampToGround != value) {
+            this._clampToGround = value;
             onClampToGroundChanged();
         }
     }
 
-    /*
-     * Copied implementation from Arrow since these are conceptually the same
-     * @see com.atakmap.android.maps.MapItem#testOrthoHit(int, int,
-     * com.atakmap.coremap.maps.coords.GeoPoint, com.atakmap.android.maps.MapView)
+    /**
+     * Set the parent set for this association
+     * @param parent Parent set (null to unset)
      */
-    @Override
-    public boolean testOrthoHit(int xpos, int ypos, GeoPoint point,
-            MapView view) {
-        if (_firstItem == null || _secondItem == null)
-            return false;
-
-        float hitRadius = getHitRadius(view);
-        final GeoBounds hitBox = view.createHitbox(point, hitRadius);
-        final GeoBounds bounds = GeoBounds.createFromPoints(new GeoPoint[] {
-                _firstItem.getPoint(), _secondItem.getPoint()
-        }, view.isContinuousScrollEnabled());
-
-        if (!bounds.intersects(hitBox))
-            return false;
-
-        // Let the endpoints (and center marker) bleed through so they can be
-        // repositioned or otherwise interacted with, but only if they exist,
-        // are visible, and clickable
-        PointMapItem[] endpoints = new PointMapItem[] {
-                _firstItem, _secondItem, _marker
-        };
-        for (PointMapItem pmi : endpoints) {
-            if (pmi != null && hitBox.contains(pmi.getPoint())) {
-                if (_firstItem.getClickable() && _firstItem.getVisible())
-                    return false;
-                setTouchPoint(pmi.getPoint());
-                setMetaString("menu_point", pmi.getPoint().toString());
-                return true;
-            }
+    public void setParent(AssociationSet parent) {
+        if (_parent != parent) {
+            _parent = parent;
+            onParentChanged();
         }
+    }
 
-        final double unwrap = view.getIDLHelper().getUnwrap(bounds);
-
-        // Let the endpoints (and center marker) bleed through so they can be repositioned or
-        // otherwise interacted with
-        GeoPoint p1 = _firstItem.getPoint();
-        GeoPoint p2 = _secondItem.getPoint();
-        if (clampToGround) {
-            p1 = view.getRenderElevationAdjustedPoint(p1);
-            p2 = view.getRenderElevationAdjustedPoint(p2);
-        }
-        PointD pt1 = new PointD(0d, 0d, 0d);
-        if (view.isContinuousScrollEnabled()
-                && (unwrap * p1.getLongitude()) < 0)
-            p1 = new GeoPoint(p1.getLatitude(), p1.getLongitude() + unwrap,
-                    p1.getAltitude());
-        view.getSceneModel().forward(p1, pt1);
-        PointD pt2 = new PointD(0d, 0d, 0d);
-        if (view.isContinuousScrollEnabled()
-                && (unwrap * p2.getLongitude()) < 0)
-            p2 = new GeoPoint(p2.getLatitude(), p2.getLongitude() + unwrap,
-                    p2.getAltitude());
-        view.getSceneModel().forward(p2, pt2);
-
-        if (pt1.z >= 1d && pt2.z >= 1d)
-            return false;
-
-        // Check for touches on the actual association line
-        Vector3D touch = new Vector3D(xpos, ypos, 0);
-
-        Vector3D nearest = Vector3D.nearestPointOnSegment(touch, new Vector3D(
-                (float) pt1.x, (float) pt1.y, 0),
-                new Vector3D((float) pt2.x, (float) pt2.y, 0));
-        if (Math.pow(hitRadius, 2) > nearest.distanceSq(touch)) {
-            GeoPoint _touchPoint = view.inverse(nearest.x,
-                    nearest.y, MapView.InverseMode.RayCast).get();
-            setTouchPoint(_touchPoint);
-            setMetaString("menu_point", _touchPoint.toString());
-            return true;
-        }
-        return false;
+    public AssociationSet getParent() {
+        return _parent;
     }
 
     /**
@@ -668,6 +633,15 @@ public class Association extends Shape implements AnchoredMapItem {
     protected void onSecondItemChanged(PointMapItem prevItem) {
         for (OnSecondItemChangedListener l : _onSecondItemChanged) {
             l.onSecondAssociationItemChanged(this, prevItem);
+        }
+    }
+
+    /**
+     * Invoked when the parent set changes
+     */
+    protected void onParentChanged() {
+        for (OnParentChangedListener l : _onParentChanged) {
+            l.onParentChanged(this, _parent);
         }
     }
 
@@ -881,24 +855,4 @@ public class Association extends Shape implements AnchoredMapItem {
         if (labelPoint != null && cap.shouldDrawLabel(_text, p))
             cap.drawLabel(_text, labelPoint);
     }
-
-    private final ConcurrentLinkedQueue<OnTextChangedListener> _onTextChanged = new ConcurrentLinkedQueue<>();
-    private final ConcurrentLinkedQueue<OnLinkChangedListener> _onLinkChanged = new ConcurrentLinkedQueue<>();
-    private final ConcurrentLinkedQueue<OnStyleChangedListener> _onStyleChanged = new ConcurrentLinkedQueue<>();
-    private final ConcurrentLinkedQueue<OnFirstItemChangedListener> _onFirstItemChanged = new ConcurrentLinkedQueue<>();
-    private final ConcurrentLinkedQueue<OnSecondItemChangedListener> _onSecondItemChanged = new ConcurrentLinkedQueue<>();
-    private final ConcurrentLinkedQueue<OnColorChangedListener> _onColorChanged = new ConcurrentLinkedQueue<>();
-    private final ConcurrentLinkedQueue<OnStrokeWeightChangedListener> _onStrokeWeightChanged = new ConcurrentLinkedQueue<>();
-    private final ConcurrentLinkedQueue<OnClampToGroundChangedListener> _onClampToGroundChanged = new ConcurrentLinkedQueue<>();
-
-    private Marker _marker = null;
-    private PointMapItem _firstItem;
-    private PointMapItem _secondItem;
-    private int _style;
-    private int _link;
-    private int _color;
-    private double _strokeWeight = 1d;
-    private String _text = "";
-    private boolean clampToGround;
-
 }

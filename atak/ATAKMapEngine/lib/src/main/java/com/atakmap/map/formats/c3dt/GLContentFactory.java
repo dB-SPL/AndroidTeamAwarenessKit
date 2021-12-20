@@ -20,6 +20,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.File;
+import java.net.URI;
 import java.nio.ByteBuffer;
 import java.util.Map;
 import java.util.WeakHashMap;
@@ -39,15 +40,29 @@ final class GLContentFactory {
             return null;
         if(tile.content.uri == null)
             return null;
+
         Content absContent = new Content();
-        absContent.uri = baseUri + tile.content.uri;
+        do {
+            // if streaming content, carry the query through on the URI
+            try {
+                URI uriObj = new URI(Uri_encode(baseUri));
+                absContent.uri = Uri_decode(uriObj.resolve(".").toString()) + tile.content.uri;
+                if (uriObj.getRawQuery() != null)
+                    absContent.uri += "?" + uriObj.getRawQuery();
+                break;
+            } catch (Throwable ignored) {}
+
+            // fall through and try simple construction
+            absContent.uri = baseUri + tile.content.uri;
+        } while(false);
+
         absContent.boundingVolume = tile.content.boundingVolume;
-        String absContentUri = absContent.uri.toLowerCase(LocaleUtil.getCurrent());
-        if(absContentUri.endsWith(".b3dm"))
+        String contentName = tile.content.uri.toLowerCase(LocaleUtil.getCurrent());
+        if(contentName.endsWith(".b3dm"))
             return new GLB3DM(tile, absContent);
-        else if(absContentUri.endsWith(".pnts"))
+        else if(contentName.endsWith(".pnts"))
             return new GLPNTS(tile, absContent);
-        else if(absContentUri.endsWith(".json"))
+        else if(contentName.endsWith(".json"))
             return new GLExternalTileset(tile, resmgr, absContent);
         else
             return null;
@@ -232,7 +247,7 @@ final class GLContentFactory {
 
                 JSONObject o = new JSONObject(json);
                 Tileset ts = Tileset.parse(o, this.tile);
-                external = new GLTile(ts, ts.root, 0, content.uri.substring(0, content.uri.lastIndexOf('/')+1));
+                external = new GLTile(ts, ts.root, 0, content.uri.replace("tileset.json", ""));
                 external.resmgr = resmgr;
                 external.source = handler;
                 this.state = State.Loaded;
@@ -565,4 +580,11 @@ final class GLContentFactory {
         }
     }
 
+    static String Uri_encode(String u) {
+        return u.replace(" ", "%20");
+    }
+
+    static String Uri_decode(String u) {
+        return u.replace("%20", " ");
+    }
 }

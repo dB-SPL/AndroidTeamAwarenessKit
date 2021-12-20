@@ -11,6 +11,9 @@ import com.atakmap.android.maps.graphics.GLMapItemSpi3;
 import com.atakmap.android.maps.graphics.GLPolyline;
 import com.atakmap.lang.Unsafe;
 import com.atakmap.map.MapRenderer;
+import com.atakmap.map.MapRenderer3;
+import com.atakmap.map.hittest.HitTestQueryParameters;
+import com.atakmap.map.hittest.HitTestResult;
 import com.atakmap.map.layer.feature.Feature;
 import com.atakmap.map.opengl.GLMapBatchable;
 import com.atakmap.map.opengl.GLMapView;
@@ -33,7 +36,7 @@ public class GLTrackPolyline extends GLPolyline implements GLMapBatchable {
     public static final GLMapItemSpi3 SPI = new GLMapItemSpi3() {
         @Override
         public int getPriority() {
-            return 0;
+            return 1;
         }
 
         @Override
@@ -68,6 +71,12 @@ public class GLTrackPolyline extends GLPolyline implements GLMapBatchable {
     }
 
     @Override
+    protected boolean uses2DPointBuffer() {
+        return basicLineStyle != TrackPolyline.BASIC_LINE_STYLE_ARROWS
+                && super.uses2DPointBuffer();
+    }
+
+    @Override
     public void draw(GLMapView ortho, int renderPass) {
         if (basicLineStyle != TrackPolyline.BASIC_LINE_STYLE_ARROWS) {
             super.draw(ortho, renderPass);
@@ -77,6 +86,8 @@ public class GLTrackPolyline extends GLPolyline implements GLMapBatchable {
         // Don't render anything on the surface
         if (!MathUtils.hasBits(renderPass, GLMapView.RENDER_PASS_SPRITES))
             return;
+
+        updateNadirClamp(ortho);
 
         if (currentDraw != ortho.drawVersion)
             recompute = true;
@@ -107,7 +118,7 @@ public class GLTrackPolyline extends GLPolyline implements GLMapBatchable {
         GLES20FixedPipeline
                 .glDisableClientState(GLES20FixedPipeline.GL_VERTEX_ARRAY);
 
-        drawLabels(ortho);
+        validateLabels(ortho);
 
         this.recompute = false;
     }
@@ -115,7 +126,7 @@ public class GLTrackPolyline extends GLPolyline implements GLMapBatchable {
     // calculates and draws arrows
     private void _projectArrows(final GLMapView ortho, GLRenderBatch batch) {
 
-        float radius = (float) (_subject.getCrumbSize() * MapView.DENSITY);
+        float radius = _subject.getCrumbSize() * MapView.DENSITY;
 
         // Update base arrow when radius changes
         if (_arrowSrcBuffer == null || _radius != radius) {
@@ -125,8 +136,10 @@ public class GLTrackPolyline extends GLPolyline implements GLMapBatchable {
                 _arrowSrcBufferPtr = Unsafe.getBufferPointer(_arrowSrcBuffer);
             }
             Unsafe.setFloats(_arrowSrcBufferPtr, 0, radius, 0);
-            Unsafe.setFloats(_arrowSrcBufferPtr + 12, radius / 2, radius / -2, 0);
-            Unsafe.setFloats(_arrowSrcBufferPtr + 24, radius / -2, radius / -2, 0);
+            Unsafe.setFloats(_arrowSrcBufferPtr + 12, radius / 2, radius / -2,
+                    0);
+            Unsafe.setFloats(_arrowSrcBufferPtr + 24, radius / -2, radius / -2,
+                    0);
             Unsafe.setFloats(_arrowSrcBufferPtr + 36, 0, radius, 0);
         }
         _radius = radius;
@@ -185,7 +198,8 @@ public class GLTrackPolyline extends GLPolyline implements GLMapBatchable {
 
             // transform the vertices
             BATCH_XFORM.setToTranslation(p0.x, p0.y, p0.z);
-            BATCH_XFORM.rotate(Math.toRadians(ortho.currentScene.drawTilt), 1.0, 0.0, 0.0);
+            BATCH_XFORM.rotate(Math.toRadians(ortho.currentScene.drawTilt), 1.0,
+                    0.0, 0.0);
             BATCH_XFORM.rotate(Math.toRadians(angle - 90));
 
             long srcPtr = _arrowSrcBufferPtr;
@@ -194,7 +208,8 @@ public class GLTrackPolyline extends GLPolyline implements GLMapBatchable {
                 ortho.scratch.pointD.x = Unsafe.getFloat(srcPtr);
                 ortho.scratch.pointD.y = Unsafe.getFloat(srcPtr + 4);
                 ortho.scratch.pointD.z = Unsafe.getFloat(srcPtr + 8);
-                BATCH_XFORM.transform(ortho.scratch.pointD, ortho.scratch.pointD);
+                BATCH_XFORM.transform(ortho.scratch.pointD,
+                        ortho.scratch.pointD);
                 Unsafe.setFloats(dstPtr, (float) ortho.scratch.pointD.x,
                         (float) ortho.scratch.pointD.y, 7e-8f);
                 srcPtr += 12;
@@ -208,19 +223,26 @@ public class GLTrackPolyline extends GLPolyline implements GLMapBatchable {
                 // outline
                 batch.addLineStrip(_arrowDstBuffer, 2f, 0f, 0f, 0f, alpha);
             } else {
-                GLES20FixedPipeline.glVertexPointer(3, GLES20FixedPipeline.GL_FLOAT,
+                GLES20FixedPipeline.glVertexPointer(3,
+                        GLES20FixedPipeline.GL_FLOAT,
                         0, _arrowDstBuffer);
 
                 GLES20FixedPipeline.glColor4f(red, green, blue, alpha);
-                GLES20FixedPipeline.glDrawArrays(GLES20FixedPipeline.GL_TRIANGLE_FAN,
+                GLES20FixedPipeline.glDrawArrays(
+                        GLES20FixedPipeline.GL_TRIANGLE_FAN,
                         0, 3);
 
                 GLES20FixedPipeline.glColor4f(0f, 0f, 0f, 1f);
-                GLES20FixedPipeline.glLineWidth((float) 1f);
-                GLES20FixedPipeline.glDrawArrays(GLES20FixedPipeline.GL_LINE_STRIP,
+                GLES20FixedPipeline.glLineWidth(1f);
+                GLES20FixedPipeline.glDrawArrays(
+                        GLES20FixedPipeline.GL_LINE_STRIP,
                         0, 4);
             }
         }
+
+        // Update impl for hit testing
+        impl.setAltitudeMode(getAltitudeMode());
+        impl.updateScreenVertices(ortho);
     }
 
     @Override
@@ -253,6 +275,8 @@ public class GLTrackPolyline extends GLPolyline implements GLMapBatchable {
         if (numArrows < 1)
             return;
 
+        updateNadirClamp(view);
+
         if (this.currentDraw != view.drawVersion)
             this.recompute = true;
         this.currentDraw = view.drawVersion;
@@ -266,5 +290,17 @@ public class GLTrackPolyline extends GLPolyline implements GLMapBatchable {
         _projectArrows(view, batch);
 
         this.recompute = false;
+    }
+
+    @Override
+    protected HitTestResult hitTestImpl(MapRenderer3 renderer,
+            HitTestQueryParameters params) {
+        HitTestResult result = super.hitTestImpl(renderer, params);
+
+        // Only "point" hit results are allowed when rendering arrows
+        return result != null
+                && (basicLineStyle != TrackPolyline.BASIC_LINE_STYLE_ARROWS
+                        || result.type == HitTestResult.Type.POINT) ? result
+                                : null;
     }
 }

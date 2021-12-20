@@ -9,6 +9,10 @@ import android.content.DialogInterface;
 import android.content.Intent;
 
 import com.atakmap.android.gui.TileButtonDialog;
+import com.atakmap.android.gui.TileButtonDialog.TileButton;
+import com.atakmap.android.hierarchy.filters.AuthorFilter;
+import com.atakmap.android.hierarchy.filters.AutoSendFilter;
+import com.atakmap.android.importexport.ExportDialog;
 import com.atakmap.android.importexport.send.SendDialog;
 import com.atakmap.android.util.AfterTextChangedWatcher;
 import com.atakmap.android.util.SimpleItemSelectedListener;
@@ -21,7 +25,6 @@ import com.atakmap.android.hierarchy.items.MapItemUser;
 import com.atakmap.android.ipc.AtakBroadcast.DocumentedIntentFilter;
 import android.content.SharedPreferences;
 import android.graphics.drawable.Drawable;
-import android.os.Environment;
 import android.os.Parcelable;
 import android.preference.PreferenceManager;
 import android.text.Editable;
@@ -46,19 +49,15 @@ import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.ProgressBar;
 import android.widget.TextView;
-import android.widget.Toast;
 
 import com.atakmap.android.cot.CotMapAdapter;
 import com.atakmap.android.dropdown.DropDown.OnStateListener;
 import com.atakmap.android.dropdown.DropDownReceiver;
-import com.atakmap.android.gui.ImportFileBrowserDialog;
 import com.atakmap.android.hierarchy.action.GoTo;
 import com.atakmap.android.hierarchy.action.Visibility;
 import com.atakmap.android.hierarchy.filters.FOVFilter;
 import com.atakmap.android.importexport.ExportMarshal;
-import com.atakmap.android.importexport.ExportMarshalAdapter;
 import com.atakmap.android.importexport.ExporterManager;
-import com.atakmap.android.importexport.ExporterManager.ExportMarshalMetadata;
 import com.atakmap.android.ipc.AtakBroadcast;
 import com.atakmap.android.maps.MapGroup;
 import com.atakmap.android.maps.MapItem;
@@ -73,20 +72,19 @@ import com.atakmap.android.tools.ActionBarReceiver;
 import com.atakmap.android.tools.ActionBarView;
 import com.atakmap.app.R;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
-import com.atakmap.coremap.io.IOProviderFactory;
 import com.atakmap.coremap.log.Log;
-import com.atakmap.spatial.file.GpxFileSpatialDb;
-import com.atakmap.spatial.file.KmlFileSpatialDb;
 import com.atakmap.spatial.file.ShapefileSpatialDb;
 
 import java.io.File;
 import java.lang.reflect.Constructor;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import com.atakmap.coremap.locale.LocaleUtil;
 
+import java.util.Map;
 import java.util.Set;
 import java.util.Stack;
 
@@ -123,7 +121,7 @@ public class HierarchyListReceiver extends BroadcastReceiver implements
 
     protected HIERARCHY_MODE mode = HIERARCHY_MODE.NONE;
     private final Stack<HIERARCHY_MODE> previousMode = new Stack<>();
-    private final double[] overlayManagerSizeValues = new double[4];
+    protected final double[] overlayManagerSizeValues = new double[4];
     private final MapOverlayManager overlayManager;
     protected HierarchyManagerView content;
     protected HierarchyListAdapter adapter;
@@ -136,12 +134,13 @@ public class HierarchyListReceiver extends BroadcastReceiver implements
     protected EditText searchText;
     protected final Context _context;
     protected final MapView _mapView;
-    private final SharedPreferences prefs;
+    protected final SharedPreferences prefs;
     private HierarchyListItem selectedItem = null;
     protected View checkAllLayout;
     protected ImageView checkAll;
     private int checkAllState;
     protected CheckBox showAll;
+    protected ImageButton filterBtn;
     protected ListView listView;
     protected ImageButton backBtn;
     protected ImageButton hierarchyClearBtn;
@@ -149,7 +148,7 @@ public class HierarchyListReceiver extends BroadcastReceiver implements
     protected ImageButton searchBtn;
     protected SortSpinner sortSpinner;
     protected ProgressBar searchProgress;
-    private final HierarchyListDropDown overlayManagerDropDown;
+    protected HierarchyListDropDown overlayManagerDropDown;
 
     // List UID which OM navigates to initially
     private String _navList;
@@ -195,6 +194,10 @@ public class HierarchyListReceiver extends BroadcastReceiver implements
         // Show all
         showAll = titleBar.findViewById(R.id.showAll_cb);
         showAll.setOnCheckedChangeListener(this);
+
+        // Bottom-right filter configuration button
+        filterBtn = titleBar.findViewById(R.id.filter_btn);
+        filterBtn.setOnClickListener(this);
 
         // Bottom-right [X] button
         titleBar.findViewById(R.id.close_hmv).setOnClickListener(this);
@@ -304,10 +307,7 @@ public class HierarchyListReceiver extends BroadcastReceiver implements
 
         switch (action) {
             case CLEAR_HIERARCHY:
-                if (adapter != null)
-                    adapter.clearHandler();
-                if (mode == HIERARCHY_MODE.TOOL_SELECT)
-                    setPreviousMode();
+                handleClearHierarchy();
                 break;
             case CLOSE_HIERARCHY:
                 Parcelable closeIntent = intent
@@ -333,137 +333,146 @@ public class HierarchyListReceiver extends BroadcastReceiver implements
                 refreshDropDown(intent);
                 break;
             case MANAGE_HIERARCHY:
-
-                final String handlerClassName = intent
-                        .getStringExtra("hier_userselect_handler");
-                HIERARCHY_MODE setMode = (HIERARCHY_MODE) intent
-                        .getSerializableExtra("hier_mode");
-                final List<String> listItemPaths = intent
-                        .getStringArrayListExtra("list_item_paths");
-                final List<String> selectedPaths = intent
-                        .getStringArrayListExtra(
-                                "hier_userselect_selected_paths");
-                boolean refresh = intent.getBooleanExtra("refresh", false);
-                boolean isRootList = intent.getBooleanExtra("isRootList",
-                        false);
-
-                // Refresh if we can, otherwise instantiate
-                if (handlerClassName == null && (overlayManagerDropDown
-                        .isShowing()
-                        || refresh && !overlayManagerDropDown.isClosed())) {
-                    // Navigate to top-level list if no usable extras specified
-                    // Usually means this intent was sent from the action bar
-                    if (setMode == null && listItemPaths == null)
-                        intent.putExtra("list_item_paths",
-                                new ArrayList<String>());
-
-                    // This handles "hier_mode" and "list_item_paths"
-                    refreshDropDown(intent);
-                    return;
-                }
-
-                // Log.d(TAG, "HEIRARCHY RECD: "+_getCenterViewLocation());
-
-                mode = HIERARCHY_MODE.NONE;
-
-                HierarchyListUserSelect userSelectHandler = null;
-                if (handlerClassName != null) {
-                    final boolean multiSelect = intent.getBooleanExtra(
-                            "hier_multiselect", true);
-                    String handlerTag = intent.getStringExtra("hier_usertag");
-                    final List<String> handlerMapItemUIDs = intent
-                            .getStringArrayListExtra(
-                                    "hier_userselect_mapitems_uids");
-                    try {
-                        Log.d(TAG, "Creating User Select Handler of type: "
-                                + handlerClassName
-                                + ", with tag: " + handlerTag);
-
-                        HierarchyListUserSelect hsh = HierarchySelectHandler
-                                .get(handlerClassName);
-
-                        if (hsh == null) {
-                            Class<?> clazz = Class.forName(handlerClassName);
-                            Constructor<?> ctor = clazz.getConstructor();
-                            Object object = ctor.newInstance();
-                            userSelectHandler = (HierarchyListUserSelect) object;
-                        } else {
-                            Log.d(TAG,
-                                    "preinstantiated registered object detected for class: "
-                                            + handlerClassName);
-                            userSelectHandler = hsh;
-
-                        }
-                    } catch (Exception e) {
-                        Log.e(TAG, "Failed to create hier_userselect_handler: "
-                                + handlerClassName, e);
-                        // fall back to normal mode
-                    }
-
-                    if (userSelectHandler != null) {
-                        userSelectHandler.setTag(handlerTag);
-                        userSelectHandler.setMultiSelect(multiSelect);
-                        setMode = HIERARCHY_MODE.TOOL_SELECT;
-
-                        if (!FileSystemUtils.isEmpty(handlerMapItemUIDs)) {
-                            userSelectHandler
-                                    .setMapItemUIDs(handlerMapItemUIDs);
-                        } else {
-                            userSelectHandler
-                                    .setMapItemUIDs(new ArrayList<String>());
-                        }
-                    } else {
-                        Log.w(TAG, "Unable to create handler: "
-                                + handlerClassName);
-                    }
-                }
-
-                // In case overlay manager is opened twice
-                if (this.adapter != null)
-                    this.adapter.unregisterListener();
-                this.adapter = null;
-                closeDropDown();
-
-                this.adapter = new HierarchyListAdapter(_context, _mapView,
-                        userSelectHandler, this);
-                this.adapter.registerListener();
-                this.content.setAdapter(this.adapter);
-                if (selectedPaths != null)
-                    this.adapter.setSelectedPaths(selectedPaths);
-                setCurrentMode(setMode);
-                overlayManagerDropDown.showDropDown();
-                updateCheckAll(HierarchyListAdapter.UNCHECKED);
-                DocumentedIntentFilter filter = new DocumentedIntentFilter();
-                filter.addAction(MapMenuReceiver.HIDE_MENU,
-                        "Clear the selection outline");
-                filter.addAction(ToolbarBroadcastReceiver.UNSET_TOOLBAR,
-                        "Toolbar listener used to update the overlay manager view");
-                AtakBroadcast.getInstance().registerReceiver(
-                        overlayManagerDropDown, filter);
-
-                //see if invoker wants us to drill down to a specific list item
-                _navList = null;
-                if (listItemPaths != null) {
-                    Log.d(TAG,
-                            "Navigating menu count: " + listItemPaths.size());
-                    if (!openMenu(listItemPaths)) {
-                        Log.w(TAG, "openMenu failure");
-                        AtakBroadcast.getInstance().sendBroadcast(
-                                new Intent(CLEAR_HIERARCHY));
-                    } else if (isRootList && !listItemPaths.isEmpty())
-                        // OM was opened to this list - close OM when we back out of it
-                        _navList = listItemPaths.get(listItemPaths.size() - 1);
-                }
-                if (_navList == null)
-                    refreshDropDownSize();
-
-                // Default search
-                if (intent.hasExtra("searchTerms")) {
-                    startSearch(intent.getStringExtra("searchTerms"));
-                    _searchOnly = true;
-                }
-
+                handleManageHierarchy(intent);
                 break;
+        }
+    }
+
+    protected void handleClearHierarchy() {
+        if (adapter != null)
+            adapter.clearHandler();
+        if (mode == HIERARCHY_MODE.TOOL_SELECT)
+            setPreviousMode();
+    }
+
+    protected void handleManageHierarchy(Intent intent) {
+        final String handlerClassName = intent
+                .getStringExtra("hier_userselect_handler");
+        HIERARCHY_MODE setMode = (HIERARCHY_MODE) intent
+                .getSerializableExtra("hier_mode");
+        final List<String> listItemPaths = intent
+                .getStringArrayListExtra("list_item_paths");
+        final List<String> selectedPaths = intent
+                .getStringArrayListExtra(
+                        "hier_userselect_selected_paths");
+        boolean refresh = intent.getBooleanExtra("refresh", false);
+        boolean isRootList = intent.getBooleanExtra("isRootList",
+                false);
+
+        // Refresh if we can, otherwise instantiate
+        if (handlerClassName == null && (overlayManagerDropDown
+                .isShowing()
+                || refresh && !overlayManagerDropDown.isClosed())) {
+            // Navigate to top-level list if no usable extras specified
+            // Usually means this intent was sent from the action bar
+            if (setMode == null && listItemPaths == null)
+                intent.putExtra("list_item_paths",
+                        new ArrayList<String>());
+
+            // This handles "hier_mode" and "list_item_paths"
+            refreshDropDown(intent);
+            return;
+        }
+
+        // Log.d(TAG, "HEIRARCHY RECD: "+_getCenterViewLocation());
+
+        mode = HIERARCHY_MODE.NONE;
+
+        HierarchyListUserSelect userSelectHandler = null;
+        if (handlerClassName != null) {
+            final boolean multiSelect = intent.getBooleanExtra(
+                    "hier_multiselect", true);
+            String handlerTag = intent.getStringExtra("hier_usertag");
+            final List<String> handlerMapItemUIDs = intent
+                    .getStringArrayListExtra(
+                            "hier_userselect_mapitems_uids");
+            try {
+                Log.d(TAG, "Creating User Select Handler of type: "
+                        + handlerClassName
+                        + ", with tag: " + handlerTag);
+
+                HierarchyListUserSelect hsh = HierarchySelectHandler
+                        .get(handlerClassName);
+
+                if (hsh == null) {
+                    Class<?> clazz = Class.forName(handlerClassName);
+                    Constructor<?> ctor = clazz.getConstructor();
+                    Object object = ctor.newInstance();
+                    userSelectHandler = (HierarchyListUserSelect) object;
+                } else {
+                    Log.d(TAG,
+                            "preinstantiated registered object detected for class: "
+                                    + handlerClassName);
+                    userSelectHandler = hsh;
+
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "Failed to create hier_userselect_handler: "
+                        + handlerClassName, e);
+                // fall back to normal mode
+            }
+
+            if (userSelectHandler != null) {
+                userSelectHandler.setTag(handlerTag);
+                userSelectHandler.setMultiSelect(multiSelect);
+                setMode = HIERARCHY_MODE.TOOL_SELECT;
+
+                if (!FileSystemUtils.isEmpty(handlerMapItemUIDs)) {
+                    userSelectHandler
+                            .setMapItemUIDs(handlerMapItemUIDs);
+                } else {
+                    userSelectHandler
+                            .setMapItemUIDs(new ArrayList<String>());
+                }
+            } else {
+                Log.w(TAG, "Unable to create handler: "
+                        + handlerClassName);
+            }
+        }
+
+        // In case overlay manager is opened twice
+        if (this.adapter != null)
+            this.adapter.unregisterListener();
+        this.adapter = null;
+        closeDropDown();
+
+        this.adapter = new HierarchyListAdapter(_context, _mapView,
+                userSelectHandler, this);
+        this.adapter.registerListener();
+        this.content.setAdapter(this.adapter);
+        if (selectedPaths != null)
+            this.adapter.setSelectedPaths(selectedPaths);
+        setCurrentMode(setMode);
+        overlayManagerDropDown.showDropDown();
+        updateCheckAll(HierarchyListAdapter.UNCHECKED);
+        DocumentedIntentFilter filter = new DocumentedIntentFilter();
+        filter.addAction(MapMenuReceiver.HIDE_MENU,
+                "Clear the selection outline");
+        filter.addAction(ToolbarBroadcastReceiver.UNSET_TOOLBAR,
+                "Toolbar listener used to update the overlay manager view");
+        AtakBroadcast.getInstance().registerReceiver(
+                overlayManagerDropDown, filter);
+
+        //see if invoker wants us to drill down to a specific list item
+        _navList = null;
+        if (listItemPaths != null) {
+            Log.d(TAG,
+                    "Navigating menu count: " + listItemPaths.size());
+            if (!openMenu(listItemPaths)) {
+                Log.w(TAG, "openMenu failure");
+                AtakBroadcast.getInstance().sendBroadcast(
+                        new Intent(CLEAR_HIERARCHY));
+            } else if (isRootList && !listItemPaths.isEmpty())
+                // OM was opened to this list - close OM when we back out of it
+                _navList = listItemPaths.get(listItemPaths.size() - 1);
+        }
+        if (_navList == null)
+            refreshDropDownSize();
+
+        // Default search
+        if (intent.hasExtra("searchTerms")) {
+            startSearch(intent.getStringExtra("searchTerms"));
+            _searchOnly = true;
         }
     }
 
@@ -480,9 +489,7 @@ public class HierarchyListReceiver extends BroadcastReceiver implements
             // Check if list needs to handle back button
             if (i instanceof HierarchyListStateListener &&
                     ((HierarchyListStateListener) i).onBackButton(adapter,
-                            false)
-                    || i instanceof HierarchyListItem2 &&
-                            ((HierarchyListItem2) i).onBackButtonPressed(false))
+                            false))
                 return;
 
             // Focus on the button in order to hide the soft keyboard
@@ -492,51 +499,7 @@ public class HierarchyListReceiver extends BroadcastReceiver implements
 
         // Prompt user to begin multi-select
         else if (id == R.id.hierarchy_multiselect_btn) {
-
-            // Find handlers that support external usage, if any
-            List<HierarchyListUserSelect> handlers = HierarchySelectHandler
-                    .getExternalHandlers();
-            Collections.sort(handlers, HierarchyListUserSelect.COMP_TITLE);
-
-            TileButtonDialog d = new TileButtonDialog(_mapView);
-            d.addButton(R.drawable.export_menu_default, R.string.export);
-            final List<HierarchyListUserSelect> externalHandlers = new ArrayList<>();
-            for (HierarchyListUserSelect h : handlers) {
-                if (h == null)
-                    continue;
-                Drawable icon = h.getIcon();
-                String title = h.getTitle();
-                if (icon == null || title == null) {
-                    Log.w(TAG, "Missing icon/title on select handler: " + h);
-                    continue;
-                }
-                d.addButton(icon, title);
-                externalHandlers.add(h);
-            }
-            d.addButton(R.drawable.ic_menu_delete, R.string.delete_no_space);
-            d.show(R.string.multiselect_dialogue, true);
-            d.setOnClickListener(new DialogInterface.OnClickListener() {
-                @Override
-                public void onClick(DialogInterface dialog, int which) {
-                    if (which == 0) {
-                        // Export items mode
-                        exportPrompt();
-                    } else if (!externalHandlers.isEmpty() && which >= 1
-                            && which < externalHandlers.size() + 1) {
-                        // External handler
-                        HierarchyListUserSelect handler = externalHandlers
-                                .get(which - 1);
-                        adapter.setSelectHandler(handler);
-                        setCurrentMode(HIERARCHY_MODE.MULTISELECT);
-                    } else if (which == externalHandlers.size() + 1) {
-                        // Delete items mode
-                        HierarchyListUserDelete hlud = new HierarchyListUserDelete();
-                        hlud.setCloseHierarchyWhenComplete(false);
-                        adapter.setSelectHandler(hlud);
-                        setCurrentMode(HIERARCHY_MODE.MULTISELECT);
-                    }
-                }
-            });
+            multiselectPrompt();
         }
 
         // Cancel multi-select mode
@@ -553,6 +516,11 @@ public class HierarchyListReceiver extends BroadcastReceiver implements
         else if (id == R.id.selectAll_cb) {
             adapter.setItemChecked(adapter.getCurrentList(true),
                     this.checkAllState == HierarchyListAdapter.UNCHECKED);
+        }
+
+        // User-selected filters
+        else if (id == R.id.filter_btn) {
+            promptUserFilters();
         }
 
         // Toggle search mode
@@ -573,6 +541,135 @@ public class HierarchyListReceiver extends BroadcastReceiver implements
             cancelUserSelection();
             closeDropDown(false);
         }
+    }
+
+    protected void multiselectPrompt() {
+        // Find handlers that support external usage, if any
+        List<HierarchyListUserSelect> handlers = HierarchySelectHandler
+                .getExternalHandlers();
+        Collections.sort(handlers, HierarchyListUserSelect.COMP_TITLE);
+
+        TileButtonDialog d = new TileButtonDialog(_mapView);
+        d.addButton(R.drawable.export_menu_default, R.string.export);
+        final List<HierarchyListUserSelect> externalHandlers = new ArrayList<>();
+        for (HierarchyListUserSelect h : handlers) {
+            if (h == null)
+                continue;
+            Drawable icon = h.getIcon();
+            String title = h.getTitle();
+            if (icon == null || title == null) {
+                Log.w(TAG, "Missing icon/title on select handler: " + h);
+                continue;
+            }
+            d.addButton(icon, title);
+            externalHandlers.add(h);
+        }
+        d.addButton(R.drawable.ic_menu_delete, R.string.delete_no_space);
+        d.show(R.string.multiselect_dialogue, true);
+        d.setOnClickListener(new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+                if (which == 0) {
+                    // Export items mode
+                    exportPrompt();
+                } else if (!externalHandlers.isEmpty() && which >= 1
+                        && which < externalHandlers.size() + 1) {
+                    // External handler
+                    HierarchyListUserSelect handler = externalHandlers
+                            .get(which - 1);
+                    setSelectHandler(handler);
+                } else if (which == externalHandlers.size() + 1) {
+                    // Delete items mode
+                    HierarchyListUserDelete hlud = new HierarchyListUserDelete();
+                    hlud.setCloseHierarchyWhenComplete(false);
+                    setSelectHandler(hlud);
+                }
+            }
+        });
+    }
+
+    /**
+     * Set the current select handler
+     * @param selectHandler Select handler
+     */
+    public void setSelectHandler(HierarchyListUserSelect selectHandler) {
+        if (selectHandler == null) {
+            adapter.clearHandler();
+            return;
+        }
+        adapter.setSelectHandler(selectHandler);
+        if (selectHandler.isMultiSelect())
+            setCurrentMode(HIERARCHY_MODE.MULTISELECT);
+        else
+            setCurrentMode(HIERARCHY_MODE.TOOL_SELECT);
+    }
+
+    /**
+     * Prompt the user to toggle temporary filters in Overlay Manager
+     * TODO: Possibly allow for plugins to add filters here
+     */
+    private void promptUserFilters() {
+        if (adapter == null)
+            return;
+
+        // Map existing filters by class so we can quickly check if they're
+        // enabled or not
+        List<HierarchyListFilter> filters = adapter.getUserFilters();
+        final Map<Class<? extends HierarchyListFilter>, HierarchyListFilter> filterMap = new HashMap<>();
+        final Map<Class<? extends HierarchyListFilter>, TileButton> btnMap = new HashMap<>();
+
+        TileButtonDialog d = new TileButtonDialog(_mapView, true);
+        btnMap.put(AutoSendFilter.class, d.addButton(
+                R.drawable.ic_broadcast_cot, R.string.auto_send));
+        btnMap.put(AuthorFilter.class, d.addButton(
+                R.drawable.ic_user, R.string.self_authored));
+
+        // Toggle buttons on for existing filters
+        for (HierarchyListFilter filter : filters) {
+            filterMap.put(filter.getClass(), filter);
+            TileButton tb = btnMap.get(filter.getClass());
+            if (tb != null)
+                tb.setSelected(true);
+        }
+
+        d.setOnClickListener(new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+                HierarchyListFilter filter;
+                SortAlphabet sort = new SortAlphabet();
+                if (which == 0) {
+                    filter = filterMap.get(AutoSendFilter.class);
+                    if (filter == null)
+                        filter = new AutoSendFilter(sort);
+                } else if (which == 1) {
+                    filter = filterMap.get(AuthorFilter.class);
+                    if (filter == null)
+                        filter = new AuthorFilter(sort, MapView.getDeviceUid());
+                } else {
+                    dialog.dismiss();
+                    return;
+                }
+
+                Class<? extends HierarchyListFilter> cl = filter.getClass();
+                boolean enable = !filterMap.containsKey(cl);
+                TileButton tb = btnMap.get(cl);
+                if (tb != null)
+                    tb.setSelected(enable);
+
+                if (adapter != null) {
+                    if (enable) {
+                        adapter.addUserFilter(filter);
+                        filterMap.put(cl, filter);
+                    } else {
+                        adapter.removeUserFilter(filter);
+                        filterMap.remove(cl);
+                    }
+                    setViewToMode();
+                }
+            }
+        });
+        d.setCancelText(R.string.ok);
+        d.show(R.string.toggle_filters, true);
     }
 
     @Override
@@ -607,8 +704,8 @@ public class HierarchyListReceiver extends BroadcastReceiver implements
         } else if (!adapter.isRootList()) {
             // if in a sub menu, go back
             HierarchyListItem curList = adapter.getCurrentList(true);
-            if (curList != null && _navList != null && curList.getUID()
-                    .equals(_navList)) {
+            if (curList != null && _navList != null
+                    && _navList.equals(curList.getUID())) {
                 if (buttonId == 0) {
                     // Device back button hit on the nav list
                     if (mode == HIERARCHY_MODE.NONE)
@@ -639,7 +736,7 @@ public class HierarchyListReceiver extends BroadcastReceiver implements
             adapter.cancelUserSelection();
     }
 
-    private void refreshDropDown(Intent intent) {
+    protected void refreshDropDown(Intent intent) {
         if (!overlayManagerDropDown.isShowing())
             // Ignore refresh events when OM is closed
             return;
@@ -724,122 +821,22 @@ public class HierarchyListReceiver extends BroadcastReceiver implements
         overlayManagerSizeValues[3] = portraitH;
     }
 
-    private void exportPrompt() {
-        List<ExportMarshalMetadata> exportTypes = ExporterManager
-                .getExporterTypes();
-        if (exportTypes == null || exportTypes.size() < 1) {
-            Toast.makeText(_context, "No exporters registered",
-                    Toast.LENGTH_SHORT).show();
-            Log.w(TAG,
-                    "Failed to export selected items, no exporters registered");
-            return;
-        }
-
-        ExportMarshalMetadata[] metaArray = new ExportMarshalMetadata[exportTypes
-                .size()];
-        exportTypes.toArray(metaArray);
-        final ExportMarshalAdapter exportAdapter = new ExportMarshalAdapter(
-                _context,
-                R.layout.exportdata_item, metaArray);
-
-        LayoutInflater inflater = LayoutInflater.from(_context);
-        LinearLayout layout = (LinearLayout) inflater.inflate(
-                R.layout.exportdata_list, _mapView, false);
-        ListView listView = layout.findViewById(R.id.exportDataList);
-        //final CheckBox narrowByGeoRegion = (CheckBox) layout
-        //        .findViewById(R.id.exportDataByGeoRegionChk);
-        listView.setAdapter(exportAdapter);
-
-        AlertDialog.Builder b = new AlertDialog.Builder(_context);
-        b.setIcon(R.drawable.export_menu_default);
-        b.setTitle(R.string.selection_export_dialogue);
-        b.setView(layout);
-        b.setPositiveButton(R.string.previous_export_dialogue,
-                new DialogInterface.OnClickListener() {
-
-                    @Override
-                    public void onClick(DialogInterface dialog, int which) {
-                        dialog.dismiss();
-
-                        final String startDirectory;
-                        File exportDir = FileSystemUtils
-                                .getItem(FileSystemUtils.EXPORT_DIRECTORY);
-
-                        if (exportDir != null
-                                && IOProviderFactory.exists(exportDir)
-                                && IOProviderFactory.isDirectory(exportDir))
-                            startDirectory = exportDir.getAbsolutePath();
-                        else
-                            startDirectory = Environment
-                                    .getExternalStorageDirectory().getPath();
-
-                        ImportFileBrowserDialog.show(_context.getString(
-                                R.string.select_file_to_send),
-                                startDirectory, new String[] {
-                                        GpxFileSpatialDb.GPX_CONTENT_TYPE
-                                                .toLowerCase(LocaleUtil
-                                                        .getCurrent()),
-                                        KmlFileSpatialDb.KML_TYPE,
-                                        KmlFileSpatialDb.KMZ_TYPE,
-                                        ShapefileSpatialDb.SHP_TYPE
-                        },
-                                new ImportFileBrowserDialog.DialogDismissed() {
-                                    @Override
-                                    public void onFileSelected(File file) {
-                                        sendFile(file);
-                                    }
-
-                                    @Override
-                                    public void onDialogClosed() {
-                                        //do nothing
-                                    }
-
-                                }, _context);
-                    }
-                });
-        b.setNegativeButton(R.string.cancel, null);
-
-        final AlertDialog bd = b.create();
-        listView.setOnItemClickListener(new OnItemClickListener() {
-
+    protected void exportPrompt() {
+        ExportDialog d = new ExportDialog(_mapView);
+        d.setCallback(new ExportDialog.Callback() {
             @Override
-            public void onItemClick(AdapterView<?> arg0, View arg1, int arg2,
-                    long arg3) {
-                bd.dismiss();
-
-                ExportMarshalMetadata meta = exportAdapter.getItem(arg2);
-                if (meta == null || FileSystemUtils.isEmpty(meta.getType())) {
-                    Toast.makeText(_context, "Failed to export selected items",
-                            Toast.LENGTH_SHORT).show();
-                    Log.w(TAG,
-                            "Failed to export selected items, no type selected");
-                    return;
-                }
-
-                //go ahead and select items
-                final ExportMarshal marshal = ExporterManager.findExporter(
-                        _context, meta.getType());
-                if (marshal == null) {
-                    Toast.makeText(_context,
-                            "Failed to export selected items",
-                            Toast.LENGTH_SHORT).show();
-                    Log.w(TAG,
-                            "Failed to export selected items, no Export Marshal available");
-                    return;
-                }
-
-                // export
+            public void onExporterSelected(ExportMarshal marshal) {
                 HierarchyListUserExport hlue = new HierarchyListUserExport(
                         marshal, null);
                 adapter.setSelectHandler(hlue);
-                setCurrentMode(HIERARCHY_MODE.MULTISELECT);
+                setCurrentMode(
+                        HierarchyListReceiver.HIERARCHY_MODE.MULTISELECT);
             }
         });
-
-        bd.show();
+        d.show();
     }
 
-    private void sendFile(File file) {
+    protected void sendFile(File file) {
         if (file == null)
             return;
 
@@ -869,7 +866,7 @@ public class HierarchyListReceiver extends BroadcastReceiver implements
         b.show();
     }
 
-    private void clearHierarchyPrompt() {
+    protected void clearHierarchyPrompt() {
         AlertDialog.Builder builder = new AlertDialog.Builder(_context);
         builder.setTitle(R.string.delete_dialog)
                 .setMessage(R.string.delete_details)
@@ -1052,7 +1049,7 @@ public class HierarchyListReceiver extends BroadcastReceiver implements
         }
     }
 
-    private void setCurrentMode(HIERARCHY_MODE m) {
+    protected void setCurrentMode(HIERARCHY_MODE m) {
         if (m == null)
             return;
         if (mode == HIERARCHY_MODE.ITEM_SELECTED)
@@ -1063,7 +1060,7 @@ public class HierarchyListReceiver extends BroadcastReceiver implements
         setViewToMode();
     }
 
-    private void setPreviousMode() {
+    protected void setPreviousMode() {
         if (mode == HIERARCHY_MODE.ITEM_SELECTED) {
             if (adapter != null)
                 adapter.unhighlight();
@@ -1082,7 +1079,7 @@ public class HierarchyListReceiver extends BroadcastReceiver implements
         setViewToMode();
     }
 
-    private boolean isModeInStack(HIERARCHY_MODE mode) {
+    protected boolean isModeInStack(HIERARCHY_MODE mode) {
         return this.mode == mode || previousMode.contains(mode);
     }
 
@@ -1116,6 +1113,9 @@ public class HierarchyListReceiver extends BroadcastReceiver implements
         boolean showAll = !prefs.getBoolean(FOVFilter.PREF, false);
         if (this.showAll.isChecked() != showAll)
             this.showAll.setChecked(showAll);
+
+        // Update filter button selected state
+        filterBtn.setSelected(!adapter.getUserFilters().isEmpty());
 
         View customView = null;
         HIERARCHY_MODE mode = this.mode;
@@ -1426,7 +1426,7 @@ public class HierarchyListReceiver extends BroadcastReceiver implements
             l.onCurrentListChanged(adapter, oldList, newList);
     }
 
-    private class HierarchyListItemClickListener implements
+    protected class HierarchyListItemClickListener implements
             OnItemClickListener, OnItemLongClickListener {
 
         @Override
@@ -1533,14 +1533,14 @@ public class HierarchyListReceiver extends BroadcastReceiver implements
         }
     }
 
-    private class HierarchyListDropDown extends DropDownReceiver
+    protected class HierarchyListDropDown extends DropDownReceiver
             implements IToolbarExtension, OnStateListener {
 
         private final ActionBarView _toolbarView;
         private final ActionBarReceiver _toolbarReceiver;
         private List<Intent> _onCloseIntents;
-        private HierarchyListAdapter _adapter;
-        private boolean _showingDropDown;
+        protected HierarchyListAdapter _adapter;
+        protected boolean _showingDropDown;
 
         // Used to check if we already fired onCloseList
         private HierarchyListStateListener _onCloseListListener;
@@ -1551,17 +1551,17 @@ public class HierarchyListReceiver extends BroadcastReceiver implements
             _toolbarReceiver = ActionBarReceiver.getInstance();
         }
 
-        private void showDropDown() {
+        protected void showDropDown() {
             showDropDown(content, 0, overlayManagerSizeValues[1],
                     overlayManagerSizeValues[2], 0, true, this);
             _showingDropDown = true;
         }
 
-        private void setCloseIntents(List<Intent> intents) {
+        protected void setCloseIntents(List<Intent> intents) {
             _onCloseIntents = intents;
         }
 
-        private boolean onCloseList(boolean forceClose) {
+        protected boolean onCloseList(boolean forceClose) {
             if (_adapter == null) {
                 _onCloseListListener = null;
                 return false;
@@ -1583,9 +1583,7 @@ public class HierarchyListReceiver extends BroadcastReceiver implements
             // Check if list needs to handle back button
             if (i instanceof HierarchyListStateListener &&
                     ((HierarchyListStateListener) i).onBackButton(_adapter,
-                            true)
-                    || i instanceof HierarchyListItem2 &&
-                            ((HierarchyListItem2) i).onBackButtonPressed(true))
+                            true))
                 return true;
 
             // Default device back button behavior
@@ -1755,7 +1753,7 @@ public class HierarchyListReceiver extends BroadcastReceiver implements
             _onCloseListListener = null;
         }
 
-        private boolean isShowing() {
+        protected boolean isShowing() {
             return _showingDropDown || isVisible();
         }
     }

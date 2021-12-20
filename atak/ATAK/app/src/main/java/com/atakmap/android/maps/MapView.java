@@ -6,6 +6,7 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.SharedPreferences.OnSharedPreferenceChangeListener;
 import android.content.pm.ActivityInfo;
+import android.graphics.PointF;
 import android.graphics.Typeface;
 import android.os.Bundle;
 import android.preference.PreferenceManager;
@@ -15,10 +16,8 @@ import android.view.MotionEvent;
 import android.view.View;
 
 import com.atakmap.android.devtools.DeveloperTools;
-import com.atakmap.android.elev.dt2.Dt2ElevationModel;
 import com.atakmap.android.items.GLMapItemsDatabaseRenderer;
 import com.atakmap.android.location.LocationMapComponent;
-import com.atakmap.android.maps.graphics.GLMapGroup;
 import com.atakmap.android.maps.graphics.GLMapGroup2;
 import com.atakmap.android.maps.graphics.GLMapItemFactory;
 import com.atakmap.android.maps.graphics.GLRootMapGroupLayer;
@@ -324,7 +323,6 @@ public class MapView extends AtakMapView {
             System.setProperty("USE_GENERIC_EGL_CONFIG", "true");
         super.initGLSurface();
 
-        GLMapItemFactory.registerSpi(GLMapGroup.DEFAULT_GLMAPITEM_SPI2);
         GLMapItemFactory.registerSpi(GLMapGroup2.DEFAULT_GLMAPITEM_SPI3);
 
         GLLayerFactory.register(GLRootMapGroupLayer.SPI2);
@@ -807,7 +805,6 @@ public class MapView extends AtakMapView {
         if (getGLSurface().getGLMapView() == null)
             return p;
 
-        int hints = 0;
         GeoPoint lla = GeoPoint.createMutable();
         final MapRenderer2.InverseResult result = getGLSurface().getGLMapView()
                 .inverse(
@@ -873,9 +870,9 @@ public class MapView extends AtakMapView {
         final double _latitude = center.get().getLatitude();
         final double _longitude = center.get().getLongitude();
 
-        final Dt2ElevationModel dem = Dt2ElevationModel.getInstance();
         try {
-            return dem.queryPoint(_latitude, _longitude);
+            return ElevationManager.getElevationMetadata(_latitude, _longitude,
+                    null);
         } catch (Exception e) {
             // error occurred, just get the point without elevation.
             return getPoint();
@@ -891,23 +888,22 @@ public class MapView extends AtakMapView {
      * @param center Center point of hit box
      * @param radius Inner radius of hit box in pixels
      * @return GeoBounds hit box
+     * @deprecated No longer efficient with perspective camera rendering
+     *             Utilize screen point data from the GL thread where possible
      */
+    @Deprecated
+    @DeprecatedApi(since = "4.4", forRemoval = true, removeAt = "4.6")
     public GeoBounds createHitbox(GeoPoint center, double radius) {
-        final double rlat = Math.toRadians(center.getLatitude());
-        final double metersDegLat = 111132.92 - 559.82 * Math.cos(2 * rlat)
-                + 1.175 * Math.cos(4 * rlat);
-        final double metersDegLng = 111412.84 * Math.cos(rlat) - 93.5
-                * Math.cos(3 * rlat);
-
-        double mercatorscale = Math.cos(rlat);
-        if (mercatorscale < 0.0001)
-            mercatorscale = 0.0001;
-        final double metersPerPixel = getMapResolution() * mercatorscale;
-        final double ra = radius * metersPerPixel / metersDegLat;
-        final double ro = radius * metersPerPixel / metersDegLng;
+        PointF c = forward(center);
+        radius = Math.hypot(radius, radius);
+        GeoPoint inv = inverse((float) (c.x + radius),
+                (float) (c.y + radius)).get();
+        double ra = Math.abs(inv.getLatitude() - center.getLatitude());
+        double ro = Math.abs(inv.getLongitude() - center.getLongitude());
 
         GeoBounds hitBox = new GeoBounds(center.getLatitude() + ra,
-                center.getLongitude() - ro, center.getLatitude() - ra,
+                center.getLongitude() - ro,
+                center.getLatitude() - ra,
                 center.getLongitude() + ro);
         hitBox.setWrap180(isContinuousScrollEnabled());
         return hitBox;

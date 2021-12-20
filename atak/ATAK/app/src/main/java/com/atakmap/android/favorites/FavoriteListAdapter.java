@@ -35,8 +35,6 @@ import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.io.BufferedWriter;
 import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileWriter;
 import java.io.IOException;
 import java.io.Writer;
 import java.util.ArrayList;
@@ -155,13 +153,14 @@ public class FavoriteListAdapter extends BaseAdapter {
             holder = (ViewHolder) convertView.getTag();
         }
 
+        final Favorite fav = mData.get(position);
         holder.editButton.setOnClickListener(new OnClickListener() {
 
             @Override
             public void onClick(View v) {
                 final EditText input = new EditText(v.getContext());
                 input.setInputType(InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
-                input.setText(mData.get(position).title);
+                input.setText(fav.title);
 
                 AlertDialog.Builder build = new AlertDialog.Builder(v
                         .getContext())
@@ -179,8 +178,7 @@ public class FavoriteListAdapter extends BaseAdapter {
                                                 String result = input.getText()
                                                         .toString();
                                                 if (result.length() > 0)
-                                                    mData.get(
-                                                            position).title = result;
+                                                    fav.title = result;
                                                 notifyDataSetChanged();
                                                 writeList();
                                             }
@@ -200,14 +198,14 @@ public class FavoriteListAdapter extends BaseAdapter {
                 builder.setMessage(String.format(
                         _context.getString(
                                 R.string.confirmation_remove_details),
-                        mData.get(position).title));
+                        fav.title));
                 builder.setPositiveButton(R.string.yes,
                         new DialogInterface.OnClickListener() {
 
                             @Override
                             public void onClick(DialogInterface dialog,
                                     int which) {
-                                removeFavorite(position);
+                                removeFavorite(fav);
 
                             }
                         });
@@ -244,9 +242,9 @@ public class FavoriteListAdapter extends BaseAdapter {
         return convertView;
     }
 
-    private void removeFavorite(final int pos) {
-        Favorite fav = mData.remove(pos);
-        if (fav != null) {
+    private void removeFavorite(final Favorite fav) {
+        boolean res = mData.remove(fav);
+        if (res) {
             Log.d(TAG, "removeFavorite: " + fav.toString());
         }
 
